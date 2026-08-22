@@ -1,26 +1,49 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0d0812;
+  --surface-1: #17101d;
+  --surface-2: #1e1522;
+  --foreground: #f5f1f6;
+  --muted: #9a919f;
+  --accent: #f04472;
+  --accent-2: #9b5de5;
+  --accent-foreground: #ffffff;
+  --danger: #f04472;
+  --online: #3ddc97;
+  --border: rgba(255, 255, 255, 0.07);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface-1);
+  --color-surface-2: var(--surface-2);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-danger: var(--danger);
+  --color-online: var(--online);
+  --color-border: var(--border);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/*
+ * Rizzuno is a video-first, fixed-viewport app (like a camera, not a
+ * document), so it deliberately commits to one dark chrome regardless of
+ * system light/dark preference — see spec §44.
+ */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
