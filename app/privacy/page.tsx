@@ -289,12 +289,13 @@ export default function PrivacyPolicyPage() {
           <section id="children">
             <h2 className="text-[16px] font-semibold">13. 18+ users &amp; age affirmation</h2>
             <p className="mt-2 text-muted">
-              Rizzuno is intended for adults 18 years of age or older only, and is not directed at children. Before
-              matching, an account must affirm it belongs to someone 18 or older. This affirmation is not
-              identity-level or government-ID age verification — Rizzuno does not currently verify a user&apos;s
-              real age by any other means, and does not represent that it does. Rizzuno does not knowingly collect
-              information from children; if we become aware an account belongs to someone under 18, we will take
-              action against that account, including suspension or ban.
+              Rizzuno is intended only for adults — at least 18 years of age, or the age of majority where they live
+              if that&apos;s older, whichever is higher — and is not directed at children. Before matching, an
+              account must affirm it meets this bar. This affirmation is not identity-level or government-ID age
+              verification — Rizzuno does not currently verify a user&apos;s real age by any other means, and does
+              not represent that it does. Rizzuno does not knowingly collect information from children; if we become
+              aware an account belongs to someone who doesn&apos;t meet this bar, we will take action against that
+              account, including suspension or ban.
             </p>
           </section>
 

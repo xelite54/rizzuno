@@ -35,7 +35,8 @@ export function AgeGate({ onAccept }: AgeGateProps) {
       <div className="w-full max-w-xs">
         <h1 className="text-[18px] font-semibold text-foreground">Before you continue</h1>
         <p className="mt-1.5 text-[13px] text-muted">
-          Rizzuno connects you with strangers over live video and is intended for adults only.
+          Rizzuno connects you with strangers over live video and is intended for adults only — at least 18, or the
+          age of majority where you live if that&apos;s older.
         </p>
 
         <label className="mt-6 flex cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-surface-2 px-3.5 py-3 text-left transition hover:border-foreground/25">
@@ -46,7 +47,8 @@ export function AgeGate({ onAccept }: AgeGateProps) {
             className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
           />
           <span className="text-[13px] leading-relaxed text-foreground">
-            I confirm I am at least 18 years old, and I accept the{" "}
+            I confirm I am at least 18 years old — or the age of majority where I live, if that&apos;s older — and I
+            accept the{" "}
             <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-accent">
               Terms of Service
             </a>{" "}

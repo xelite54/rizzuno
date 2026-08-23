@@ -19,15 +19,16 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="text-[16px] font-semibold">Be an adult about it</h2>
           <p className="mt-2 text-muted">
-            Rizzuno is 18+ only. Every match is a stranger — someone you don&apos;t know anything about beyond what
-            they choose to show you. Treat them the way you&apos;d want to be treated by a stranger.
+            Rizzuno is 18+ only — you must be at least 18, or the age of majority where you live if that&apos;s
+            older, whichever is higher. Every match is a stranger — someone you don&apos;t know anything about
+            beyond what they choose to show you. Treat them the way you&apos;d want to be treated by a stranger.
           </p>
         </section>
 
         <section>
           <h2 className="text-[16px] font-semibold">Not allowed, ever</h2>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-            <li>Being under 18, or helping someone under 18 use Rizzuno.</li>
+            <li>Not meeting Rizzuno&apos;s eligibility age (18, or the age of majority where you live if higher), or helping someone who doesn&apos;t use Rizzuno.</li>
             <li>Nudity or sexual activity involving anyone who hasn&apos;t consented.</li>
             <li>
               Any sexual content involving, or appearing to involve, a minor — this is treated as an absolute,

@@ -100,11 +100,12 @@ export default function TermsOfServicePage() {
           <section id="eligibility">
             <h2 className="text-[16px] font-semibold">2. 18+ eligibility</h2>
             <p className="mt-2 text-muted">
-              Rizzuno is for adults 18 years of age or older only. Before you can start matching, you must check a
-              box confirming you&apos;re at least 18. This is a factual affirmation — a record of what your account
-              agreed to, and when — not identity-level or government-ID age verification. Rizzuno does not currently
-              verify your real age by any other means, and does not represent that it does. If you are under 18, do
-              not use Rizzuno.
+              Rizzuno is for adults only: you must be at least 18 years of age, or the age of majority in the
+              jurisdiction where you live if that&apos;s older than 18, whichever is higher. Before you can start
+              matching, you must check a box confirming you meet this bar. This is a factual affirmation — a record
+              of what your account agreed to, and when — not identity-level or government-ID age verification.
+              Rizzuno does not currently verify your real age by any other means, and does not represent that it
+              does. If you do not meet this bar, do not use Rizzuno.
             </p>
           </section>
 
@@ -205,8 +206,9 @@ export default function TermsOfServicePage() {
           <section id="minors">
             <h2 className="text-[16px] font-semibold">12. Minors &amp; sexual exploitation</h2>
             <p className="mt-2 text-muted">
-              Use Rizzuno if you are under 18, or facilitate use by anyone under 18. Create, share, request, or
-              engage in any sexual content involving, or that appears to involve, a minor, or otherwise engage in
+              Use Rizzuno if you don&apos;t meet the eligibility age described in Section 2, or facilitate use by
+              anyone who doesn&apos;t. Create, share, request, or engage in any sexual content involving, or that
+              appears to involve, a minor, or otherwise engage in
               the sexual exploitation or grooming of a minor. This is prohibited absolutely, and may be reported to
               appropriate authorities where required or permitted by law.
             </p>
