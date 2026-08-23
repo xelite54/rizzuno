@@ -23,26 +23,24 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
         <br />
         new.
       </h1>
-      <p className="mt-4 text-[14px] text-muted">Sign in to start matching.</p>
-
       <button
         type="button"
         onClick={onSignIn}
-        className="mt-9 flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-foreground text-[15px] font-semibold text-background transition hover:brightness-95 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+        className="mt-14 flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-foreground text-[15px] font-semibold text-background transition hover:brightness-95 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
       >
         <GoogleIcon className="h-5 w-5" />
         Continue with Google
       </button>
       {errorMessage && <p className="mt-3 text-[13px] text-danger">{errorMessage}</p>}
 
-      <p className="mt-4 text-[12px] text-muted">
-        Rizzuno is 18+ only — you must be at least 18, or the age of majority where you live if that&apos;s older,
-        to use Rizzuno.
+      <p className="mt-4 text-[12px] font-semibold text-foreground">18+ only</p>
+      <p className="mt-1 text-[12px] text-muted">
+        Rizzuno is for adults 18 or older, or the age of majority where you live if higher.
       </p>
-      <p className="mt-2 text-[12px] text-muted">
-        By continuing, you agree to our{" "}
+      <p className="mt-3 text-[12px] text-muted">
+        By continuing, you agree to the{" "}
         <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
-          Terms
+          Terms of Service
         </Link>{" "}
         and{" "}
         <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
