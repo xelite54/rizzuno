@@ -13,6 +13,17 @@
  */
 export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; version: string }[] = [
   { document: "age18", version: "1" },
-  { document: "terms", version: "2026-08-22" },
-  { document: "privacy", version: "2026-08-22" },
+  // Bumped 2026-08-23: full rewrite from placeholder copy to production
+  // Terms/Privacy text (see the legal-accuracy audit) — a material change,
+  // so every account with a prior acceptance record is asked again.
+  //
+  // Bumped again same day (2026-08-23b): expanded both documents into the
+  // fully sectioned production text (42 Terms sections, 18 Privacy
+  // sections) and fixed the /terms + /privacy scroll-clipping bug — also
+  // a material change, so accounts that already accepted "2026-08-23" are
+  // asked again too. Neither bump touches or removes any prior acceptance
+  // row (see lib/db.ts's recordAcceptance/hasAcceptedCurrent) — this list
+  // only changes what counts as "current" going forward.
+  { document: "terms", version: "2026-08-23b" },
+  { document: "privacy", version: "2026-08-23b" },
 ]
