@@ -34,9 +34,6 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
       {errorMessage && <p className="mt-3 text-[13px] text-danger">{errorMessage}</p>}
 
       <p className="mt-4 text-[12px] font-semibold text-foreground">18+ only</p>
-      <p className="mt-1 text-[12px] text-muted">
-        Rizzuno is for adults 18 or older, or the age of majority where you live if higher.
-      </p>
       <p className="mt-3 text-[12px] text-muted">
         By continuing, you agree to the{" "}
         <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
