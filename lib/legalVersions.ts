@@ -55,10 +55,25 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // declaration from what Google Sign-In actually supplies. Still no
   // government-ID, biometric, facial-age-estimation, or other third-party
   // age-verification technology — self-attestation only. Material change,
+  // so every account with a prior acceptance record is asked again.
+  //
+  // Bumped 2026-08-24c: set the real contactEmail in lib/legalConfig.ts
+  // (operatorName/operatorAddress/governingLaw/disputeResolution remain
+  // unset — not invented) and corrected three overbroad/inconsistent
+  // claims: Privacy §14 no longer says the export includes "everything"
+  // (it's the self-service subset only — reports where the account was
+  // reported and moderation-action details aren't in it); Privacy §13 no
+  // longer understates what's retained after deletion (legal-acceptance
+  // history, blocks, reports, moderation actions, and ban/suspension
+  // records all survive it, matching §12); Terms §32/§42 no longer let the
+  // full operational content license "survive" deletion indefinitely — it
+  // now ends with the underlying use, with a narrow carve-out only for
+  // material that's part of a retained record. Terms §41 no longer calls
+  // the Safety page's guidance independently contractual. Material change,
   // so every account with a prior acceptance record is asked again. None of
   // these bumps touch or remove any prior acceptance row (see lib/db.ts's
   // recordAcceptance/hasAcceptedCurrent) — this list only changes what
   // counts as "current" going forward.
-  { document: "terms", version: "2026-08-24b" },
-  { document: "privacy", version: "2026-08-24b" },
+  { document: "terms", version: "2026-08-24c" },
+  { document: "privacy", version: "2026-08-24c" },
 ]

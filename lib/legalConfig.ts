@@ -25,8 +25,8 @@ export const LEGAL_CONFIG = {
   /** Registered/business address, if the operator wants one printed in Terms/Privacy. Not required by every jurisdiction, but some (e.g. GDPR) expect an identifiable controller address. Only rendered when operatorName is also set. */
   operatorAddress: null as string | null,
 
-  /** General/privacy contact address shown in both Terms and Privacy (e.g. "privacy@rizzuno.com"). Google's OAuth consent screen also asks for a support email separately in Cloud Console — that's a different, required field this constant does not fill in. */
-  contactEmail: null as string | null,
+  /** General/privacy contact address shown in both Terms and Privacy. Google's OAuth consent screen also asks for a support email separately in Cloud Console — that's a different, required field this constant does not fill in. */
+  contactEmail: "sunghokimjkh@gmail.com" as string | null,
 
   /** Separate legal-notices address (e.g. for takedown/legal process), if different from contactEmail. Not currently referenced by either page; add a render site if/when the operator wants it surfaced separately. */
   legalEmail: null as string | null,

@@ -451,8 +451,15 @@ export default function TermsOfServicePage() {
               example, relaying your chat messages and call signaling to whoever you&apos;re matched with, and
               storing what you write into a report. This license is limited to what running the service actually
               requires; it doesn&apos;t give Rizzuno any broader right to reuse, license, or commercially exploit
-              your content, and it ends along with the underlying use (most of your content, per Section 9, is never
-              even sent to Rizzuno&apos;s servers to begin with).
+              your content, and it lasts only as long as reasonably necessary for that specific processing — for
+              most of your content, that&apos;s the moment it&apos;s relayed, since it&apos;s never stored on
+              Rizzuno&apos;s servers at all (see Section 9).
+            </p>
+            <p className="mt-2 text-muted">
+              Where something you sent has legitimately become part of a report, moderation action, or other record
+              Rizzuno retains under the Privacy Policy, Rizzuno may keep processing that retained material — but
+              only for the limited purposes described there (enforcement, abuse/fraud prevention, security, and
+              legal recordkeeping), and only for as long as that underlying record is actually retained.
             </p>
           </section>
 
@@ -539,19 +546,20 @@ export default function TermsOfServicePage() {
           <section id="related">
             <h2 className="text-[16px] font-semibold">41. Related policies</h2>
             <p className="mt-2 text-muted">
-              These Terms work together with our{" "}
+              These Terms should be read together with our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
-              </Link>
-              ,{" "}
+              </Link>{" "}
+              and{" "}
               <Link href="/community-guidelines" className="underline underline-offset-2 hover:text-accent">
                 Community Guidelines
               </Link>
-              , and{" "}
+              , which are both part of your agreement with Rizzuno. Our{" "}
               <Link href="/safety" className="underline underline-offset-2 hover:text-accent">
                 Safety
               </Link>{" "}
-              page, each of which is part of your agreement with Rizzuno.
+              page provides additional practical guidance for using Rizzuno safely — it doesn&apos;t itself add new
+              contractual terms beyond what these Terms and the Community Guidelines already set out.
             </p>
           </section>
 
@@ -559,9 +567,16 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">42. Survival</h2>
             <p className="mt-2 text-muted">
               Sections that by their nature should survive your stopping use of Rizzuno — including Intellectual
-              Property (31), User Content, Ownership &amp; Limited License (32), Disclaimers (34), Limitation of
-              Liability (35), Indemnification (36), and any obligation you accrued before you stopped using Rizzuno
-              — remain in effect after your account is deleted or your access ends.
+              Property (31), Disclaimers (34), Limitation of Liability (35), Indemnification (36), and any
+              obligation you accrued before you stopped using Rizzuno — remain in effect after your account is
+              deleted or your access ends.
+            </p>
+            <p className="mt-2 text-muted">
+              The operational content license described in Section 32 does not survive as a whole — it&apos;s tied
+              to running the service and ends when the underlying use does. The one exception is the retained-record
+              carve-out in Section 32: any permission necessary to maintain information lawfully retained under the
+              Privacy Policy survives only to the extent, and for the duration, necessary to maintain, secure,
+              review, enforce, or comply with obligations relating to that retained information.
             </p>
           </section>
 
@@ -583,12 +598,27 @@ export default function TermsOfServicePage() {
             {LEGAL_CONFIG.operatorName && LEGAL_CONFIG.contactEmail ? (
               <p className="mt-2 text-muted">
                 Rizzuno is operated by {LEGAL_CONFIG.operatorName}. Questions about these Terms can be sent to{" "}
-                {LEGAL_CONFIG.contactEmail}.
+                <a
+                  href={`mailto:${LEGAL_CONFIG.contactEmail}`}
+                  className="underline underline-offset-2 hover:text-accent"
+                >
+                  {LEGAL_CONFIG.contactEmail}
+                </a>
+                .
               </p>
             ) : LEGAL_CONFIG.operatorName ? (
               <p className="mt-2 text-muted">Rizzuno is operated by {LEGAL_CONFIG.operatorName}.</p>
             ) : LEGAL_CONFIG.contactEmail ? (
-              <p className="mt-2 text-muted">Questions about these Terms can be sent to {LEGAL_CONFIG.contactEmail}.</p>
+              <p className="mt-2 text-muted">
+                Questions about these Terms can be sent to{" "}
+                <a
+                  href={`mailto:${LEGAL_CONFIG.contactEmail}`}
+                  className="underline underline-offset-2 hover:text-accent"
+                >
+                  {LEGAL_CONFIG.contactEmail}
+                </a>
+                .
+              </p>
             ) : (
               <p className="mt-2 text-muted">
                 This policy does not yet name Rizzuno&apos;s operating entity or a dedicated contact address for

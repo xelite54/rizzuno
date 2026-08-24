@@ -77,9 +77,8 @@ export default function PrivacyPolicyPage() {
               </p>
             ) : (
               <p className="mt-2 text-muted">
-                This Privacy Policy does not yet name Rizzuno&apos;s operating entity. Until it does, it should be
-                read as describing the Rizzuno service itself — referred to here as &ldquo;Rizzuno,&rdquo;
-                &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our.&rdquo;
+                This policy refers to the Rizzuno service itself as &ldquo;Rizzuno,&rdquo; &ldquo;we,&rdquo;
+                &ldquo;us,&rdquo; or &ldquo;our.&rdquo;
               </p>
             )}
           </section>
@@ -324,7 +323,8 @@ export default function PrivacyPolicyPage() {
               </li>
               <li>
                 <strong className="text-foreground">Deleted accounts</strong> — see Section 13; deletion marks the account row deleted but does not erase
-                the ban/suspension or legal-acceptance history tied to it.
+                the legal-acceptance history, blocks, reports, moderation actions, or ban/suspension records tied to
+                it — those follow the retention behavior described above for their own category.
               </li>
             </ul>
             <p className="mt-2 text-muted">
@@ -338,11 +338,16 @@ export default function PrivacyPolicyPage() {
             <p className="mt-2 text-muted">
               You can request deletion at any time from My Profile → Privacy &amp; data → Delete account. This marks
               your account row deleted, which immediately prevents it from signing in to matchmake, chat, or call
-              again. It does <strong className="text-foreground">not</strong> erase a genuine ban or suspension
-              already recorded against that account, and does not erase its legal-acceptance history — both are
-              retained for enforcement, fraud prevention, and legal-record purposes, consistent with Section 12.
-              Because Rizzuno&apos;s server holds very little personal data to begin with (see Section 3), there is
-              little else server-side left to delete beyond marking the account deleted.
+              again — deletion is not something you can undo yourself; using Rizzuno again means signing in with
+              your Google account to create a new one.
+            </p>
+            <p className="mt-2 text-muted">
+              Deletion does <strong className="text-foreground">not</strong> automatically erase every record
+              Rizzuno currently retains about the account. Consistent with Section 12, the following are retained
+              even after deletion, for the enforcement, abuse/fraud-prevention, security, and legal-recordkeeping
+              purposes described there: legal-acceptance history, blocks the account made, reports involving the
+              account (whether it filed them or was reported), moderation actions taken against it, and any
+              ban/suspension record. Deletion does not, by itself, remove any of these.
             </p>
             <p className="mt-2 text-muted">
               Deleting your account on a given device also clears that device&apos;s locally stored profile data for
@@ -355,11 +360,17 @@ export default function PrivacyPolicyPage() {
           <section id="export">
             <h2 className="text-[16px] font-semibold">14. Data export</h2>
             <p className="mt-2 text-muted">
-              My Profile → Privacy &amp; data → Download my data exports everything Rizzuno&apos;s server holds
-              about your account: account status, legal-acceptance history, the account IDs you&apos;ve blocked,
-              and reports you&apos;ve filed. It does not include your profile content (username, bio, photo,
-              posts), because that isn&apos;t stored on the server — it&apos;s already visible in the browser that
-              holds it.
+              My Profile → Privacy &amp; data → Download my data provides a copy of the server-side account
+              information currently available through Rizzuno&apos;s self-service export: your account status,
+              legal-acceptance history, accounts you have blocked, and reports you have filed.
+            </p>
+            <p className="mt-2 text-muted">
+              This self-service export is not a complete copy of every record involving your account. It does not
+              currently include, for example, reports in which your account was the one reported, or the contents
+              of moderation actions taken against it — those exist in Rizzuno&apos;s database (see Section 3) but
+              aren&apos;t part of this particular export today. It also does not include your profile content
+              (username, bio, photo, posts), because that isn&apos;t stored on the server at all — it&apos;s already
+              visible in the browser that holds it.
             </p>
           </section>
 
@@ -487,7 +498,13 @@ export default function PrivacyPolicyPage() {
             {LEGAL_CONFIG.contactEmail ? (
               <p className="mt-2 text-muted">
                 Questions about this Privacy Policy, or requests relating to your data, can be sent to{" "}
-                {LEGAL_CONFIG.contactEmail}.
+                <a
+                  href={`mailto:${LEGAL_CONFIG.contactEmail}`}
+                  className="underline underline-offset-2 hover:text-accent"
+                >
+                  {LEGAL_CONFIG.contactEmail}
+                </a>
+                .
               </p>
             ) : (
               <p className="mt-2 text-muted">
