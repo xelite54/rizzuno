@@ -16,7 +16,6 @@ type MyProfileSheetProps = {
   handle: string
   history: PeerProfile[]
   blockedUsers: BlockedUser[]
-  onUnblockPerson: (id: string) => void
   /** Destroys the real Auth.js session. Profile data itself is untouched — it's keyed by the account's stable id (see useMyProfile.ts), so signing back in with the same Google account restores it. */
   onSignOut: () => void
   /** Called after the server confirms account deletion — clears the locally-stored profile (it's the browser's copy to clear; the server holds almost none of it, see lib/db.ts) and then signs out. */
@@ -49,7 +48,6 @@ export function MyProfileSheet({
   handle,
   history,
   blockedUsers,
-  onUnblockPerson,
   onSignOut,
   onAccountDeleted,
   open,
@@ -645,25 +643,28 @@ export function MyProfileSheet({
                 {blockedUsers.length === 0 ? (
                   <p className="mt-8 text-center text-[13px] text-muted">Nobody blocked.</p>
                 ) : (
-                  <div className="space-y-1">
-                    {blockedUsers.map((person) => (
-                      <div key={person.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5">
-                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
-                          {person.displayName.charAt(0).toUpperCase()}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground">
-                          {person.displayName}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => onUnblockPerson(person.id)}
-                          className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-[12px] font-medium text-foreground transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                        >
-                          Unblock
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <>
+                    {/* Blocking is enforced server-side and, as currently built, can't be
+                        reversed from here (or anywhere) — no "Unblock" control is shown,
+                        since one that didn't actually remove the server-side block would
+                        be misleading. See the Community Guidelines for the accurate,
+                        current behavior. */}
+                    <p className="mb-3 px-1 text-[12px] leading-relaxed text-muted">
+                      Blocking is permanent for now — there&apos;s no way to undo it yet.
+                    </p>
+                    <div className="space-y-1">
+                      {blockedUsers.map((person) => (
+                        <div key={person.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
+                            {person.displayName.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground">
+                            {person.displayName}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             )}

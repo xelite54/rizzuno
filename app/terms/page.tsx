@@ -1,16 +1,16 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { REQUIRED_DOCUMENTS } from "@/lib/legalVersions"
-import { LEGAL_CONFIG, legalValue } from "@/lib/legalConfig"
+import { LEGAL_CONFIG } from "@/lib/legalConfig"
 
 export const metadata: Metadata = {
   title: "Terms of Service — Rizzuno",
   description:
-    "The Terms of Service governing use of Rizzuno, a live video-chat service that connects adult users with strangers.",
+    "The Terms of Service governing use of Rizzuno, a live video-chat service intended for adults that connects users with strangers.",
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "August 23, 2026"
+const LAST_UPDATED = "August 24, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -44,17 +44,19 @@ const SECTIONS = [
   { id: "network-limits", label: "29. WebRTC & network limitations" },
   { id: "third-party", label: "30. Third-party infrastructure" },
   { id: "ip", label: "31. Intellectual property" },
-  { id: "content-ownership", label: "32. User-content ownership & responsibility" },
+  { id: "content-ownership", label: "32. User content, ownership & limited license" },
   { id: "feedback", label: "33. Feedback" },
   { id: "disclaimers", label: "34. Disclaimers" },
   { id: "liability", label: "35. Limitation of liability" },
   { id: "indemnification", label: "36. Indemnification" },
-  { id: "changes-service", label: "37. Changes to Rizzuno" },
-  { id: "changes-terms", label: "38. Changes to these Terms" },
-  { id: "acceptance-history", label: "39. Legal-version acceptance history" },
-  { id: "related", label: "40. Related policies" },
-  { id: "severability", label: "41. Severability" },
-  { id: "contact", label: "42. Contact" },
+  { id: "no-relationship", label: "37. No business relationship" },
+  { id: "changes-service", label: "38. Changes to Rizzuno" },
+  { id: "changes-terms", label: "39. Changes to these Terms" },
+  { id: "acceptance-history", label: "40. Legal-version acceptance history" },
+  { id: "related", label: "41. Related policies" },
+  { id: "survival", label: "42. Survival" },
+  { id: "severability", label: "43. Severability" },
+  { id: "contact", label: "44. Governing law & contact" },
 ]
 
 export default function TermsOfServicePage() {
@@ -67,8 +69,8 @@ export default function TermsOfServicePage() {
         </p>
         <p className="mt-4 text-[14px] leading-relaxed text-muted">
           These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and use of Rizzuno, a live video-chat
-          service that connects you with other adult users at random. They describe what you&apos;re agreeing to
-          when you use Rizzuno, and what Rizzuno can and can&apos;t promise you in return.
+          service that connects you with other users at random. They describe what you&apos;re agreeing to when you
+          use Rizzuno, and what Rizzuno can and can&apos;t promise you in return.
         </p>
 
         <nav className="mt-8 rounded-xl border border-border bg-surface px-4 py-3">
@@ -100,12 +102,22 @@ export default function TermsOfServicePage() {
           <section id="eligibility">
             <h2 className="text-[16px] font-semibold">2. 18+ eligibility</h2>
             <p className="mt-2 text-muted">
-              Rizzuno is for adults only: you must be at least 18 years of age, or the age of majority in the
-              jurisdiction where you live if that&apos;s older than 18, whichever is higher. Before you can start
-              matching, you must check a box confirming you meet this bar. This is a factual affirmation — a record
-              of what your account agreed to, and when — not identity-level or government-ID age verification.
-              Rizzuno does not currently verify your real age by any other means, and does not represent that it
-              does. If you do not meet this bar, do not use Rizzuno.
+              Rizzuno is intended exclusively for adults. You may use Rizzuno only if you are at least 18 years old,
+              or the age of majority in the jurisdiction where you live if that age is higher than 18.
+            </p>
+            <p className="mt-2 text-muted">
+              By continuing to access or use Rizzuno — including by continuing through Google Sign-In after being
+              presented with Rizzuno&apos;s age notice, and by checking the affirmation box shown after you sign in
+              — you represent and warrant that you satisfy this age requirement.
+            </p>
+            <p className="mt-2 text-muted">If you do not satisfy this age requirement, you must not access or use Rizzuno.</p>
+            <p className="mt-2 text-muted">
+              Rizzuno currently relies on this representation as an age-eligibility self-attestation, recorded
+              against your account together with the version of these Terms and the date you accepted them (see
+              Section 40). Google Sign-In authenticates the Google account used to access Rizzuno; it does not
+              constitute age verification by Google or by Rizzuno. Rizzuno does not currently perform government-ID,
+              biometric, facial-age-estimation, or other independent identity-level age verification, and does not
+              guarantee that another user&apos;s stated age is accurate.
             </p>
           </section>
 
@@ -134,10 +146,12 @@ export default function TermsOfServicePage() {
           <section id="what-rizzuno-does">
             <h2 className="text-[16px] font-semibold">5. What Rizzuno does</h2>
             <p className="mt-2 text-muted">
-              Rizzuno connects you with another signed-in adult user at random for a live, one-on-one video and
-              audio call, with in-call text and image chat. Rizzuno&apos;s servers handle matching you with someone,
-              relaying the technical handshake that sets up a direct connection, relaying in-call chat live, and
-              enforcing reports, blocks, and bans.
+              Rizzuno connects you at random with another signed-in user who has affirmed that they meet
+              Rizzuno&apos;s age requirement, for a live, one-on-one video and audio call with in-call text and
+              image chat. Rizzuno&apos;s servers handle matching you with someone, relaying the technical handshake
+              that sets up a direct connection, relaying in-call chat live, and enforcing reports, blocks, and bans.
+              Rizzuno does not itself verify that affirmation and does not otherwise verify a user&apos;s identity —
+              see Section 2 and Section 26.
             </p>
           </section>
 
@@ -154,8 +168,15 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">7. Live WebRTC video &amp; audio</h2>
             <p className="mt-2 text-muted">
               Calls happen over WebRTC, a peer-to-peer technology. Once connected, your camera and microphone stream
-              directly to the other person&apos;s device rather than through Rizzuno&apos;s servers. Rizzuno does
-              not monitor, record, or review this video/audio stream — see Section 26 and our{" "}
+              directly to the other person&apos;s device rather than through Rizzuno&apos;s servers, and Rizzuno
+              does not monitor, record, or review that stream. Establishing this direct connection can expose
+              limited network information — such as your public IP address — to the person you&apos;re matched with
+              and to the connectivity infrastructure involved in setting it up (see Section 30 and our{" "}
+              <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
+                Privacy Policy
+              </Link>
+              ); that&apos;s an inherent characteristic of how peer-to-peer WebRTC calls connect, not something
+              Rizzuno adds. See also our{" "}
               <Link href="/safety" className="underline underline-offset-2 hover:text-accent">
                 Safety
               </Link>{" "}
@@ -167,22 +188,26 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">8. Text &amp; image communication</h2>
             <p className="mt-2 text-muted">
               In-call text and image chat messages are relayed live through Rizzuno&apos;s server to whoever
-              you&apos;re currently matched with, and are not stored once relayed. Text and images pass through a
-              basic keyword filter for the most severe content before being shown — this catches obvious cases only
-              and is not comprehensive moderation.
+              you&apos;re currently matched with, and are not stored once relayed. Chat text, and the username you
+              choose, pass through a basic keyword filter for the most severe content before being shown — this
+              catches obvious cases only and is not comprehensive moderation. Images sent in chat are checked only
+              for file type and size before being relayed, not for their content — nothing scans, filters, or
+              reviews what an image actually shows.
             </p>
           </section>
 
           <section id="profiles-ugc">
             <h2 className="text-[16px] font-semibold">9. Profiles &amp; user-generated content</h2>
             <p className="mt-2 text-muted">
-              Your profile (username, gender, bio, photo, and any posts) is stored only in your own browser, keyed
-              to your account, and is shown live to whoever you&apos;re matched with. You&apos;re solely responsible
-              for what you put in it. See our{" "}
+              Your profile (username, gender, bio, photo, and any posts) is stored persistently only in your own
+              browser. Some fields — your username, gender, and profile photo — are also sent to Rizzuno&apos;s
+              realtime service while you&apos;re using it, so a current match can see them; your bio and posts are
+              never sent to Rizzuno&apos;s servers at all. You&apos;re solely responsible for what you put in your
+              profile. See our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
               </Link>{" "}
-              for exactly where this data lives.
+              for the exact, field-by-field breakdown.
             </p>
           </section>
 
@@ -198,19 +223,25 @@ export default function TermsOfServicePage() {
 
           <section id="prohibited-conduct">
             <h2 className="text-[16px] font-semibold">11. Prohibited conduct</h2>
-            <p className="mt-2 text-muted">
-              On Rizzuno, you agree not to, and confirm you will not:
-            </p>
+            <p className="mt-2 text-muted">On Rizzuno, you agree not to, and confirm you will not:</p>
           </section>
 
           <section id="minors">
             <h2 className="text-[16px] font-semibold">12. Minors &amp; sexual exploitation</h2>
             <p className="mt-2 text-muted">
-              Use Rizzuno if you don&apos;t meet the eligibility age described in Section 2, or facilitate use by
-              anyone who doesn&apos;t. Create, share, request, or engage in any sexual content involving, or that
-              appears to involve, a minor, or otherwise engage in
-              the sexual exploitation or grooming of a minor. This is prohibited absolutely, and may be reported to
-              appropriate authorities where required or permitted by law.
+              Use Rizzuno if you don&apos;t meet the eligibility age described in Section 2 — parental or guardian
+              permission does not make use of Rizzuno by someone who doesn&apos;t meet that age allowed — or
+              knowingly facilitate access to Rizzuno by anyone who doesn&apos;t meet it. Misrepresenting your own
+              eligibility under Section 2 is itself a violation of these Terms. Create, share, request, or engage in
+              any sexual content involving, or that appears to involve, a minor, or otherwise engage in the sexual
+              exploitation, grooming, or solicitation of a minor. This is prohibited absolutely, and may be reported
+              to appropriate authorities where required or permitted by law.
+            </p>
+            <p className="mt-2 text-muted">
+              If Rizzuno reasonably believes an account does not meet the eligibility requirement in Section 2,
+              Rizzuno may suspend or terminate that account. Rizzuno does not automatically detect this — if you
+              suspect another user doesn&apos;t meet Rizzuno&apos;s age requirement, report it using the
+              &ldquo;Underage concern&rdquo; category in the in-call safety menu (see Section 22).
             </p>
           </section>
 
@@ -256,7 +287,10 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">18. Recording &amp; screenshots without consent</h2>
             <p className="mt-2 text-muted">
               Record, screenshot, photograph, or otherwise capture another user&apos;s video, audio, image, or chat
-              without their consent, or distribute anything captured from a Rizzuno call without consent.
+              without their consent, or distribute anything captured from a Rizzuno call without consent. This rule
+              applies regardless of what your own device, browser, or operating system is technically capable of
+              capturing — Rizzuno has no way to detect or prevent a recording made outside its own servers, which is
+              exactly why this is a rule for users rather than something Rizzuno can enforce automatically.
             </p>
           </section>
 
@@ -318,8 +352,8 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               Reports are reviewed by human moderators, not resolved automatically. Rizzuno does not monitor,
               record, or review live video or audio, and does not automatically screen calls for violations — the
-              keyword filter described in Section 8 catches obvious severe cases only. Moderation of what happens
-              on a call substantially depends on it being reported.
+              filtering described in Section 8 covers chat text and usernames only, not images and not video/audio.
+              Moderation of what happens on a call substantially depends on it being reported.
             </p>
           </section>
 
@@ -340,8 +374,9 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               Enforcement applies to the Rizzuno/Google account involved and is designed to persist across sessions
               and devices signed in with that account. Rizzuno enforces against the Google account it can identify —
-              it cannot identify or stop the same physical person if they use a different Google account, and does
-              not represent otherwise.
+              it has no way to identify or stop the same physical person if they use a different Google account, and
+              does not represent otherwise. Reports are reviewed by people, not resolved instantly, and Rizzuno
+              cannot guarantee that every violation is caught, reported, or acted on.
             </p>
           </section>
 
@@ -403,14 +438,21 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="content-ownership">
-            <h2 className="text-[16px] font-semibold">32. User-content ownership &amp; responsibility</h2>
+            <h2 className="text-[16px] font-semibold">32. User content, ownership &amp; limited license</h2>
             <p className="mt-2 text-muted">
               Subject to these Terms, Rizzuno grants you a personal, limited, non-exclusive, non-transferable,
-              revocable license to access and use Rizzuno for your own personal, non-commercial use. You keep
-              whatever ownership rights you already have in your own content, and you&apos;re solely responsible for
-              anything you say, show, send, or post on Rizzuno. Because profile content is stored only in your own
-              browser rather than on Rizzuno&apos;s servers, Rizzuno does not host or distribute it beyond relaying
-              it live to whoever you&apos;re currently matched with.
+              revocable license to access and use Rizzuno for your own personal, non-commercial use.
+            </p>
+            <p className="mt-2 text-muted">
+              You keep whatever ownership rights you already have in your own content, and you&apos;re solely
+              responsible for anything you say, show, send, or post on Rizzuno. In the other direction, to operate
+              the service you grant Rizzuno only the limited, non-exclusive permission reasonably necessary to
+              transmit, display, process, secure, and moderate that content for the purpose of running Rizzuno — for
+              example, relaying your chat messages and call signaling to whoever you&apos;re matched with, and
+              storing what you write into a report. This license is limited to what running the service actually
+              requires; it doesn&apos;t give Rizzuno any broader right to reuse, license, or commercially exploit
+              your content, and it ends along with the underlying use (most of your content, per Section 9, is never
+              even sent to Rizzuno&apos;s servers to begin with).
             </p>
           </section>
 
@@ -428,9 +470,9 @@ export default function TermsOfServicePage() {
               RIZZUNO IS PROVIDED &ldquo;AS IS&rdquo; AND &ldquo;AS AVAILABLE,&rdquo; WITHOUT WARRANTIES OF ANY
               KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
               FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. Rizzuno does not verify the identity, age, intentions,
-              or conduct of other users beyond what these Terms describe, and cannot guarantee your safety when
-              interacting with a stranger. You use Rizzuno, and interact with people you meet on it, at your own
-              risk. See our{" "}
+              or conduct of other users beyond the affirmation described in Section 2, and cannot guarantee your
+              safety when interacting with a stranger. You use Rizzuno, and interact with people you meet on it, at
+              your own risk. See our{" "}
               <Link href="/safety" className="underline underline-offset-2 hover:text-accent">
                 Safety
               </Link>{" "}
@@ -460,15 +502,23 @@ export default function TermsOfServicePage() {
             </p>
           </section>
 
+          <section id="no-relationship">
+            <h2 className="text-[16px] font-semibold">37. No business relationship</h2>
+            <p className="mt-2 text-muted">
+              Using Rizzuno does not create a partnership, joint venture, agency, employment, or franchise
+              relationship between you and Rizzuno.
+            </p>
+          </section>
+
           <section id="changes-service">
-            <h2 className="text-[16px] font-semibold">37. Changes to Rizzuno</h2>
+            <h2 className="text-[16px] font-semibold">38. Changes to Rizzuno</h2>
             <p className="mt-2 text-muted">
               Rizzuno may add, change, or remove features, or discontinue the service, at any time.
             </p>
           </section>
 
           <section id="changes-terms">
-            <h2 className="text-[16px] font-semibold">38. Changes to these Terms</h2>
+            <h2 className="text-[16px] font-semibold">39. Changes to these Terms</h2>
             <p className="mt-2 text-muted">
               We may update these Terms. When we make a material change, we update the version and date at the top
               of this page, and accounts that previously accepted an older version are asked to review and accept
@@ -478,7 +528,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="acceptance-history">
-            <h2 className="text-[16px] font-semibold">39. Legal-version acceptance history</h2>
+            <h2 className="text-[16px] font-semibold">40. Legal-version acceptance history</h2>
             <p className="mt-2 text-muted">
               Rizzuno keeps a record of which version of the age affirmation, these Terms, and the Privacy Policy
               your account accepted, and when. That record is appended to, never overwritten or deleted — a prior
@@ -487,7 +537,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="related">
-            <h2 className="text-[16px] font-semibold">40. Related policies</h2>
+            <h2 className="text-[16px] font-semibold">41. Related policies</h2>
             <p className="mt-2 text-muted">
               These Terms work together with our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
@@ -505,8 +555,18 @@ export default function TermsOfServicePage() {
             </p>
           </section>
 
+          <section id="survival">
+            <h2 className="text-[16px] font-semibold">42. Survival</h2>
+            <p className="mt-2 text-muted">
+              Sections that by their nature should survive your stopping use of Rizzuno — including Intellectual
+              Property (31), User Content, Ownership &amp; Limited License (32), Disclaimers (34), Limitation of
+              Liability (35), Indemnification (36), and any obligation you accrued before you stopped using Rizzuno
+              — remain in effect after your account is deleted or your access ends.
+            </p>
+          </section>
+
           <section id="severability">
-            <h2 className="text-[16px] font-semibold">41. Severability</h2>
+            <h2 className="text-[16px] font-semibold">43. Severability</h2>
             <p className="mt-2 text-muted">
               If any part of these Terms is found unenforceable, the rest remains in full force, and the
               unenforceable part is interpreted to reflect the parties&apos; original intent as closely as the law
@@ -515,25 +575,26 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="contact">
-            <h2 className="text-[16px] font-semibold">42. Contact</h2>
-            <p className="mt-2 text-muted">
-              {LEGAL_CONFIG.governingLaw
-                ? `These Terms are governed by ${LEGAL_CONFIG.governingLaw}.`
-                : legalValue(null, "a governing law for these Terms")}
-            </p>
-            <p className="mt-2 text-muted">
-              {LEGAL_CONFIG.disputeResolution ?? legalValue(null, "a dispute-resolution process for these Terms")}
-            </p>
-            <p className="mt-2 text-muted">
-              {LEGAL_CONFIG.operatorName
-                ? `Rizzuno is operated by ${LEGAL_CONFIG.operatorName}.`
-                : legalValue(null, "the identity of Rizzuno's operator")}
-            </p>
-            <p className="mt-2 text-muted">
-              {LEGAL_CONFIG.contactEmail
-                ? `Questions about these Terms can be sent to ${LEGAL_CONFIG.contactEmail}.`
-                : legalValue(null, "a contact address for questions about these Terms")}
-            </p>
+            <h2 className="text-[16px] font-semibold">44. Governing law &amp; contact</h2>
+            {LEGAL_CONFIG.governingLaw && (
+              <p className="mt-2 text-muted">These Terms are governed by {LEGAL_CONFIG.governingLaw}.</p>
+            )}
+            {LEGAL_CONFIG.disputeResolution && <p className="mt-2 text-muted">{LEGAL_CONFIG.disputeResolution}</p>}
+            {LEGAL_CONFIG.operatorName && LEGAL_CONFIG.contactEmail ? (
+              <p className="mt-2 text-muted">
+                Rizzuno is operated by {LEGAL_CONFIG.operatorName}. Questions about these Terms can be sent to{" "}
+                {LEGAL_CONFIG.contactEmail}.
+              </p>
+            ) : LEGAL_CONFIG.operatorName ? (
+              <p className="mt-2 text-muted">Rizzuno is operated by {LEGAL_CONFIG.operatorName}.</p>
+            ) : LEGAL_CONFIG.contactEmail ? (
+              <p className="mt-2 text-muted">Questions about these Terms can be sent to {LEGAL_CONFIG.contactEmail}.</p>
+            ) : (
+              <p className="mt-2 text-muted">
+                This policy does not yet name Rizzuno&apos;s operating entity or a dedicated contact address for
+                these Terms.
+              </p>
+            )}
           </section>
         </div>
       </div>

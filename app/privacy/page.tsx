@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
 import { REQUIRED_DOCUMENTS } from "@/lib/legalVersions"
-import { LEGAL_CONFIG, legalValue } from "@/lib/legalConfig"
+import { LEGAL_CONFIG } from "@/lib/legalConfig"
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Rizzuno",
@@ -10,27 +10,31 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "August 23, 2026"
+const LAST_UPDATED = "August 24, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
   { id: "google-info", label: "2. Information from Google Sign-In" },
   { id: "database-info", label: "3. What Rizzuno's database stores" },
-  { id: "profile-info", label: "4. Browser-local profile information" },
+  { id: "profile-info", label: "4. Profile information: local storage & realtime processing" },
   { id: "communications", label: "5. Video, audio, chat & signaling" },
   { id: "technical-info", label: "6. Technical & infrastructure information" },
   { id: "purposes", label: "7. Purpose of processing" },
   { id: "third-parties", label: "8. Third parties & processors" },
   { id: "cookies", label: "9. Cookies & browser storage" },
-  { id: "retention", label: "10. Data retention" },
-  { id: "deletion", label: "11. Account deletion" },
-  { id: "export", label: "12. Data export" },
-  { id: "children", label: "13. 18+ users & age affirmation" },
-  { id: "security", label: "14. Security" },
-  { id: "international", label: "15. International processing" },
-  { id: "rights", label: "16. Your rights & controls" },
-  { id: "changes", label: "17. Changes to this policy" },
-  { id: "contact", label: "18. Contact" },
+  { id: "tracking", label: "10. Online tracking, Do Not Track & GPC" },
+  { id: "sale", label: "11. Data sale & targeted advertising" },
+  { id: "retention", label: "12. Data retention" },
+  { id: "deletion", label: "13. Account deletion" },
+  { id: "export", label: "14. Data export" },
+  { id: "children", label: "15. 18+ users & age affirmation" },
+  { id: "security", label: "16. Security" },
+  { id: "international", label: "17. International processing" },
+  { id: "rights", label: "18. Your rights & controls" },
+  { id: "state-rights", label: "19. U.S. state privacy rights" },
+  { id: "caloppa", label: "20. California privacy disclosures (CalOPPA)" },
+  { id: "changes", label: "21. Changes to this policy" },
+  { id: "contact", label: "22. Contact" },
 ]
 
 export default function PrivacyPolicyPage() {
@@ -44,7 +48,9 @@ export default function PrivacyPolicyPage() {
         <p className="mt-4 text-[14px] leading-relaxed text-muted">
           This Privacy Policy explains what information Rizzuno collects or processes, where it&apos;s stored, why,
           and what controls you have over it. It&apos;s written to match what Rizzuno&apos;s code actually does —
-          where something is genuinely undecided, we say so rather than guess.
+          where something is genuinely undecided, we say so rather than guess. Rizzuno does not claim this policy
+          satisfies every privacy law that could ever apply to every visitor — applicability depends on factors like
+          where you live, and is addressed as specifically as we can in Sections 17–20.
         </p>
 
         <nav className="mt-8 rounded-xl border border-border bg-surface px-4 py-3">
@@ -63,11 +69,19 @@ export default function PrivacyPolicyPage() {
         <div className="mt-8 space-y-7 text-[14px] leading-relaxed text-foreground">
           <section id="operator">
             <h2 className="text-[16px] font-semibold">1. Who operates Rizzuno</h2>
-            <p className="mt-2 text-muted">
-              {LEGAL_CONFIG.operatorName
-                ? `Rizzuno is operated by ${LEGAL_CONFIG.operatorName}${LEGAL_CONFIG.operatorAddress ? `, ${LEGAL_CONFIG.operatorAddress}` : ""}, referred to as "Rizzuno," "we," "us," or "our" in this policy.`
-                : legalValue(null, "the legal entity or individual that operates Rizzuno")}
-            </p>
+            {LEGAL_CONFIG.operatorName ? (
+              <p className="mt-2 text-muted">
+                Rizzuno is operated by {LEGAL_CONFIG.operatorName}
+                {LEGAL_CONFIG.operatorAddress ? `, ${LEGAL_CONFIG.operatorAddress}` : ""}, referred to as
+                &ldquo;Rizzuno,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo; in this policy.
+              </p>
+            ) : (
+              <p className="mt-2 text-muted">
+                This Privacy Policy does not yet name Rizzuno&apos;s operating entity. Until it does, it should be
+                read as describing the Rizzuno service itself — referred to here as &ldquo;Rizzuno,&rdquo;
+                &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our.&rdquo;
+              </p>
+            )}
           </section>
 
           <section id="google-info">
@@ -78,18 +92,18 @@ export default function PrivacyPolicyPage() {
               <code className="rounded bg-surface-2 px-1 py-0.5 text-[12px]">openid</code>,{" "}
               <code className="rounded bg-surface-2 px-1 py-0.5 text-[12px]">email</code>, and{" "}
               <code className="rounded bg-surface-2 px-1 py-0.5 text-[12px]">profile</code> — nothing beyond
-              identifying who you are. Rizzuno never requests access to your Gmail, Drive, Calendar, Contacts, or
-              other Google data.
+              identifying who you are. Rizzuno never requests, and does not have, access to your Gmail, Drive,
+              Calendar, Contacts, or any other Google data or service.
             </p>
             <p className="mt-2 text-muted">
               When you sign in, Google shares your Google account&apos;s stable account ID, name, email address, and
               profile photo with Rizzuno&apos;s authentication flow. Of these, only the stable account ID is
               persisted in Rizzuno&apos;s database, as your Rizzuno account identifier. Your name, email address,
-              and Google profile photo are processed in-session — they exist in your signed authentication token
-              and are available to Rizzuno&apos;s client code for the duration of your session (e.g. to show your
-              name on your own device) — but Rizzuno&apos;s server does not write them into its database. We are
-              not claiming Google, Auth.js, or your browser never handle these fields; we are describing
-              specifically what Rizzuno&apos;s own database stores.
+              and Google profile photo are processed in-session — they exist in your signed authentication token and
+              are available to Rizzuno&apos;s client code for the duration of your session (e.g. to show your name
+              on your own device) — but Rizzuno&apos;s server does not write them into its database. We are not
+              claiming Google, Auth.js, or your browser never handle these fields; we are describing specifically
+              what Rizzuno&apos;s own database stores.
             </p>
           </section>
 
@@ -111,17 +125,35 @@ export default function PrivacyPolicyPage() {
               </li>
               <li>Moderation actions taken against this account, who (which admin) took them, and why.</li>
             </ul>
+            <p className="mt-2 text-muted">
+              None of your profile content (username, gender, bio, photo, posts) is written to this database — see
+              Section 4.
+            </p>
           </section>
 
           <section id="profile-info">
-            <h2 className="text-[16px] font-semibold">4. Browser-local profile information</h2>
+            <h2 className="text-[16px] font-semibold">4. Profile information: local storage &amp; realtime processing</h2>
             <p className="mt-2 text-muted">
-              Your username, gender, bio, profile photo, and any posts you add are stored only in your own
-              browser&apos;s local storage, keyed to your account ID. Rizzuno&apos;s server never receives or stores
-              any of these five fields. This means profile data does not sync across devices or browsers, and
-              clearing your browser&apos;s site data for Rizzuno removes it entirely. During a live match, this
-              information is sent directly to the person you&apos;re matched with over the live connection so they
-              can see who they&apos;re talking to — it is not written to Rizzuno&apos;s database as part of that.
+              Your username, gender, bio, profile photo, and any posts you add are all set and stored{" "}
+              <strong className="text-foreground">persistently</strong> only in your own browser&apos;s local
+              storage, keyed to your account ID. Rizzuno&apos;s database (Section 3) does not persist any of these
+              five fields. This means this data does not sync across devices or browsers, and clearing your
+              browser&apos;s site data for Rizzuno removes it entirely.
+            </p>
+            <p className="mt-2 text-muted">
+              Three of those fields are also handled differently while you&apos;re actively using Rizzuno: your{" "}
+              <strong className="text-foreground">username</strong>, <strong className="text-foreground">gender</strong>, and{" "}
+              <strong className="text-foreground">profile photo</strong> are transmitted to and processed{" "}
+              <strong className="text-foreground">temporarily</strong> by Rizzuno&apos;s realtime service — your
+              gender is used there to pair you with an opposite-selected-gender match, and all three are passed
+              along live so the person you&apos;re currently matched with can see them. This processing happens
+              in-memory on the realtime server for the duration of your connection; none of it is written to
+              Rizzuno&apos;s Postgres database (Section 3), and it is discarded once you disconnect.
+            </p>
+            <p className="mt-2 text-muted">
+              Your <strong className="text-foreground">bio</strong> and any <strong className="text-foreground">posts</strong>{" "}
+              you&apos;ve added are never transmitted to Rizzuno&apos;s servers at all, in any form — they exist
+              only in your browser.
             </p>
           </section>
 
@@ -130,13 +162,22 @@ export default function PrivacyPolicyPage() {
             <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
               <li>
                 <strong className="text-foreground">Video/audio</strong> — streams directly between your device and your match&apos;s device (WebRTC,
-                peer-to-peer). Rizzuno&apos;s server does not receive, transmit, monitor, or store this media. Not
-                stored, anywhere, ever.
+                peer-to-peer). Rizzuno&apos;s server does not receive, transmit, monitor, or store this media.
+                Rizzuno does not intentionally record or persist live video or audio on its own servers. Rizzuno has
+                no visibility into, and no control over, whether the person you&apos;re matched with (or their
+                device, browser, or operating system) independently records, screenshots, or otherwise captures the
+                call on their end — our{" "}
+                <Link href="/terms" className="underline underline-offset-2 hover:text-accent">
+                  Terms
+                </Link>{" "}
+                prohibit doing that without consent, but Rizzuno cannot technically detect or prevent it.
               </li>
               <li>
                 <strong className="text-foreground">Signaling</strong> — the short technical handshake (connection offers/answers, network routing
                 candidates) that sets up the direct video/audio connection is relayed live through Rizzuno&apos;s
-                server. Transient — not stored after it&apos;s relayed.
+                server. Transient — not stored after it&apos;s relayed. This handshake necessarily carries network
+                routing information (including public IP addresses) between you and your match, and to connectivity
+                infrastructure such as Google&apos;s STUN servers — see Section 6.
               </li>
               <li>
                 <strong className="text-foreground">Chat text/images</strong> — relayed live through Rizzuno&apos;s server to your current match. Not
@@ -159,10 +200,17 @@ export default function PrivacyPolicyPage() {
               operating that infrastructure — for example, your IP address, request timestamps, and basic
               browser/device information may appear in server or platform logs. Rizzuno&apos;s own application code
               does not deliberately log or store your IP address in its database, but we do not claim our
-              infrastructure providers never see or process it — that would be inaccurate for any hosted web
-              service. Establishing a peer-to-peer video call also uses Google&apos;s public STUN servers as part of
+              infrastructure providers never see or process it, and we do not claim Rizzuno never processes an IP
+              address anywhere in its stack — that would be inaccurate for any hosted web service handling live
+              network connections.
+            </p>
+            <p className="mt-2 text-muted">
+              Establishing a peer-to-peer video call also uses Google&apos;s public STUN servers as part of
               standard WebRTC connectivity, which as a technical necessity see each participant&apos;s public
-              network address in order to help the two devices find a direct path to each other.
+              network address in order to help the two devices find a direct path to each other. That same
+              connection process can also expose your public IP address directly to the person you&apos;re matched
+              with, as an ordinary characteristic of how WebRTC negotiates a peer-to-peer link — this is not
+              something Rizzuno&apos;s servers add, control, or permanently store.
             </p>
           </section>
 
@@ -179,7 +227,7 @@ export default function PrivacyPolicyPage() {
             </ul>
             <p className="mt-2 text-muted">
               Rizzuno does not use your information for advertising, does not sell it, and does not use it to build
-              profiles for third parties.
+              profiles for third parties — see Sections 10–11.
             </p>
           </section>
 
@@ -193,33 +241,62 @@ export default function PrivacyPolicyPage() {
             </ul>
             <p className="mt-2 text-muted">
               Auth.js is a software library that runs as part of Rizzuno&apos;s own server code — it is not a
-              separate company or service that receives your data independently of Rizzuno. Rizzuno does not
-              currently integrate any payment processor, advertising network, or analytics/tracking provider; if
-              that changes, this policy will be updated first.
+              separate company or service that receives your data independently of Rizzuno. This is the complete
+              list of third parties Rizzuno currently integrates: Rizzuno does not currently use a payment processor,
+              an advertising network, or an analytics/tracking provider. If that changes, this policy will be
+              updated first.
             </p>
           </section>
 
           <section id="cookies">
             <h2 className="text-[16px] font-semibold">9. Cookies &amp; browser storage</h2>
             <p className="mt-2 text-muted">
-              Auth.js sets a small number of essential cookies to keep you signed in — a signed, httpOnly session
-              cookie and a CSRF-protection cookie. During the Google sign-in handshake itself, Auth.js may also set
-              one or more short-lived cookies (such as an OAuth state/PKCE verifier or callback-URL cookie) that are
-              cleared once sign-in completes. All of these are strictly necessary for authentication and security;
-              none are used for advertising, cross-site tracking, or analytics.
+              Auth.js sets a small number of cookies to keep you signed in and to protect the sign-in process — this
+              generally includes a signed, httpOnly session cookie, a CSRF-protection cookie, and, during the Google
+              sign-in handshake itself, one or more short-lived security cookies (such as an OAuth state or PKCE
+              verifier) that are cleared once sign-in completes. Exact cookie names can change between Auth.js
+              versions; what stays true is their purpose — all of them exist strictly for authentication and
+              security, and none of them are used for advertising, cross-site tracking, or analytics.
             </p>
             <p className="mt-2 text-muted">
               Your browser&apos;s local storage is also used, entirely on your own device: to save your profile
               (username, gender, bio, photo, posts) keyed to your account ID as described in Section 4, and to
               cache a cosmetic fallback display name shown before you&apos;ve chosen a username. Rizzuno does not
               currently use browser session storage. Neither local-storage item is sent to Rizzuno&apos;s server
-              automatically — they stay in your browser unless a match receives your live profile fields, or unless
-              you delete them yourself (e.g. by clearing site data).
+              automatically — they stay in your browser unless a match receives your live profile fields (Section
+              4), or unless you delete them yourself (e.g. by clearing site data).
+            </p>
+          </section>
+
+          <section id="tracking">
+            <h2 className="text-[16px] font-semibold">10. Online tracking, Do Not Track &amp; GPC</h2>
+            <p className="mt-2 text-muted">
+              Rizzuno does not currently use analytics or advertising technology to track your activity across
+              unrelated third-party websites or services for behavioral advertising or other cross-context tracking
+              purposes. Rizzuno is not aware of any of the third parties listed in Section 8 collecting information
+              about your activity over time and across other sites through Rizzuno&apos;s use of them.
+            </p>
+            <p className="mt-2 text-muted">
+              Because Rizzuno does not perform this kind of cross-site tracking, Rizzuno&apos;s website does not
+              currently change its behavior in response to a browser&apos;s &ldquo;Do Not Track&rdquo; signal, and
+              Rizzuno does not currently implement Global Privacy Control (GPC) signal handling. If Rizzuno&apos;s
+              practices change such that responding to these signals becomes applicable, this Privacy Policy will be
+              updated to reflect that.
+            </p>
+          </section>
+
+          <section id="sale">
+            <h2 className="text-[16px] font-semibold">11. Data sale &amp; targeted advertising</h2>
+            <p className="mt-2 text-muted">
+              Rizzuno does not sell personal information. Rizzuno does not use personal information for targeted or
+              cross-context behavioral advertising. Rizzuno currently has no advertising network integrated with the
+              service. If any of this changes, this Privacy Policy will be updated first, and any choices or
+              disclosures required by applicable law will be made available at that time.
             </p>
           </section>
 
           <section id="retention">
-            <h2 className="text-[16px] font-semibold">10. Data retention</h2>
+            <h2 className="text-[16px] font-semibold">12. Data retention</h2>
             <p className="mt-2 text-muted">
               This section describes Rizzuno&apos;s actual current behavior — as built today, the application does
               not run any automatic process that purges old records, so server-side data in the categories below is
@@ -243,10 +320,10 @@ export default function PrivacyPolicyPage() {
                 record retained, until Rizzuno&apos;s moderation reverses it.
               </li>
               <li>
-                <strong className="text-foreground">Blocks</strong> — kept indefinitely; no feature currently removes a block once made (see Section 16).
+                <strong className="text-foreground">Blocks</strong> — kept indefinitely; no feature currently removes a block once made (see Section 18).
               </li>
               <li>
-                <strong className="text-foreground">Deleted accounts</strong> — see Section 11; deletion marks the account row deleted but does not erase
+                <strong className="text-foreground">Deleted accounts</strong> — see Section 13; deletion marks the account row deleted but does not erase
                 the ban/suspension or legal-acceptance history tied to it.
               </li>
             </ul>
@@ -257,13 +334,13 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="deletion">
-            <h2 className="text-[16px] font-semibold">11. Account deletion</h2>
+            <h2 className="text-[16px] font-semibold">13. Account deletion</h2>
             <p className="mt-2 text-muted">
               You can request deletion at any time from My Profile → Privacy &amp; data → Delete account. This marks
               your account row deleted, which immediately prevents it from signing in to matchmake, chat, or call
               again. It does <strong className="text-foreground">not</strong> erase a genuine ban or suspension
               already recorded against that account, and does not erase its legal-acceptance history — both are
-              retained for enforcement, fraud prevention, and legal-record purposes, consistent with Section 10.
+              retained for enforcement, fraud prevention, and legal-record purposes, consistent with Section 12.
               Because Rizzuno&apos;s server holds very little personal data to begin with (see Section 3), there is
               little else server-side left to delete beyond marking the account deleted.
             </p>
@@ -276,7 +353,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="export">
-            <h2 className="text-[16px] font-semibold">12. Data export</h2>
+            <h2 className="text-[16px] font-semibold">14. Data export</h2>
             <p className="mt-2 text-muted">
               My Profile → Privacy &amp; data → Download my data exports everything Rizzuno&apos;s server holds
               about your account: account status, legal-acceptance history, the account IDs you&apos;ve blocked,
@@ -287,37 +364,48 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="children">
-            <h2 className="text-[16px] font-semibold">13. 18+ users &amp; age affirmation</h2>
+            <h2 className="text-[16px] font-semibold">15. 18+ users &amp; age affirmation</h2>
             <p className="mt-2 text-muted">
               Rizzuno is intended only for adults — at least 18 years of age, or the age of majority where they live
-              if that&apos;s older, whichever is higher — and is not directed at children. Before matching, an
-              account must affirm it meets this bar. This affirmation is not identity-level or government-ID age
-              verification — Rizzuno does not currently verify a user&apos;s real age by any other means, and does
-              not represent that it does. Rizzuno does not knowingly collect information from children; if we become
-              aware an account belongs to someone who doesn&apos;t meet this bar, we will take action against that
-              account, including suspension or ban.
+              if that&apos;s older, whichever is higher — and is not directed at children.
+            </p>
+            <p className="mt-2 text-muted">
+              Rizzuno records an account&apos;s affirmation that the user meets this age requirement, together with
+              the applicable Terms/Privacy version and the time of acceptance, through the legal-acceptance system
+              described in Section 3. This age declaration comes from the user, not from Google: Google Sign-In
+              authenticates your Google account and supplies the account fields described in Section 2 (your Google
+              account&apos;s stable ID, name, email, and profile photo) — it does not supply, confirm, or verify
+              your age. Rizzuno&apos;s own affirmation is a self-attestation, not identity-level or government-ID
+              age verification. Rizzuno does not currently verify a user&apos;s real age by any other means or
+              represent that it does, and does not guarantee the real age of any other user.
+            </p>
+            <p className="mt-2 text-muted">
+              Rizzuno does not knowingly collect information from children. If Rizzuno becomes aware that an account
+              does not meet this age requirement, Rizzuno may restrict or terminate that account and handle any
+              associated information as required by applicable law.
             </p>
           </section>
 
           <section id="security">
-            <h2 className="text-[16px] font-semibold">14. Security</h2>
+            <h2 className="text-[16px] font-semibold">16. Security</h2>
             <p className="mt-2 text-muted">
               Rizzuno takes reasonable measures to protect information, including: signed, httpOnly authentication
               cookies; a short-lived, cryptographically signed ticket (separate from your session cookie) used to
               prove your identity to the realtime server without exposing the session cookie itself; server-side
               verification of every account ID used for matching, blocking, and reporting (never trusting a
               client-supplied claim at face value); encrypted connections to the database; and rate limiting on
-              account-sensitive actions. No method of transmission or storage is completely secure, and Rizzuno
-              cannot guarantee absolute security.
+              account-sensitive actions. No method of transmission or storage is completely secure, and Rizzuno does
+              not claim its security is unhackable, industry-leading, or guaranteed — only that these specific,
+              real measures are in place.
             </p>
           </section>
 
           <section id="international">
-            <h2 className="text-[16px] font-semibold">15. International processing</h2>
+            <h2 className="text-[16px] font-semibold">17. International processing</h2>
             <p className="mt-2 text-muted">
               Rizzuno&apos;s infrastructure providers (Vercel, Railway, and its database provider) may process and
               store data in locations outside your own country. Rizzuno does not currently represent that it is
-              compliant with any specific regional data-protection framework (for example GDPR or CCPA/CPRA) —
+              compliant with any specific regional data-protection framework (for example the EU&apos;s GDPR) —
               whether such a framework applies, and what additional obligations it creates, depends on decisions
               Rizzuno&apos;s operator has not yet finalized (including its legal entity, its jurisdiction of
               operation, and which regions it intends to serve).
@@ -325,10 +413,11 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="rights">
-            <h2 className="text-[16px] font-semibold">16. Your rights &amp; controls</h2>
+            <h2 className="text-[16px] font-semibold">18. Your rights &amp; controls</h2>
+            <p className="mt-2 text-muted">These are the controls Rizzuno actually provides today, and exactly what each one does:</p>
             <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-              <li><strong className="text-foreground">Download your data</strong> — see Section 12.</li>
-              <li><strong className="text-foreground">Delete your account</strong> — see Section 11.</li>
+              <li><strong className="text-foreground">Download your data</strong> — see Section 14.</li>
+              <li><strong className="text-foreground">Delete your account</strong> — see Section 13.</li>
               <li>
                 <strong className="text-foreground">Block</strong> — enforced server-side; as currently built, Rizzuno does not provide a way to
                 reverse a block once made — we do not promise an &ldquo;unblock&rdquo; capability that doesn&apos;t
@@ -337,15 +426,54 @@ export default function PrivacyPolicyPage() {
               <li><strong className="text-foreground">Report</strong> — sent to human moderation for review; never shown to the reported user.</li>
               <li><strong className="text-foreground">Edit or clear your local profile</strong> — directly, any time, from My Profile.</li>
             </ul>
+          </section>
+
+          <section id="state-rights">
+            <h2 className="text-[16px] font-semibold">19. U.S. state privacy rights</h2>
             <p className="mt-2 text-muted">
-              Beyond what&apos;s listed above, Rizzuno does not represent that you have specific statutory data
-              rights (such as a formal right to correction or portability under a particular law) until its
-              operator determines which jurisdiction(s) and legal frameworks actually apply to its operation.
+              Depending on where you live, and subject to the specific thresholds, exemptions, and definitions of
+              the law that applies to you, you may have additional rights concerning your personal information
+              under a U.S. state privacy law. These can include rights to know or access, correct, delete, or obtain
+              a copy of certain personal information; to opt out of the sale of personal information or of targeted
+              advertising; to opt out of certain kinds of profiling; to appeal a denied request; and to be free from
+              unlawful discrimination for exercising these rights. Not every right applies to every user or every
+              service, and whether any of them apply to Rizzuno depends on factors this policy does not attempt to
+              resolve on your behalf.
+            </p>
+            <p className="mt-2 text-muted">
+              As described in Section 11, Rizzuno does not sell personal information and does not use personal
+              information for targeted advertising, so opt-out rights tied to sale or targeted advertising describe
+              a choice Rizzuno&apos;s current practices don&apos;t require you to make. For any right that may apply
+              to you, you may submit a request through the contact information in Section 22, once it&apos;s
+              published — Rizzuno will handle eligible requests consistent with applicable law. Rizzuno does not
+              currently offer a dedicated self-service rights-request tool beyond the account controls in Section
+              18.
             </p>
           </section>
 
+          <section id="caloppa">
+            <h2 className="text-[16px] font-semibold">20. California privacy disclosures (CalOPPA)</h2>
+            <p className="mt-2 text-muted">
+              This section maps the disclosures commonly associated with California&apos;s Online Privacy Protection
+              Act (CalOPPA) to where they actually appear in this policy:
+            </p>
+            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
+              <li>Categories of personal information processed — Sections 2–6.</li>
+              <li>Categories of third parties that may receive information — Section 8.</li>
+              <li>How you can review or change your information — Section 18 (and Sections 13–14 for deletion/export).</li>
+              <li>How Rizzuno communicates material changes to this policy — Section 21.</li>
+              <li>Effective/last-updated date — at the top of this page.</li>
+              <li>Online tracking and Do Not Track — Section 10.</li>
+              <li>
+                Whether third parties collect information about your activity across other websites/services over
+                time — addressed in Section 10: Rizzuno is not aware of this occurring through its use of the
+                providers in Section 8, and does not integrate any service for that purpose.
+              </li>
+            </ul>
+          </section>
+
           <section id="changes">
-            <h2 className="text-[16px] font-semibold">17. Changes to this policy</h2>
+            <h2 className="text-[16px] font-semibold">21. Changes to this policy</h2>
             <p className="mt-2 text-muted">
               When we make a material change to this policy, we update the version and date at the top of this
               page, and accounts that previously accepted an older version are asked to review and accept the
@@ -355,12 +483,17 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="contact">
-            <h2 className="text-[16px] font-semibold">18. Contact</h2>
-            <p className="mt-2 text-muted">
-              {LEGAL_CONFIG.contactEmail
-                ? `Questions about this Privacy Policy, or requests relating to your data, can be sent to ${LEGAL_CONFIG.contactEmail}.`
-                : legalValue(null, "a contact address for privacy questions or data requests")}
-            </p>
+            <h2 className="text-[16px] font-semibold">22. Contact</h2>
+            {LEGAL_CONFIG.contactEmail ? (
+              <p className="mt-2 text-muted">
+                Questions about this Privacy Policy, or requests relating to your data, can be sent to{" "}
+                {LEGAL_CONFIG.contactEmail}.
+              </p>
+            ) : (
+              <p className="mt-2 text-muted">
+                A dedicated contact address for privacy questions or data requests is not yet published here.
+              </p>
+            )}
             <p className="mt-2 text-muted">
               See also our{" "}
               <Link href="/terms" className="underline underline-offset-2 hover:text-accent">

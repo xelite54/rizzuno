@@ -27,12 +27,38 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // a material change, so accounts that already accepted "2026-08-23" are
   // asked again too.
   //
-  // Bumped again same day (2026-08-23c): eligibility sections (Terms §2/§12,
-  // Privacy §13) updated to match the same "18, or local age of majority if
-  // higher" standard now stated at sign-in and in the affirmation checkbox
-  // — also material. None of these bumps touch or remove any prior
-  // acceptance row (see lib/db.ts's recordAcceptance/hasAcceptedCurrent) —
-  // this list only changes what counts as "current" going forward.
-  { document: "terms", version: "2026-08-23c" },
-  { document: "privacy", version: "2026-08-23c" },
+  // Bumped 2026-08-23c: eligibility sections (Terms §2/§12, Privacy §13)
+  // updated to match the same "18, or local age of majority if higher"
+  // standard now stated at sign-in and in the affirmation checkbox — also
+  // material.
+  //
+  // Bumped 2026-08-24: the U.S.-launch legal-accuracy pass — restructured
+  // Terms to 44 sections (added a narrow user-content license grant, a "no
+  // business relationship" clause, and a survival clause; fixed "another
+  // signed-in adult user" to describe an age *affirmation*, not
+  // verification; fixed the image-content-filtering overclaim; added
+  // WebRTC/IP-exposure disclosure) and restructured Privacy to 22 sections
+  // (corrected the profile-data claim to distinguish browser-only fields
+  // from the ones the realtime server transiently processes for
+  // matchmaking/display; removed "not stored, anywhere, ever"; added Do Not
+  // Track/GPC, data-sale, U.S. state privacy rights, and CalOPPA sections).
+  // Both are material changes, so every account with a prior acceptance
+  // record is asked again.
+  //
+  // Bumped 2026-08-24b: finalized the age-eligibility language specifically
+  // — Terms §2 now uses "represent and warrant" contractual language and
+  // explicitly states Google Sign-In authenticates the account but does not
+  // verify age; Terms §12 adds that parental permission doesn't apply, that
+  // knowingly facilitating an ineligible user's access is prohibited, and
+  // that Rizzuno may suspend/terminate an account it reasonably believes is
+  // ineligible; Privacy §15 explicitly distinguishes the user-supplied age
+  // declaration from what Google Sign-In actually supplies. Still no
+  // government-ID, biometric, facial-age-estimation, or other third-party
+  // age-verification technology — self-attestation only. Material change,
+  // so every account with a prior acceptance record is asked again. None of
+  // these bumps touch or remove any prior acceptance row (see lib/db.ts's
+  // recordAcceptance/hasAcceptedCurrent) — this list only changes what
+  // counts as "current" going forward.
+  { document: "terms", version: "2026-08-24b" },
+  { document: "privacy", version: "2026-08-24b" },
 ]

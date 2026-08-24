@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Rizzuno's rules for how to treat the people you're matched with, and how reporting and blocking work.",
 }
 
-const LAST_UPDATED = "August 23, 2026"
+const LAST_UPDATED = "August 24, 2026"
 
 export default function CommunityGuidelinesPage() {
   return (
@@ -19,23 +19,25 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="text-[16px] font-semibold">Be an adult about it</h2>
           <p className="mt-2 text-muted">
-            Rizzuno is 18+ only — you must be at least 18, or the age of majority where you live if that&apos;s
-            older, whichever is higher. Every match is a stranger — someone you don&apos;t know anything about
-            beyond what they choose to show you. Treat them the way you&apos;d want to be treated by a stranger.
+            Rizzuno is for users who are at least 18, or the higher age of majority where they live. If you do not
+            meet that requirement, you may not use Rizzuno. Every match is a stranger — someone you don&apos;t know
+            anything about beyond what they choose to show you. Treat them the way you&apos;d want to be treated by
+            a stranger.
           </p>
         </section>
 
         <section>
           <h2 className="text-[16px] font-semibold">Not allowed, ever</h2>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-            <li>Not meeting Rizzuno&apos;s eligibility age (18, or the age of majority where you live if higher), or helping someone who doesn&apos;t use Rizzuno.</li>
+            <li>Not meeting Rizzuno&apos;s eligibility age (18, or the age of majority where you live if higher), or knowingly helping someone who doesn&apos;t use Rizzuno.</li>
+            <li>Misrepresenting your own eligibility to use Rizzuno.</li>
             <li>Nudity or sexual activity involving anyone who hasn&apos;t consented.</li>
             <li>
               Any sexual content involving, or appearing to involve, a minor — this is treated as an absolute,
               zero-tolerance violation, and may be reported to appropriate authorities where required or permitted
               by law.
             </li>
-            <li>Grooming, exploitation, or sexualizing anyone who may be a minor.</li>
+            <li>Grooming, exploitation, sexualizing, or soliciting anyone who may be a minor.</li>
             <li>Harassment, bullying, or stalking.</li>
             <li>Threats of any kind.</li>
             <li>Hate speech, or content that demeans people based on who they are.</li>
@@ -92,11 +94,12 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="text-[16px] font-semibold">Automated filtering — what it does and doesn&apos;t do</h2>
           <p className="mt-2 text-muted">
-            In-call chat text and profile fields pass through a basic keyword filter for the most severe content
-            before being shown. This catches obvious, blatant cases — it does not understand context, doesn&apos;t
-            catch everything, and is not a substitute for reporting. Live video and audio are not automatically
-            monitored, recorded, screened, or reviewed by Rizzuno; moderation of what happens on a call depends on
-            someone reporting it.
+            In-call chat text and the username you choose pass through a basic keyword filter for the most severe
+            content before being shown. This catches obvious, blatant cases — it does not understand context,
+            doesn&apos;t catch everything, and is not a substitute for reporting. Images sent in chat are checked
+            only for file type and size, not for their content — nothing scans what&apos;s actually in an image.
+            Live video and audio are not automatically monitored, recorded, screened, or reviewed by Rizzuno;
+            moderation of what happens on a call depends on someone reporting it.
           </p>
         </section>
 

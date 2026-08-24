@@ -204,7 +204,6 @@ export function MatchStage() {
     declineRequest,
     removeFriend,
     blockPerson,
-    unblockPerson,
     dismissToast,
   } = useFriends()
   const [unreadMessages, setUnreadMessages] = useState(0)
@@ -405,7 +404,6 @@ export function MatchStage() {
         handle={myProfile.handle}
         history={history}
         blockedUsers={blockedUsers}
-        onUnblockPerson={unblockPerson}
         onSignOut={() => signOut({ callbackUrl: "/" })}
         onAccountDeleted={() => {
           myProfile.resetLocalProfile()

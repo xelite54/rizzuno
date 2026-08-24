@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Practical safety guidance for meeting strangers on live video through Rizzuno.",
 }
 
-const LAST_UPDATED = "August 23, 2026"
+const LAST_UPDATED = "August 24, 2026"
 
 export default function SafetyPage() {
   return (
@@ -22,11 +22,13 @@ export default function SafetyPage() {
         <section>
           <h2 className="text-[16px] font-semibold">You&apos;re talking to a stranger</h2>
           <p className="mt-2 text-muted">
-            Every match on Rizzuno is someone you&apos;ve never spoken to before, matched at random. Rizzuno confirms
-            an account affirmed it belongs to an adult and is signed in with a Google account — that&apos;s it. We
-            don&apos;t verify anyone&apos;s real identity, age, intentions, or honesty beyond that affirmation, and
-            we can&apos;t guarantee any of those things about the person you&apos;re matched with. Use the same
-            judgment you&apos;d use with any stranger.
+            Every match on Rizzuno is someone you&apos;ve never spoken to before, matched at random. Every Rizzuno
+            user is required to affirm that they meet Rizzuno&apos;s age requirement before matching, and is
+            signed in with a Google account — that&apos;s it. Rizzuno does not independently verify each
+            user&apos;s actual age, identity, intentions, or honesty beyond that affirmation, so you should not
+            assume another user&apos;s age or identity has been verified, and Rizzuno can&apos;t guarantee any of
+            those things about the person you&apos;re matched with. Use the same judgment you&apos;d use with any
+            stranger.
           </p>
         </section>
 
