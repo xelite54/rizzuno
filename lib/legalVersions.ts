@@ -70,10 +70,20 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // now ends with the underlying use, with a narrow carve-out only for
   // material that's part of a retained record. Terms §41 no longer calls
   // the Safety page's guidance independently contractual. Material change,
-  // so every account with a prior acceptance record is asked again. None of
-  // these bumps touch or remove any prior acceptance row (see lib/db.ts's
+  // so every account with a prior acceptance record is asked again.
+  //
+  // Bumped 2026-08-24d: removed self-service account deletion as a product
+  // feature entirely (the "Delete account" control in My Profile, and
+  // POST /api/account/delete — see lib/db.ts, which no longer exports
+  // deleteAccount()). Terms §27 and Privacy §13 no longer describe a
+  // self-service deletion control that doesn't exist; both now point to
+  // the published contact email for privacy/deletion requests instead.
+  // Privacy §18's rights list no longer claims "Delete your account" as a
+  // current control. Material change, so every account with a prior
+  // acceptance record is asked again. None of these bumps touch or remove
+  // any prior acceptance row (see lib/db.ts's
   // recordAcceptance/hasAcceptedCurrent) — this list only changes what
   // counts as "current" going forward.
-  { document: "terms", version: "2026-08-24c" },
-  { document: "privacy", version: "2026-08-24c" },
+  { document: "terms", version: "2026-08-24d" },
+  { document: "privacy", version: "2026-08-24d" },
 ]

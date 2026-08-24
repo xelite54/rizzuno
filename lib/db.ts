@@ -159,22 +159,6 @@ export async function clearModeration(userId: string) {
   )
 }
 
-/**
- * Deletes/anonymizes what little personal data exists for this account.
- * Deliberately does NOT touch banned_at/ban_reason — a real ban is retained
- * for enforcement (spec: "except information legitimately retained for
- * security, fraud prevention, legal obligations, or enforcement"), and
- * because identity here is the Google account's own stable id, deleting and
- * re-signing-in with the same Google account cannot itself evade a ban.
- * Blocks and legal-acceptance history are also retained (the former is
- * moot once the account can't sign in again with a *different* status; the
- * latter is a legal record of what was agreed to and when).
- */
-export async function deleteAccount(userId: string) {
-  await ensureUser(userId)
-  await q(`UPDATE users SET deleted_at = $1 WHERE id = $2`, [now(), userId])
-}
-
 export { REQUIRED_DOCUMENTS }
 
 export async function hasAcceptedCurrent(userId: string): Promise<boolean> {

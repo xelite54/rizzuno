@@ -18,8 +18,6 @@ type MyProfileSheetProps = {
   blockedUsers: BlockedUser[]
   /** Destroys the real Auth.js session. Profile data itself is untouched — it's keyed by the account's stable id (see useMyProfile.ts), so signing back in with the same Google account restores it. */
   onSignOut: () => void
-  /** Called after the server confirms account deletion — clears the locally-stored profile (it's the browser's copy to clear; the server holds almost none of it, see lib/db.ts) and then signs out. */
-  onAccountDeleted: () => void
   open: boolean
   onClose: () => void
   // Profile photo, username, bio, and posts are owned by MatchStage (via
@@ -49,7 +47,6 @@ export function MyProfileSheet({
   history,
   blockedUsers,
   onSignOut,
-  onAccountDeleted,
   open,
   onClose,
   profilePhoto,
@@ -72,10 +69,8 @@ export function MyProfileSheet({
   const [viewingPost, setViewingPost] = useState<Post | null>(null)
   // Deleting a post needs a second tap to confirm before it actually happens.
   const [confirmingDeletePost, setConfirmingDeletePost] = useState(false)
-  // Same for signing out and for deleting the account — both need a second tap.
+  // Same for signing out — needs a second tap too.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
-  const [confirmingDeleteAccount, setConfirmingDeleteAccount] = useState(false)
-  const [deleteBusy, setDeleteBusy] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
   // Outgoing friend requests sent from History — local-only, like everything
   // else here, and separate from the incoming requests the Friends panel
@@ -185,20 +180,6 @@ export function MyProfileSheet({
     } finally {
       setExportBusy(false)
     }
-  }
-
-  async function handleDeleteAccount() {
-    setDeleteBusy(true)
-    try {
-      const res = await fetch("/api/account/delete", { method: "POST" })
-      if (res.ok) {
-        onAccountDeleted()
-        return
-      }
-    } catch {
-      // Fall through — leave the confirm dialog up so it's obvious it didn't work.
-    }
-    setDeleteBusy(false)
   }
 
   // Tapping a history row's background opens that person's full profile —
@@ -349,39 +330,6 @@ export function MyProfileSheet({
                     <span>Download my data</span>
                     <span className="text-[12px] text-muted">{exportBusy ? "Preparing…" : "Export"}</span>
                   </button>
-
-                  {confirmingDeleteAccount ? (
-                    <div className="mt-1 rounded-xl bg-surface-2 p-3">
-                      <p className="text-[12px] leading-relaxed text-muted">
-                        Delete your account? This removes your stored Rizzuno account data. It can&apos;t be undone.
-                      </p>
-                      <div className="mt-2.5 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingDeleteAccount(false)}
-                          className="flex-1 rounded-lg border border-border py-2 text-[13px] font-medium text-muted transition hover:bg-surface hover:text-foreground"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleDeleteAccount}
-                          disabled={deleteBusy}
-                          className="flex-1 rounded-lg bg-danger py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
-                        >
-                          {deleteBusy ? "Deleting…" : "Delete account"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmingDeleteAccount(true)}
-                      className="mt-1 w-full rounded-xl px-1 py-2.5 text-left text-[13px] font-medium text-danger transition hover:bg-surface-2"
-                    >
-                      Delete account
-                    </button>
-                  )}
                 </div>
 
                 <div className="mt-8">

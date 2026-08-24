@@ -25,7 +25,7 @@ const SECTIONS = [
   { id: "tracking", label: "10. Online tracking, Do Not Track & GPC" },
   { id: "sale", label: "11. Data sale & targeted advertising" },
   { id: "retention", label: "12. Data retention" },
-  { id: "deletion", label: "13. Account deletion" },
+  { id: "deletion", label: "13. Privacy and deletion requests" },
   { id: "export", label: "14. Data export" },
   { id: "children", label: "15. 18+ users & age affirmation" },
   { id: "security", label: "16. Security" },
@@ -321,11 +321,6 @@ export default function PrivacyPolicyPage() {
               <li>
                 <strong className="text-foreground">Blocks</strong> — kept indefinitely; no feature currently removes a block once made (see Section 18).
               </li>
-              <li>
-                <strong className="text-foreground">Deleted accounts</strong> — see Section 13; deletion marks the account row deleted but does not erase
-                the legal-acceptance history, blocks, reports, moderation actions, or ban/suspension records tied to
-                it — those follow the retention behavior described above for their own category.
-              </li>
             </ul>
             <p className="mt-2 text-muted">
               Rizzuno has not yet adopted formal maximum retention periods for the categories above. Until it does,
@@ -334,26 +329,32 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="deletion">
-            <h2 className="text-[16px] font-semibold">13. Account deletion</h2>
+            <h2 className="text-[16px] font-semibold">13. Privacy and deletion requests</h2>
             <p className="mt-2 text-muted">
-              You can request deletion at any time from My Profile → Privacy &amp; data → Delete account. This marks
-              your account row deleted, which immediately prevents it from signing in to matchmake, chat, or call
-              again — deletion is not something you can undo yourself; using Rizzuno again means signing in with
-              your Google account to create a new one.
+              Rizzuno does not currently provide an automated, self-service account-deletion feature. To request
+              deletion of personal information associated with your Rizzuno account, or to make another privacy
+              request, contact{" "}
+              <a
+                href={`mailto:${LEGAL_CONFIG.contactEmail}`}
+                className="underline underline-offset-2 hover:text-accent"
+              >
+                {LEGAL_CONFIG.contactEmail}
+              </a>
+              . Requests will be evaluated and handled as required by applicable law.
             </p>
             <p className="mt-2 text-muted">
-              Deletion does <strong className="text-foreground">not</strong> automatically erase every record
-              Rizzuno currently retains about the account. Consistent with Section 12, the following are retained
-              even after deletion, for the enforcement, abuse/fraud-prevention, security, and legal-recordkeeping
-              purposes described there: legal-acceptance history, blocks the account made, reports involving the
-              account (whether it filed them or was reported), moderation actions taken against it, and any
-              ban/suspension record. Deletion does not, by itself, remove any of these.
+              Some information may need to be retained even after a request is honored, where permitted or required
+              for legitimate purposes such as security, abuse/fraud prevention, enforcement, dispute handling, or
+              maintaining legal-acceptance records — consistent with Section 12. Rizzuno does not promise that every
+              record will always be deleted, and does not commit to a specific response or deletion deadline unless
+              applicable law actually requires one.
             </p>
             <p className="mt-2 text-muted">
-              Deleting your account on a given device also clears that device&apos;s locally stored profile data for
-              the account. Any other browser or device that separately stored a local copy of your profile keeps
-              that copy until you clear it there too — deletion isn&apos;t something Rizzuno&apos;s server can reach
-              into another browser and do for you, since that data was never sent to the server.
+              Your profile information (username, gender, bio, photo, posts) is stored only in your own browser (see
+              Section 4) — you can remove it yourself at any time by editing or clearing your profile in the app, or
+              by clearing Rizzuno&apos;s site data in that browser. Because this data was never sent to Rizzuno&apos;s
+              server, Rizzuno has no way to remotely clear it from a browser or device other than the one you&apos;re
+              using.
             </p>
           </section>
 
@@ -428,7 +429,6 @@ export default function PrivacyPolicyPage() {
             <p className="mt-2 text-muted">These are the controls Rizzuno actually provides today, and exactly what each one does:</p>
             <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
               <li><strong className="text-foreground">Download your data</strong> — see Section 14.</li>
-              <li><strong className="text-foreground">Delete your account</strong> — see Section 13.</li>
               <li>
                 <strong className="text-foreground">Block</strong> — enforced server-side; as currently built, Rizzuno does not provide a way to
                 reverse a block once made — we do not promise an &ldquo;unblock&rdquo; capability that doesn&apos;t
@@ -437,6 +437,10 @@ export default function PrivacyPolicyPage() {
               <li><strong className="text-foreground">Report</strong> — sent to human moderation for review; never shown to the reported user.</li>
               <li><strong className="text-foreground">Edit or clear your local profile</strong> — directly, any time, from My Profile.</li>
             </ul>
+            <p className="mt-2 text-muted">
+              Rizzuno does not currently offer a self-service account-deletion control. Eligible privacy or
+              deletion requests can be submitted through the contact information in Section 13.
+            </p>
           </section>
 
           <section id="state-rights">
@@ -454,11 +458,17 @@ export default function PrivacyPolicyPage() {
             <p className="mt-2 text-muted">
               As described in Section 11, Rizzuno does not sell personal information and does not use personal
               information for targeted advertising, so opt-out rights tied to sale or targeted advertising describe
-              a choice Rizzuno&apos;s current practices don&apos;t require you to make. For any right that may apply
-              to you, you may submit a request through the contact information in Section 22, once it&apos;s
-              published — Rizzuno will handle eligible requests consistent with applicable law. Rizzuno does not
-              currently offer a dedicated self-service rights-request tool beyond the account controls in Section
-              18.
+              a choice Rizzuno&apos;s current practices don&apos;t require you to make. Where applicable law gives
+              you a deletion or other privacy right, you may submit a request through{" "}
+              <a
+                href={`mailto:${LEGAL_CONFIG.contactEmail}`}
+                className="underline underline-offset-2 hover:text-accent"
+              >
+                {LEGAL_CONFIG.contactEmail}
+              </a>{" "}
+              (see Section 13) — Rizzuno will handle eligible requests consistent with applicable law. Rizzuno does
+              not currently offer a dedicated self-service rights-request tool beyond the account controls in
+              Section 18.
             </p>
           </section>
 

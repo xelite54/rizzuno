@@ -405,10 +405,6 @@ export function MatchStage() {
         history={history}
         blockedUsers={blockedUsers}
         onSignOut={() => signOut({ callbackUrl: "/" })}
-        onAccountDeleted={() => {
-          myProfile.resetLocalProfile()
-          signOut({ callbackUrl: "/" })
-        }}
         open={myProfileOpen}
         onClose={() => setMyProfileOpen(false)}
         profilePhoto={myProfile.profilePhoto}

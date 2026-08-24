@@ -92,22 +92,6 @@ export function useMyProfile() {
     }
   }, [userId, hydrated, profilePhoto, username, gender, bio, posts])
 
-  /** Wipes this browser's copy of the profile for the current account — used after a confirmed account deletion (see MyProfileSheet's "Delete account"). */
-  function resetLocalProfile() {
-    if (userId) {
-      try {
-        window.localStorage.removeItem(STORAGE_PREFIX + userId)
-      } catch {
-        // Nothing more to do if storage itself is unavailable.
-      }
-    }
-    setProfilePhoto(null)
-    setUsername("")
-    setGender(null)
-    setBio("")
-    setPosts([])
-  }
-
   return {
     handle,
     profilePhoto,
@@ -120,6 +104,5 @@ export function useMyProfile() {
     setBio,
     posts,
     setPosts,
-    resetLocalProfile,
   }
 }

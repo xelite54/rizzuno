@@ -39,7 +39,7 @@ const SECTIONS = [
   { id: "moderation", label: "24. Moderation" },
   { id: "enforcement", label: "25. Warnings, suspensions & bans" },
   { id: "enforcement-limits", label: "26. Enforcement limitations" },
-  { id: "deletion", label: "27. Account deletion" },
+  { id: "deletion", label: "27. Stopping use and privacy requests" },
   { id: "availability", label: "28. Service availability" },
   { id: "network-limits", label: "29. WebRTC & network limitations" },
   { id: "third-party", label: "30. Third-party infrastructure" },
@@ -364,8 +364,8 @@ export default function TermsOfServicePage() {
               record, a temporary suspension, or a permanent ban, at Rizzuno&apos;s discretion. Rizzuno may also
               take any of these actions, or otherwise discontinue your access, for any other reason at its
               discretion, including suspected abuse, fraud, or risk to other users — with or without a prior report.
-              A ban or suspension record tied to an account is retained even if the account is later deleted, so
-              it isn&apos;t erased by deleting and re-registering.
+              A ban or suspension record tied to an account is retained regardless of the account&apos;s status, and
+              is not something signing out or requesting deletion of your other data can erase — see Section 27.
             </p>
           </section>
 
@@ -381,17 +381,24 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="deletion">
-            <h2 className="text-[16px] font-semibold">27. Account deletion</h2>
+            <h2 className="text-[16px] font-semibold">27. Stopping use and privacy requests</h2>
             <p className="mt-2 text-muted">
-              You can delete your account at any time from My Profile → Privacy &amp; data → Delete account. This
-              marks your account deleted and prevents it from signing back in to match, chat, or call — but a
-              genuine ban or suspension tied to that account, and its legal-acceptance history, are retained even
-              after deletion, for enforcement and legal-record purposes (see our{" "}
+              You may stop using Rizzuno at any time — signing out or simply not signing back in is enough; Rizzuno
+              does not currently provide an automated, self-service account-deletion control. Signing out only ends
+              your session; it does not delete anything. Deleting the Google account you used to sign in is a
+              separate action Google handles, and does not itself delete or affect the records Rizzuno holds about
+              your account.
+            </p>
+            <p className="mt-2 text-muted">
+              To request deletion of personal information associated with your Rizzuno account, or to make another
+              privacy request, use the contact information in our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
               </Link>
-              ). Deletion clears your locally stored profile on the device you delete from; any other browser or
-              device that separately stored a copy keeps it until cleared there too.
+              . Requests are evaluated and handled as required by applicable law. Rizzuno may retain certain records
+              — such as legal-acceptance history, blocks, reports, moderation actions, or a ban/suspension record —
+              where permitted or required for security, enforcement, abuse/fraud prevention, legal compliance, or
+              other legitimate purposes described in the Privacy Policy.
             </p>
           </section>
 
