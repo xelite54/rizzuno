@@ -10,7 +10,14 @@ type SignInLandingProps = {
   errorMessage?: string | null
 }
 
-/** Shown on the match side before the guest signs in — nothing about the app works yet until they do. */
+/**
+ * Shown on the match side before the guest signs in — nothing about the app
+ * works yet until they do. This is also, functionally, Rizzuno's public
+ * homepage: signed-out visitors (including a Google OAuth reviewer) land
+ * here without needing to authenticate first, so it carries the app name,
+ * a plain-language description of what Rizzuno actually does, and visible
+ * links to every legal page — not just the sign-in button.
+ */
 export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
   return (
     <div className="flex h-full w-full flex-col items-start justify-center rounded-2xl bg-background px-7 py-6 sm:px-10">
@@ -23,15 +30,22 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
         <br />
         new.
       </h1>
+      <p className="mt-4 max-w-sm text-[14px] leading-relaxed text-muted">
+        Rizzuno is an adults-only live video chat service that randomly connects you one-on-one with another
+        user. Talk over live video and audio, exchange messages, and leave or report a conversation at any time.
+      </p>
+
       <button
         type="button"
         onClick={onSignIn}
-        className="mt-14 flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-foreground text-[15px] font-semibold text-background transition hover:brightness-95 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+        className="mt-8 flex h-14 w-full items-center justify-center gap-3 rounded-2xl bg-foreground text-[15px] font-semibold text-background transition hover:brightness-95 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
       >
         <GoogleIcon className="h-5 w-5" />
         Continue with Google
       </button>
-      {errorMessage && <p className="mt-3 text-[13px] text-danger">{errorMessage}</p>}
+      {errorMessage && (
+        <p className="mt-3 text-[13px] text-danger">{errorMessage}</p>
+      )}
 
       <p className="mt-4 text-[12px] font-semibold text-foreground">18+ only</p>
       <p className="mt-3 text-[12px] text-muted">
@@ -45,6 +59,21 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
         </Link>
         .
       </p>
+
+      <nav aria-label="Legal" className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted">
+        <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
+          Terms
+        </Link>
+        <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
+          Privacy
+        </Link>
+        <Link href="/community-guidelines" className="underline underline-offset-2 hover:text-foreground">
+          Community Guidelines
+        </Link>
+        <Link href="/safety" className="underline underline-offset-2 hover:text-foreground">
+          Safety
+        </Link>
+      </nav>
     </div>
   )
 }

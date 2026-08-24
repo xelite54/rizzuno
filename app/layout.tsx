@@ -14,8 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rizzuno",
-  description: "Meet someone new. Talk. Swipe left for the next person.",
+  title: "Rizzuno — Live Video Chat",
+  description:
+    "Rizzuno is an adults-only service for random one-on-one live video and audio conversations.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
