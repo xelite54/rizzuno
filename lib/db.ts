@@ -287,6 +287,37 @@ export async function getAcceptanceHistory(userId: string) {
   return rows.map((r) => ({ ...r, accepted_at: Number(r.accepted_at) }))
 }
 
+export type ClaimUsernameResult = { ok: true } | { ok: false; reason: "taken" }
+
+/**
+ * Claims a username for this account, permanently and uniquely — once
+ * claimed, no other account can take it, including after this account
+ * stops using it (there's no self-service deletion that would free it up;
+ * see app/api/account/delete's removal). Callers pass an already-lowercased,
+ * already-format-validated username (see USERNAME_PATTERN in
+ * app/api/profile/username/route.ts) — this function only enforces
+ * uniqueness, not format.
+ *
+ * The real safety net against a race — two people submitting the same
+ * available username at the same moment — is the UNIQUE index added in
+ * migration 0003, not any pre-check here: this just attempts the UPDATE and
+ * reports "taken" if Postgres itself rejects it with a unique-violation
+ * (error code 23505), which is correct under concurrency in a way a
+ * check-then-write ever only approximates.
+ */
+export async function claimUsername(userId: string, username: string): Promise<ClaimUsernameResult> {
+  await ensureUser(userId)
+  try {
+    await q(`UPDATE users SET username = $1 WHERE id = $2`, [username, userId])
+    return { ok: true }
+  } catch (err) {
+    if ((err as { code?: string }).code === "23505") {
+      return { ok: false, reason: "taken" }
+    }
+    throw err
+  }
+}
+
 export async function addBlock(blockerId: string, blockedId: string) {
   await ensureUser(blockerId)
   await ensureUser(blockedId)
@@ -413,9 +444,16 @@ export async function resolveReport(
   }
 }
 
+/** The only profile field the database actually holds (see migration 0003 and claimUsername()) — kept separate from getUserStatus() so that hot enforcement path's query/shape stays exactly what it's always been for its many other callers (ticket minting, WS "hello", legal/accept). */
+export async function getUsername(userId: string): Promise<string | null> {
+  const { rows } = await q<{ username: string | null }>(`SELECT username FROM users WHERE id = $1`, [userId])
+  return rows[0]?.username ?? null
+}
+
 export async function exportUserData(userId: string) {
-  const [status, acceptance, blocked, reportsFiled] = await Promise.all([
+  const [status, username, acceptance, blocked, reportsFiled] = await Promise.all([
     getUserStatus(userId),
+    getUsername(userId),
     getAcceptanceHistory(userId),
     listBlockedByUser(userId),
     q<{ category: string; status: string; created_at: string }>(
@@ -426,6 +464,7 @@ export async function exportUserData(userId: string) {
   return {
     accountId: userId,
     accountStatus: status,
+    username,
     legalAcceptanceHistory: acceptance,
     usersYouBlocked: blocked,
     reportsYouFiled: reportsFiled,

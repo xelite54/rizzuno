@@ -20,15 +20,17 @@ export function SelfPanel({ stream, status, cameraEnabled }: SelfPanelProps) {
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-surface px-8 text-center">
           {status === "denied" ? (
-            <p className="text-sm text-muted">Camera access was blocked. Enable it in your browser settings to be seen.</p>
+            <p className="text-sm text-muted">
+              Camera access was blocked. Enable it in your browser settings to be seen and start matching.
+            </p>
           ) : status === "unavailable" ? (
-            <p className="text-sm text-muted">No camera detected on this device.</p>
+            <p className="text-sm text-muted">No camera detected on this device. A camera is required to match.</p>
           ) : status === "granted" && !cameraEnabled ? (
             <>
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/15">
                 <CameraOffIcon className="h-6 w-6 text-danger" />
               </div>
-              <p className="text-sm text-muted">Camera is off</p>
+              <p className="text-sm text-muted">Camera is off — turn it back on to start matching</p>
             </>
           ) : (
             <p className="text-sm text-muted">Turning on your camera…</p>

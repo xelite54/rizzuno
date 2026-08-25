@@ -8,21 +8,46 @@ type ChooseUsernameProps = {
 
 /**
  * One required step between signing in and entering the app — this is how
- * a real match will see you, so it isn't optional. No real backend to check
- * uniqueness against yet, so this only validates length — it doesn't claim
- * to know whether a username is actually taken.
+ * a real match will see you, so it isn't optional. Claims the username
+ * server-side (see app/api/profile/username) before calling `onChosen` —
+ * usernames are now permanently unique per lib/db.ts's `claimUsername()`,
+ * so this actually blocks one already taken by another account rather than
+ * just checking length/characters and hoping for the best.
  */
 export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
   const [value, setValue] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const cleaned = value.trim().toLowerCase()
   const tooShort = cleaned.length > 0 && cleaned.length < 3
   const valid = cleaned.length >= 3
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
-    if (!valid) return
-    onChosen(cleaned)
+    if (!valid || submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/profile/username", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: cleaned }),
+      })
+      if (res.ok) {
+        onChosen(cleaned)
+        return
+      }
+      if (res.status === 409) {
+        setError("That username is already taken — try another.")
+      } else {
+        setError("Something went wrong — try again.")
+      }
+    } catch {
+      setError("Something went wrong — try again.")
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -37,22 +62,32 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
             <input
               autoFocus
               value={value}
-              onChange={(event) => setValue(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 24))}
+              onChange={(event) => {
+                setValue(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 24))
+                // A prior "taken" error is about the value that produced
+                // it, not whatever's typed next — clear it the moment the
+                // field changes rather than leaving stale text on screen.
+                setError(null)
+              }}
               placeholder="username"
               className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground placeholder:text-muted focus:outline-none"
             />
           </div>
 
           <p className="mt-2 min-h-[16px] text-[12px]">
-            {tooShort && <span className="text-muted">At least 3 characters.</span>}
+            {error ? (
+              <span className="text-danger">{error}</span>
+            ) : (
+              tooShort && <span className="text-muted">At least 3 characters.</span>
+            )}
           </p>
 
           <button
             type="submit"
-            disabled={!valid}
+            disabled={!valid || submitting}
             className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-foreground text-[14px] font-semibold text-background transition-all duration-200 hover:-translate-y-px hover:brightness-95 active:translate-y-0 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:pointer-events-none disabled:opacity-40"
           >
-            Continue
+            {submitting ? "Checking…" : "Continue"}
           </button>
         </form>
       </div>

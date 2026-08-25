@@ -199,11 +199,13 @@ export default function TermsOfServicePage() {
           <section id="profiles-ugc">
             <h2 className="text-[16px] font-semibold">9. Profiles &amp; user-generated content</h2>
             <p className="mt-2 text-muted">
-              Your profile (username, gender, bio, photo, and any posts) is stored persistently only in your own
-              browser. Some fields — your username, gender, and profile photo — are also sent to Rizzuno&apos;s
-              realtime service while you&apos;re using it, so a current match can see them; your bio and posts are
-              never sent to Rizzuno&apos;s servers at all. You&apos;re solely responsible for what you put in your
-              profile. See our{" "}
+              Your username is claimed through Rizzuno&apos;s server and kept permanently unique — no two accounts
+              can hold the same one, checked and enforced when you first choose it and again if you ever change it
+              from My Profile. The rest of your profile (gender, bio, photo, and any posts) is stored persistently
+              only in your own browser. Your gender and profile photo, like your username, are also sent to
+              Rizzuno&apos;s realtime service while you&apos;re using it, so a current match can see them; your
+              bio and posts are never sent to Rizzuno&apos;s servers at all. You&apos;re solely responsible for
+              what you put in your profile, including your username. See our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
               </Link>{" "}

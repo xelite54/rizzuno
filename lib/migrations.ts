@@ -99,4 +99,27 @@ export const MIGRATIONS: Migration[] = [
         UNIQUE (user_id, document, version);
     `,
   },
+  {
+    // Adds server-side, permanently-unique usernames. Previously the
+    // username a person picks in ChooseUsername (and can later change from
+    // My Profile → Edit profile) was never sent to or stored by Rizzuno's
+    // server at all — client-side only, per lib/db.ts's own long-standing
+    // "no email, name, or profile content lives server-side" design, and
+    // per the Privacy Policy's Section 4 (now updated to reflect this
+    // change — see the accompanying legal-version bump). This migration is
+    // a deliberate, narrow exception to that design specifically for
+    // uniqueness: the column holds nothing but the lowercase username
+    // itself, tied to the same account id everything else here already
+    // uses, so a real match is never shown two different people claiming
+    // to be the same handle.
+    //
+    // Nullable — not every account has picked a username yet — and a plain
+    // Postgres UNIQUE index already treats multiple NULLs as non-colliding,
+    // so accounts mid-onboarding never conflict with each other.
+    id: "0003_users_username",
+    sql: `
+      ALTER TABLE users ADD COLUMN username TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username);
+    `,
+  },
 ]

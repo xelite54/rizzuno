@@ -63,6 +63,8 @@ export function MyProfileSheet({
   const [view, setView] = useState<View>("profile")
   const [editPhotoDraft, setEditPhotoDraft] = useState<string | null>(null)
   const [editUsernameDraft, setEditUsernameDraft] = useState("")
+  const [usernameError, setUsernameError] = useState<string | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
   const [editGenderDraft, setEditGenderDraft] = useState<Gender | null>(null)
   const [editBioDraft, setEditBioDraft] = useState("")
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
@@ -100,6 +102,7 @@ export function MyProfileSheet({
     setEditUsernameDraft(username)
     setEditGenderDraft(gender)
     setEditBioDraft(bio)
+    setUsernameError(null)
     setView("edit")
   }
 
@@ -114,9 +117,42 @@ export function MyProfileSheet({
     }
   }
 
-  function saveEdit() {
+  // A username claim is permanent and server-enforced the same way the
+  // first pick in ChooseUsername is (see app/api/profile/username) — a
+  // rename here goes through the same endpoint, only when the trimmed
+  // value actually differs from the account's current username, so editing
+  // your photo or bio alone never re-triggers a claim of the name you
+  // already own.
+  async function saveEdit() {
+    if (savingEdit) return
+    const trimmed = editUsernameDraft.trim().toLowerCase()
+    setUsernameError(null)
+
+    if (trimmed && trimmed !== username) {
+      setSavingEdit(true)
+      try {
+        const res = await fetch("/api/profile/username", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: trimmed }),
+        })
+        if (!res.ok) {
+          setUsernameError(
+            res.status === 409 ? "That username is already taken — try another." : "Couldn't save username — try again."
+          )
+          setSavingEdit(false)
+          return
+        }
+      } catch {
+        setUsernameError("Couldn't save username — try again.")
+        setSavingEdit(false)
+        return
+      }
+      setSavingEdit(false)
+    }
+
     setProfilePhoto(editPhotoDraft)
-    setUsername(editUsernameDraft.trim())
+    setUsername(trimmed || username)
     if (editGenderDraft) setGender(editGenderDraft)
     setBio(editBioDraft.trim())
     setView("profile")
@@ -406,13 +442,15 @@ export function MyProfileSheet({
                     <span className="text-[13px] text-muted">@</span>
                     <input
                       value={editUsernameDraft}
-                      onChange={(event) =>
+                      onChange={(event) => {
                         setEditUsernameDraft(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 24))
-                      }
+                        setUsernameError(null)
+                      }}
                       placeholder="username"
                       className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted focus:outline-none"
                     />
                   </div>
+                  {usernameError && <p className="mt-1.5 text-[12px] text-danger">{usernameError}</p>}
                 </div>
 
                 <div className="mt-6">
@@ -462,9 +500,10 @@ export function MyProfileSheet({
                 <button
                   type="button"
                   onClick={saveEdit}
-                  className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110"
+                  disabled={savingEdit}
+                  className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                 >
-                  Save
+                  {savingEdit ? "Saving…" : "Save"}
                 </button>
               </div>
             )}

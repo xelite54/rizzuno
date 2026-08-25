@@ -80,10 +80,19 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // the published contact email for privacy/deletion requests instead.
   // Privacy §18's rights list no longer claims "Delete your account" as a
   // current control. Material change, so every account with a prior
-  // acceptance record is asked again. None of these bumps touch or remove
-  // any prior acceptance row (see lib/db.ts's
-  // recordAcceptance/hasAcceptedCurrent) — this list only changes what
-  // counts as "current" going forward.
-  { document: "terms", version: "2026-08-24d" },
-  { document: "privacy", version: "2026-08-24d" },
+  // acceptance record is asked again.
+  //
+  // Bumped 2026-08-25: usernames are now claimed and enforced as
+  // permanently unique server-side (migration 0003_users_username;
+  // lib/db.ts's claimUsername(); POST /api/profile/username), a deliberate,
+  // narrow exception to the otherwise client-only profile design. Terms §9
+  // and Privacy §3/§4/§9/§12/§13/§14/§18 updated to reflect it — username is
+  // no longer described as browser-only, the database-contents list now
+  // includes it, retention now covers it, and the data export now includes
+  // it. Material change, so every account with a prior acceptance record is
+  // asked again. None of these bumps touch or remove any prior acceptance
+  // row (see lib/db.ts's recordAcceptance/hasAcceptedCurrent) — this list
+  // only changes what counts as "current" going forward.
+  { document: "terms", version: "2026-08-25" },
+  { document: "privacy", version: "2026-08-25" },
 ]
