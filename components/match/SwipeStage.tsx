@@ -28,8 +28,10 @@ type SwipeStageProps = {
   locked?: boolean
   /** Shown as a small secondary action under "Finding someone…" a few seconds in. */
   onPauseMatching?: () => void
-  /** Resuming from the paused state isn't a button — it's the same swipe-left gesture used to skip someone, so this fires off the end of that gesture instead. */
+  /** Resuming from the paused state isn't a button — it's the same swipe-left gesture used to skip someone, so this fires off the end of that gesture instead. Left undefined (by MatchStage, whenever there's no live camera track) to disable that gesture entirely rather than let it silently no-op. */
   onResume?: () => void
+  /** No live camera track right now — passed through to StatusPill so the idle/paused copy explains why nothing's happening instead of a generic message. */
+  cameraOff?: boolean
 }
 
 export function SwipeStage({
@@ -43,6 +45,7 @@ export function SwipeStage({
   locked = false,
   onPauseMatching,
   onResume,
+  cameraOff = false,
 }: SwipeStageProps) {
   const reduceMotion = useReducedMotion()
   const x = useMotionValue(0)
@@ -176,7 +179,9 @@ export function SwipeStage({
           peer
             ? `In a call with ${peer.username ?? peer.handle}. Press left arrow to meet someone new.`
             : matchState === "paused"
-              ? "Matching paused. Press left arrow to resume."
+              ? onResume
+                ? "Matching paused. Press left arrow to resume."
+                : "Matching paused. Turn on your camera to resume."
               : "Waiting for a match"
         }
         className="absolute inset-0 origin-bottom cursor-grab touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-accent-2 active:cursor-grabbing"
@@ -208,7 +213,7 @@ export function SwipeStage({
               {matchState === "paused" && onResume ? (
                 <PausedNotice />
               ) : (
-                <StatusPill state={matchState} onPauseMatching={onPauseMatching} />
+                <StatusPill state={matchState} cameraOff={cameraOff} onPauseMatching={onPauseMatching} />
               )}
             </motion.div>
           )}

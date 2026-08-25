@@ -231,15 +231,29 @@ export function MatchStage() {
   const hasGender = myProfile.gender !== null
   const onboarded = hasUsername && hasGender
 
-  // Spec §2: as soon as the guest is online, signed in, and fully onboarded,
-  // start looking — no manual "start" step beyond that.
+  // A live camera track is required to start matching — a match with no
+  // video on your end isn't the product this is, and there's no point
+  // burning through the queue (and showing up as a candidate to other
+  // people) while your own camera is off, blocked, or not yet granted.
+  // `videoTrack` (not just `cameraEnabled`, which stays `true` even while
+  // permission is denied or still pending) is null in every one of those
+  // cases and only set once a real track exists — see SelfPanel.tsx, which
+  // already uses the same fields to explain each of those states to the
+  // person themselves.
+  const cameraOff = !videoTrack
+
+  // Spec §2: as soon as the guest is online, signed in, fully onboarded,
+  // and their camera is actually on, start looking — no manual "start" step
+  // beyond that. Because `videoTrack` is a dependency here, turning the
+  // camera on *after* everything else was already ready still triggers
+  // this the moment it becomes available, not just at mount.
   const requested = useRef(false)
   useEffect(() => {
-    if (connected && signedIn && legalAccepted && onboarded && !restriction && !requested.current) {
+    if (connected && signedIn && legalAccepted && onboarded && !restriction && !cameraOff && !requested.current) {
       requested.current = true
       findMatch()
     }
-  }, [connected, signedIn, legalAccepted, onboarded, restriction, findMatch])
+  }, [connected, signedIn, legalAccepted, onboarded, restriction, cameraOff, findMatch])
 
   // A completed skip doesn't tear down the connection right away — it waits
   // out a short undo window first. The match stays genuinely live behind the
@@ -449,7 +463,8 @@ export function MatchStage() {
                 onSwipeComplete={handleSwipeComplete}
                 locked={pendingSkip !== null}
                 onPauseMatching={handlePauseMatching}
-                onResume={findMatch}
+                onResume={cameraOff ? undefined : findMatch}
+                cameraOff={cameraOff}
               />
               <SafetyMenu
                 disabled={!inCall}

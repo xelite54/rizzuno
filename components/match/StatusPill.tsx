@@ -3,22 +3,40 @@
 import { SearchingMark } from "./SearchingMark"
 import type { MatchState } from "@/hooks/useMatchmaking"
 
-const COPY: Record<MatchState, string> = {
-  idle: "Say hello to get started",
-  searching: "Finding someone…",
-  connecting: "Connecting…",
-  active: "",
-  "peer-left": "They left — finding someone new…",
-  paused: "",
-}
-
 type StatusPillProps = {
   state: MatchState
+  /** No live camera track right now — matching can't start (or resume) until there is one. Changes the idle/paused copy to say so, rather than a generic message that gives no indication anything's actually blocking it. */
+  cameraOff?: boolean
   onPauseMatching?: () => void
 }
 
-export function StatusPill({ state, onPauseMatching }: StatusPillProps) {
-  const label = COPY[state]
+// A function rather than a static lookup table — "idle" and "paused" both
+// need a second, camera-dependent answer, not just one label per state.
+function describeState(state: MatchState, cameraOff: boolean): string {
+  switch (state) {
+    case "idle":
+      // Matching starts on its own the instant a live camera track exists
+      // (see MatchStage's auto-start effect) — there's never a real action
+      // to prompt for here, only a reason it hasn't started yet.
+      return cameraOff ? "Turn on your camera to start matching" : "Getting ready…"
+    case "searching":
+      return "Finding someone…"
+    case "connecting":
+      return "Connecting…"
+    case "peer-left":
+      return "They left — finding someone new…"
+    case "paused":
+      // Only reached when paused *and* the camera's off — see SwipeStage,
+      // which shows PausedNotice instead whenever a real resume is
+      // possible (`onResume` is only passed down while the camera is on).
+      return cameraOff ? "Turn on your camera to resume matching" : ""
+    case "active":
+      return ""
+  }
+}
+
+export function StatusPill({ state, cameraOff = false, onPauseMatching }: StatusPillProps) {
+  const label = describeState(state, cameraOff)
   if (!label) return null
 
   return (
