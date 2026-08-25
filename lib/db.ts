@@ -46,39 +46,92 @@ function requirePool(): Pool {
   return pool
 }
 
-// Runs each pending migration at most once per database, guarded by a
-// Postgres advisory lock so multiple processes starting at the same moment
-// (several Vercel cold starts, or a Railway deploy racing a Vercel one)
-// don't try to run the same migration concurrently. Cached per process —
-// every exported function below awaits this before its first real query,
-// so nothing here needs its own "have we initialized yet" bookkeeping.
-const MIGRATION_LOCK_ID = 7264615 // arbitrary, fixed — just needs to be consistent across processes
+/**
+ * Formats a thrown value into the fields actually worth putting in a log
+ * line — `code` in particular, since node-postgres puts the real diagnostic
+ * signal there: a Postgres error code (e.g. `28P01` bad password, `3D000`
+ * database doesn't exist, `42P07` relation already exists) for a query that
+ * reached the server, or a plain Node network error code (`ECONNREFUSED`,
+ * `ENOTFOUND`, `ETIMEDOUT`) for one that never did. `console.error`ing a raw
+ * Error object alone tends to lose exactly this field in Vercel's log
+ * viewer; pulling it out explicitly is what actually makes "the database is
+ * unreachable" and "the database rejected this query" distinguishable at a
+ * glance instead of both just reading "Error".
+ */
+export function describeDbError(err: unknown): Record<string, unknown> {
+  if (err instanceof Error) {
+    const e = err as Error & { code?: string; detail?: string }
+    return { name: e.name, message: e.message, code: e.code, detail: e.detail }
+  }
+  return { err }
+}
+
+// Runs each pending migration at most once per database. Previously guarded
+// by a Postgres advisory lock (pg_advisory_lock/unlock) — that's a
+// session-scoped feature, and this pool's DATABASE_URL may well point at a
+// connection pooler in transaction mode (Supabase's pooled connection
+// string, commonly used specifically because Vercel's serverless functions
+// each open their own short-lived connection and would otherwise exhaust a
+// direct Postgres connection limit). Under transaction pooling, the backend
+// connection can be swapped out between two statements on what looks like
+// the same `client` — so a lock acquired by one statement isn't guaranteed
+// to still be held by the time a later statement on the same client runs,
+// and the unlock can end up running against a different backend than the
+// one that held it. That's a real, well-documented failure mode for this
+// exact shape of code, and if that's what production's DATABASE_URL is
+// pointed at, the old version of this function could hang, error, or leave
+// a lock nothing ever releases — with `q()` awaiting this before every
+// query, that takes every DB-backed endpoint down with it.
+//
+// This version needs no session-scoped state at all: each migration id is
+// claimed with a single atomic `INSERT ... ON CONFLICT DO NOTHING`, safe
+// under any pooling mode because it's one self-contained statement. Only
+// the process whose insert actually landed a row runs that migration's SQL;
+// every other concurrent process sees `rowCount === 0` and moves on. If the
+// migration SQL itself then fails, the claim is rolled back so a later
+// attempt retries it rather than skipping it forever.
 let migratedPromise: Promise<void> | null = null
 
 function ensureMigrated(): Promise<void> {
   if (!migratedPromise) {
     migratedPromise = (async () => {
-      const client = await requirePool().connect()
+      const db = requirePool()
       try {
-        await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID])
-        await client.query(
-          `CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at BIGINT NOT NULL)`
-        )
-        const { rows } = await client.query<{ id: string }>("SELECT id FROM schema_migrations")
-        const applied = new Set(rows.map((r) => r.id))
-        for (const migration of MIGRATIONS) {
-          if (applied.has(migration.id)) continue
-          await client.query(migration.sql)
-          await client.query("INSERT INTO schema_migrations (id, applied_at) VALUES ($1, $2)", [
-            migration.id,
-            Date.now(),
-          ])
+        await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at BIGINT NOT NULL)`)
+      } catch (err) {
+        console.error("db: failed to create schema_migrations table", describeDbError(err))
+        throw err
+      }
+
+      for (const migration of MIGRATIONS) {
+        let claimed = false
+        try {
+          const claim = await db.query<{ id: string }>(
+            `INSERT INTO schema_migrations (id, applied_at) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id`,
+            [migration.id, Date.now()]
+          )
+          claimed = (claim.rowCount ?? 0) > 0
+          if (!claimed) continue // already applied (or another process is applying it right now)
+          await db.query(migration.sql)
+        } catch (err) {
+          if (claimed) {
+            // Roll back the claim so this migration is retried next time,
+            // instead of being permanently marked "applied" when it never
+            // actually ran.
+            await db.query(`DELETE FROM schema_migrations WHERE id = $1`, [migration.id]).catch(() => {})
+          }
+          console.error(`db: migration "${migration.id}" failed`, describeDbError(err))
+          throw err
         }
-      } finally {
-        await client.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK_ID]).catch(() => {})
-        client.release()
       }
     })()
+    // A failed attempt shouldn't be cached forever as "the" migration
+    // result — the next call retries instead of replaying the same
+    // rejected promise for the lifetime of the process (e.g. after a
+    // transient connection blip during a cold start).
+    migratedPromise.catch(() => {
+      migratedPromise = null
+    })
   }
   return migratedPromise
 }
@@ -172,18 +225,42 @@ export async function hasAcceptedCurrent(userId: string): Promise<boolean> {
   return true
 }
 
-/** Appends acceptance records — never overwrites or deletes a prior one, so what a user agreed to on a given date is never rewritten after the fact. */
+/**
+ * Appends acceptance records — never overwrites or deletes a prior one, so
+ * what a user agreed to on a given date is never rewritten after the fact.
+ *
+ * Transactional (one client, BEGIN/COMMIT/ROLLBACK) so a mid-loop failure
+ * — the connection dropping after recording "age18" but before "terms",
+ * say — can't leave an account with only some of the three required
+ * documents recorded; either all of them land, or none do. And idempotent:
+ * `ON CONFLICT (user_id, document, version) DO NOTHING` (the unique
+ * constraint added in migration 0002) means calling this twice for the same
+ * already-current version — a client retry after a timed-out response whose
+ * request actually succeeded, for instance — can't create duplicate rows or
+ * otherwise change the outcome. It's still a real append-only history
+ * across different *versions*: accepting v1 today and v2 next month still
+ * produces two rows, one per version.
+ */
 export async function recordAcceptance(userId: string) {
   await ensureUser(userId)
   const ts = now()
-  for (const doc of REQUIRED_DOCUMENTS) {
-    await q(`INSERT INTO legal_acceptance (id, user_id, document, version, accepted_at) VALUES ($1, $2, $3, $4, $5)`, [
-      randomUUID(),
-      userId,
-      doc.document,
-      doc.version,
-      ts,
-    ])
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    for (const doc of REQUIRED_DOCUMENTS) {
+      await client.query(
+        `INSERT INTO legal_acceptance (id, user_id, document, version, accepted_at)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (user_id, document, version) DO NOTHING`,
+        [randomUUID(), userId, doc.document, doc.version, ts]
+      )
+    }
+    await client.query("COMMIT")
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw err
+  } finally {
+    client.release()
   }
 }
 

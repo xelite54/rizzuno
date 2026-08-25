@@ -17,6 +17,7 @@ import { IncomingFriendRequestToast } from "./IncomingFriendRequestToast"
 import { RequestProfileSheet } from "./RequestProfileSheet"
 import { SignInLanding } from "./SignInLanding"
 import { AgeGate } from "./AgeGate"
+import { LegalStatusError } from "./LegalStatusError"
 import { AccountRestricted } from "./AccountRestricted"
 import { ChooseUsername } from "./ChooseUsername"
 import { ChooseGender } from "./ChooseGender"
@@ -49,6 +50,29 @@ function describeAuthError(code: string): string {
       return "Something went wrong signing in — try again."
   }
 }
+
+// A plain `signIn("google", { callbackUrl: "/" })` navigates this entire tab
+// away to Google and back — a real page unload, which is why the camera/mic
+// permission granted on the pre-login screen looked like it was being asked
+// for again after signing in: the whole app (including useLocalMedia's live
+// stream) had actually been torn down and recreated from scratch. Running
+// the Google OAuth round trip inside a named popup instead means this tab —
+// and its already-granted camera stream — never unloads at all; only the
+// popup navigates. `window.name` (not React/component state) is what marks
+// a window as "the sign-in popup", because it's the one thing that survives
+// that window's own multiple cross-origin navigations (accounts.google.com,
+// then back to this app) — everything else about that window's JS state is
+// reset by each of those navigations.
+const SIGNIN_POPUP_NAME = "rizzuno-google-signin"
+const SIGNIN_POPUP_FEATURES = "width=480,height=680"
+// A same-origin BroadcastChannel, not `window.opener.postMessage` — Google's
+// own accounts.google.com pages are documented to send
+// `Cross-Origin-Opener-Policy: same-origin`, which severs the popup's
+// `window.opener` reference partway through the redirect the moment it
+// navigates there. BroadcastChannel doesn't depend on that reference at all
+// (same-origin pub/sub, keyed by name only), so it keeps working regardless.
+const SIGNIN_CHANNEL_NAME = "rizzuno-auth"
+type SignInPopupMessage = { ok: true } | { error: string }
 
 export function MatchStage() {
   const { stream, videoTrack, audioTrack, status, micEnabled, cameraEnabled, toggleMic, toggleCamera } =
@@ -90,7 +114,7 @@ export function MatchStage() {
   // refresh where Auth.js is still checking for an existing session cookie
   // — treated as neither signed in nor signed out, so the landing screen
   // doesn't flash on and off for people who are actually already signed in.
-  const { status: sessionStatus } = useSession()
+  const { status: sessionStatus, update: updateSession } = useSession()
   const signedIn = sessionStatus === "authenticated"
   const authLoading = sessionStatus === "loading"
 
@@ -102,7 +126,11 @@ export function MatchStage() {
 
   // Auth.js lands a failed/cancelled Google sign-in back on this page with
   // `?error=...` — read it once, show it, then scrub it from the URL so a
-  // refresh doesn't keep re-showing a stale error.
+  // refresh doesn't keep re-showing a stale error. Still needed for the
+  // fallback path below (a plain full-page redirect, used when the popup
+  // approach isn't available) — a sign-in that happened inside the popup
+  // reports its error via postMessage instead (see the listener further
+  // down), never through this tab's own URL.
   const [authError, setAuthError] = useState<string | null>(null)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -114,6 +142,85 @@ export function MatchStage() {
     const rest = params.toString()
     window.history.replaceState({}, "", rest ? `?${rest}` : window.location.pathname)
   }, [])
+
+  // If *this* window is the named sign-in popup (see SIGNIN_POPUP_NAME —
+  // `window.name` is what survives that window's own navigations through
+  // Google and back, unlike `window.opener`, which Google's own redirect can
+  // sever — see the note above), report the outcome to whichever tab opened
+  // it and close — the popup's own UI is never meant to be seen once
+  // Google's redirect lands it back here. The opener's `useSession`
+  // refetches automatically once the popup closes and focus returns to it
+  // anyway (next-auth's default `refetchOnWindowFocus`), but broadcasting
+  // the result explicitly (handled below) makes that update immediate
+  // instead of waiting on a focus event, and is the only way an *error*
+  // gets back to the opener at all, since this tab's own URL is where
+  // Auth.js put it. `window.close()` itself is attempted regardless of
+  // whether BroadcastChannel exists — a script closing a window it opened
+  // isn't governed by COOP the way `window.opener` access is.
+  useEffect(() => {
+    if (typeof window === "undefined" || window.name !== SIGNIN_POPUP_NAME) return
+    const params = new URLSearchParams(window.location.search)
+    const error = params.get("error")
+    if (!error && !signedIn) return
+
+    const message: SignInPopupMessage = error ? { error } : { ok: true }
+    if (typeof BroadcastChannel !== "undefined") {
+      const channel = new BroadcastChannel(SIGNIN_CHANNEL_NAME)
+      channel.postMessage(message)
+      channel.close()
+    }
+    try {
+      window.close()
+    } catch {
+      // Some browsers refuse to close a window under certain conditions —
+      // sign-in already succeeded either way; a leftover popup is cosmetic.
+    }
+  }, [signedIn])
+
+  // The opener side of the same handshake, listening on the same channel —
+  // deliberately not a `message` event / `window.opener` listener, for the
+  // same COOP reason noted above.
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return
+    const channel = new BroadcastChannel(SIGNIN_CHANNEL_NAME)
+    channel.onmessage = (event: MessageEvent<SignInPopupMessage>) => {
+      if ("ok" in event.data && event.data.ok) {
+        updateSession()
+      } else if ("error" in event.data && event.data.error) {
+        setAuthError(describeAuthError(event.data.error))
+      }
+    }
+    return () => channel.close()
+  }, [updateSession])
+
+  // Opens the popup synchronously (inside the click handler, before any
+  // `await`) so browsers' popup blockers — which only allow window.open
+  // during a direct user gesture — don't block it, then points it at
+  // Google's actual authorization URL once signIn's own CSRF round trip
+  // resolves it. Falls back to the previous full-tab redirect if the popup
+  // couldn't be opened (blocked, or a browser/context that doesn't support
+  // it) so sign-in still works everywhere — it just won't preserve the
+  // camera stream in that fallback case.
+  async function handleGoogleSignIn() {
+    const popup =
+      typeof window !== "undefined"
+        ? window.open("about:blank", SIGNIN_POPUP_NAME, SIGNIN_POPUP_FEATURES)
+        : null
+
+    if (!popup || popup.closed) {
+      await signIn("google", { callbackUrl: "/" })
+      return
+    }
+
+    popup.focus()
+    const res = await signIn("google", { redirect: false, callbackUrl: "/" })
+    if (res.url) {
+      popup.location.href = res.url
+    } else {
+      popup.close()
+      setAuthError(describeAuthError(res.error ?? ""))
+    }
+  }
 
   // Choosing a username, then a gender, is required right after signing in,
   // before matching starts — both are how a real match will actually see you.
@@ -316,13 +423,12 @@ export function MatchStage() {
         </div>
         <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-2xl border border-border">
           {authLoading ? null : !signedIn ? (
-            <SignInLanding
-              onSignIn={() => signIn("google", { callbackUrl: "/" })}
-              errorMessage={authError}
-            />
+            <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
           ) : restriction ? (
             <AccountRestricted restriction={restriction} onSignOut={() => signOut({ callbackUrl: "/" })} />
-          ) : legal.status === "checking" ? null : legal.status === "required" ? (
+          ) : legal.status === "checking" ? null : legal.status === "error" ? (
+            <LegalStatusError onRetry={legal.retry} />
+          ) : legal.status === "required" ? (
             <AgeGate onAccept={legal.accept} />
           ) : !hasUsername ? (
             <ChooseUsername onChosen={myProfile.setUsername} />

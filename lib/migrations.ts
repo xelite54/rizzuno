@@ -71,4 +71,32 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_moderation_target ON moderation_actions(target_user_id);
     `,
   },
+  {
+    // Makes lib/db.ts's recordAcceptance() idempotent: it now upserts with
+    // `ON CONFLICT (user_id, document, version) DO NOTHING`, so a client
+    // retrying POST /api/legal/accept after a dropped response (the request
+    // actually succeeded server-side, but the client never saw that) can't
+    // create duplicate rows or otherwise change the outcome.
+    //
+    // recordAcceptance() had no such guard before this migration, so a
+    // database that's been live for a while may already have genuine
+    // duplicate rows for the same (user_id, document, version) — the DELETE
+    // below clears those first (keeping the earliest one recorded, by
+    // accepted_at then id as a deterministic tie-break) so the UNIQUE
+    // constraint that follows can actually be added. This only removes
+    // *duplicate* rows; it never touches what was accepted or when the
+    // surviving row says it happened.
+    id: "0002_legal_acceptance_unique",
+    sql: `
+      DELETE FROM legal_acceptance a USING legal_acceptance b
+        WHERE a.user_id = b.user_id
+          AND a.document = b.document
+          AND a.version = b.version
+          AND (a.accepted_at, a.id) > (b.accepted_at, b.id);
+
+      ALTER TABLE legal_acceptance
+        ADD CONSTRAINT legal_acceptance_user_document_version_key
+        UNIQUE (user_id, document, version);
+    `,
+  },
 ]

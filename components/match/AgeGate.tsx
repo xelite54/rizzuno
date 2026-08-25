@@ -23,9 +23,21 @@ export function AgeGate({ onAccept }: AgeGateProps) {
     if (!checked || submitting) return
     setSubmitting(true)
     setError(false)
-    const ok = await onAccept()
-    if (!ok) {
+    try {
+      const ok = await onAccept()
+      // Only a real failed request sets the error — never leftover state
+      // from a previous attempt (cleared above before this one starts), and
+      // never shown on success. On success this component unmounts almost
+      // immediately anyway (the parent stops rendering AgeGate once
+      // acceptance is recorded), so there's nothing further to reset here.
+      if (!ok) setError(true)
+    } catch {
+      // onAccept() itself isn't expected to throw (see useLegalAcceptance's
+      // own try/catch), but treating an unexpected throw as a real failure
+      // — rather than leaving the button stuck on "Continuing…" forever —
+      // is the safer default.
       setError(true)
+    } finally {
       setSubmitting(false)
     }
   }
