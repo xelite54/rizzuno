@@ -33,6 +33,11 @@ export function useSignalingSocket() {
       wsRef.current = socket
 
       socket.onopen = () => {
+        // Transport-connected only — NOT the same as "the realtime server
+        // has processed our hello and is ready for 'find'" (see
+        // useMatchmaking.ts's `realtimeReady`, which waits for the server's
+        // own "ready" ack instead of inferring readiness from this).
+        console.log("signaling: transport connected")
         retryDelay = 500
         setConnected(true)
         const queued = queueRef.current
@@ -50,6 +55,7 @@ export function useSignalingSocket() {
       }
 
       socket.onclose = () => {
+        console.log("signaling: transport closed", { willRetryInMs: cancelled ? null : retryDelay })
         setConnected(false)
         if (cancelled) return
         retryTimer = setTimeout(connect, retryDelay)

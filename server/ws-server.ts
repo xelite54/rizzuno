@@ -121,17 +121,26 @@ async function tryMatch(state: ConnectionState) {
     enqueuedAt: Date.now(),
   })
   if (!room) {
+    console.log("ws-server: queued", { userId: state.userId })
     send(state.ws, { type: "queued" })
     return
   }
 
   const aState = connections.get(room.a)
   const bState = connections.get(room.b)
-  if (!aState || !bState) return
+  if (!aState || !bState) {
+    console.warn("ws-server: matchmaker returned a room with a missing connection", {
+      roomId: room.id,
+      hasA: Boolean(aState),
+      hasB: Boolean(bState),
+    })
+    return
+  }
 
   aState.roomId = room.id
   bState.roomId = room.id
   const alreadyFriends = await areFriends(room.a, room.b)
+  console.log("ws-server: matched", { roomId: room.id, a: room.a, b: room.b })
   send(aState.ws, {
     type: "matched",
     roomId: room.id,
@@ -231,7 +240,9 @@ export function createRizzunoWebSocketServer() {
 
       async function handleParsedMessage(message: ClientMessage) {
       if (message.type === "hello") {
+        console.log("ws-server: hello received")
         if (typeof message.ticket !== "string" || typeof message.handle !== "string") {
+          console.warn("ws-server: hello malformed — missing ticket/handle")
           return
         }
 
@@ -241,6 +252,7 @@ export function createRizzunoWebSocketServer() {
         // said about itself directly.
         const verified = verifyTicket(message.ticket)
         if (!verified) {
+          console.warn("ws-server: hello rejected — invalid or expired ticket")
           send(ws, { type: "rejected", reason: "invalid_ticket" })
           return
         }
@@ -253,11 +265,13 @@ export function createRizzunoWebSocketServer() {
         // window, on a different instance, or via the admin console.
         const status = await getUserStatus(userId)
         if (status.deleted || status.banned) {
+          console.warn("ws-server: hello rejected — account banned/deleted", { userId })
           send(ws, { type: "rejected", reason: "banned" })
           ws.close(1008, "account banned")
           return
         }
         if (status.suspendedUntil) {
+          console.warn("ws-server: hello rejected — account suspended", { userId })
           send(ws, { type: "rejected", reason: "suspended" })
           ws.close(1008, "account suspended")
           return
@@ -314,14 +328,31 @@ export function createRizzunoWebSocketServer() {
         }
 
         await sendFriendsSnapshot(state)
+
+        // The explicit ack the client waits for before it's allowed to send
+        // "find" — sent last, once this connection is actually registered in
+        // `connections`/`connectionsByDisplayId` and its friends-snapshot has
+        // gone out, so "ready" really does mean "the server is ready".
+        console.log("ws-server: hello accepted — sending ready", { userId, displayId: state.displayId })
+        send(ws, { type: "ready" })
         return
       }
 
-      if (!state) return // must say hello first
+      if (!state) {
+        // A message other than "hello" arrived before hello finished (or on
+        // a connection that never said hello at all). With the client now
+        // gating "find" on the "ready" ack, this should only happen for a
+        // stray/malicious frame — logged so a production report of "stuck
+        // searching forever" can be told apart from this from an actual
+        // dropped "ready".
+        console.warn("ws-server: message before hello — ignoring", { type: message.type })
+        return
+      }
 
       switch (message.type) {
         case "find":
         case "skip": {
+          console.log("ws-server: find received", { userId: state.userId, type: message.type })
           leaveCurrentRoom(state, true)
           await tryMatch(state)
           break

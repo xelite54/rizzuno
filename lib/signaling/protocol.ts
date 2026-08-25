@@ -119,6 +119,16 @@ export type ClientMessage =
   | { type: "friend-block"; targetUserId: string }
 
 export type ServerMessage =
+  /**
+   * Explicit hello-accepted acknowledgement — sent once, right after a
+   * "hello" is verified and this connection's state/friends-snapshot are
+   * fully set up server-side. This is what actually means "the server is
+   * ready to receive 'find'", as distinct from the WebSocket transport
+   * merely being open (see useSignalingSocket's `connected`) or a client
+   * merely having *sent* hello. Never inferred from a delay/timeout on the
+   * client — see hooks/useMatchmaking.ts's `realtimeReady`.
+   */
+  | { type: "ready" }
   | { type: "queued" }
   | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity; alreadyFriends: boolean }
   /** The current partner edited their own profile mid-call (e.g. set/changed their username) — same shape as "matched"'s peer, just a refresh rather than a new match. */

@@ -51,6 +51,33 @@ export function useMatchmaking(
 ) {
   const { connected, send, subscribe } = useSignalingSocket()
 
+  // `connected` only means the WebSocket transport opened — it says nothing
+  // about whether the realtime server has actually verified our ticket and
+  // finished processing "hello" yet (that's a real await chain server-side:
+  // getUserStatus(), sendFriendsSnapshot()'s several queries, etc). Matching
+  // on `connected` alone let the client fire "find" before the server had
+  // any ConnectionState for this socket, which server/ws-server.ts silently
+  // drops (`if (!state) return`) — the guest would then sit in "searching"
+  // forever with nothing left to retry it. `realtimeReady` instead only ever
+  // flips true when the server's own "ready" ack (sent right after "hello"
+  // is fully processed — see server/ws-server.ts) comes back, and flips
+  // false again on every disconnect and every fresh "hello" attempt, so it
+  // never gets ahead of what the server actually has registered for us.
+  const [realtimeReady, setRealtimeReady] = useState(false)
+
+  // `connected` toggling false (transport dropped) always means whatever
+  // "ready" we had is stale — the server's ConnectionState for our old
+  // socket is gone (see its "close" handler). Reconnecting starts this over
+  // from `connected: true, realtimeReady: false` until a fresh "hello"
+  // round-trips again.
+  useEffect(() => {
+    // Reacting to an external system (the transport just dropped) — not
+    // mirroring React state, same reasoning as the "announce on connect"
+    // effect below.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!connected) setRealtimeReady(false)
+  }, [connected])
+
   // `serverState` tracks what the signaling server has told us (queued,
   // matched, peer left). Whether the call is actually "active" is a
   // derived read of the live WebRTC connection, not a copy of it — see
@@ -130,6 +157,7 @@ export function useMatchmaking(
   const state: MatchState = rtcStatus === "connected" ? "active" : serverState
 
   const findMatch = useCallback(() => {
+    console.log("matchmaking: sending find")
     setServerState("searching")
     send({ type: "find" })
   }, [send])
@@ -247,10 +275,17 @@ export function useMatchmaking(
   // re-announce, it isn't treated as a fresh reconnect).
   const announce = useCallback(async () => {
     if (!myHandle) return
+    // Every fresh "hello" attempt invalidates whatever "ready" we had —
+    // either we're not connected to say it to anyone yet, or we're about to
+    // ask the server to re-process our identity (e.g. a changed
+    // username/gender/photo) and the old ack no longer describes the
+    // connection's current state until a new one arrives.
+    setRealtimeReady(false)
     try {
       const res = await fetch("/api/realtime/ticket")
       if (!res.ok) {
         const body: { error?: string; until?: number; reason?: string | null } = await res.json().catch(() => ({}))
+        console.warn("matchmaking: ticket request failed — not sending hello", { status: res.status, error: body.error })
         if (body.error === "banned") setRestriction({ reason: "banned", detail: body.reason })
         else if (body.error === "suspended") setRestriction({ reason: "suspended", until: body.until })
         else if (body.error === "account_deleted") setRestriction({ reason: "account_deleted" })
@@ -259,6 +294,7 @@ export function useMatchmaking(
       }
       const { ticket } = (await res.json()) as { ticket: string }
       setRestriction(null)
+      console.log("matchmaking: sending hello")
       send({
         type: "hello",
         ticket,
@@ -270,6 +306,7 @@ export function useMatchmaking(
     } catch {
       // Network hiccup minting the ticket — the socket's own reconnect will
       // trigger this again; nothing to announce this time around.
+      console.warn("matchmaking: ticket fetch threw (network hiccup) — will retry on next reconnect")
     }
   }, [myHandle, myUsername, myGender, myProfilePhoto, send])
 
@@ -285,10 +322,19 @@ export function useMatchmaking(
   useEffect(() => {
     return subscribe((message: ServerMessage) => {
       switch (message.type) {
+        case "ready":
+          // The server has finished processing our "hello" and actually has
+          // a ConnectionState registered for this socket — only now is it
+          // safe to send "find" and expect anything other than silence.
+          console.log("matchmaking: realtime ready (hello accepted)")
+          setRealtimeReady(true)
+          break
         case "queued":
+          console.log("matchmaking: queued")
           setServerState((prev) => (prev === "peer-left" ? prev : "searching"))
           break
         case "matched":
+          console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator })
           setRoomId(message.roomId)
           setInitiator(message.initiator)
           setPeer(message.peer)
@@ -341,6 +387,7 @@ export function useMatchmaking(
           setServerState("peer-left")
           break
         case "rejected":
+          console.warn("matchmaking: hello rejected", { reason: message.reason })
           if (message.reason === "invalid_ticket") {
             // Ticket expired/invalid — mint a fresh one and try again right away.
             announce()
@@ -391,12 +438,20 @@ export function useMatchmaking(
     send({ type: "mic-state", roomId, micEnabled })
   }, [roomId, micEnabled, send])
 
-  // "peer-left" is a brief transitional state — automatically look for someone new.
+  // "peer-left" is a brief transitional state — automatically look for
+  // someone new. Also gated on `realtimeReady`: a peer-left right as the
+  // socket happens to reconnect (rare, but not impossible) would otherwise
+  // send "find" into the same pre-"hello" gap the initial auto-start effect
+  // guards against. If we're not ready when this would fire, skip the timer
+  // entirely rather than sending into the gap — `realtimeReady` is in the
+  // dependency array, so once the reconnect's "hello" is actually
+  // acknowledged, this effect re-runs and (serverState still being
+  // "peer-left") schedules the retry then instead.
   useEffect(() => {
-    if (serverState !== "peer-left") return
+    if (serverState !== "peer-left" || !realtimeReady) return
     const timer = setTimeout(findMatch, 900)
     return () => clearTimeout(timer)
-  }, [serverState, findMatch])
+  }, [serverState, realtimeReady, findMatch])
 
   // Track how long a connection has been stuck in "failed" (a ref, not state).
   useEffect(() => {
@@ -418,6 +473,7 @@ export function useMatchmaking(
 
   return {
     connected,
+    realtimeReady,
     state,
     peer,
     peerMicEnabled,

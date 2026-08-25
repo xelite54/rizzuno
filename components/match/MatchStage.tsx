@@ -82,7 +82,7 @@ export function MatchStage() {
   const myProfile = useMyProfile()
 
   const {
-    connected,
+    realtimeReady,
     state,
     peer,
     peerMicEnabled,
@@ -256,13 +256,45 @@ export function MatchStage() {
   // beyond that. Because `videoTrack` is a dependency here, turning the
   // camera on *after* everything else was already ready still triggers
   // this the moment it becomes available, not just at mount.
+  //
+  // Gated on `realtimeReady`, not the raw WebSocket `connected` flag.
+  // `connected` only means the transport opened — server/ws-server.ts
+  // doesn't register a ConnectionState (and silently drops every message,
+  // including "find") until "hello" has actually been verified and
+  // processed, which is a real async chain (ticket verify, a DB status
+  // check, the friends-snapshot queries). Firing on `connected` alone could
+  // send "find" into that gap, get silently dropped, and — because
+  // `requested.current` was already latched true — never retry, leaving the
+  // guest stuck in "searching" forever. `realtimeReady` only ever flips true
+  // once the server's own "ready" ack comes back (see useMatchmaking.ts),
+  // so there's nothing to race.
+  //
+  // Also gated on `state === "idle"`, and `realtimeReady` resets to false on
+  // every socket reconnect/re-hello (see useMatchmaking.ts) — together
+  // those mean `requested.current` is safe to reset alongside it: a
+  // reconnect while genuinely idle correctly retries the auto-start, while
+  // a reconnect mid-search/mid-call (state isn't "idle") never fires this
+  // again and doesn't interrupt anything already in progress.
   const requested = useRef(false)
   useEffect(() => {
-    if (connected && signedIn && legalAccepted && onboarded && !restriction && !cameraOff && !requested.current) {
+    if (!realtimeReady) {
+      requested.current = false
+      return
+    }
+    if (
+      state === "idle" &&
+      signedIn &&
+      legalAccepted &&
+      onboarded &&
+      !restriction &&
+      !cameraOff &&
+      !requested.current
+    ) {
       requested.current = true
+      console.log("matchmaking: auto-start conditions met — calling findMatch()")
       findMatch()
     }
-  }, [connected, signedIn, legalAccepted, onboarded, restriction, cameraOff, findMatch])
+  }, [realtimeReady, state, signedIn, legalAccepted, onboarded, restriction, cameraOff, findMatch])
 
   // A completed skip doesn't tear down the connection right away — it waits
   // out a short undo window first. The match stays genuinely live behind the
