@@ -72,24 +72,34 @@ export function describeDbError(err: unknown): Record<string, unknown> {
 // connection pooler in transaction mode (Supabase's pooled connection
 // string, commonly used specifically because Vercel's serverless functions
 // each open their own short-lived connection and would otherwise exhaust a
-// direct Postgres connection limit). Under transaction pooling, the backend
-// connection can be swapped out between two statements on what looks like
-// the same `client` — so a lock acquired by one statement isn't guaranteed
-// to still be held by the time a later statement on the same client runs,
-// and the unlock can end up running against a different backend than the
-// one that held it. That's a real, well-documented failure mode for this
-// exact shape of code, and if that's what production's DATABASE_URL is
-// pointed at, the old version of this function could hang, error, or leave
-// a lock nothing ever releases — with `q()` awaiting this before every
-// query, that takes every DB-backed endpoint down with it.
+// direct Postgres connection limit). Session-scoped advisory locks aren't
+// safe under transaction-mode pooling — the lock and unlock aren't
+// guaranteed to land on the same backend connection — so this needs no
+// session state at all.
 //
-// This version needs no session-scoped state at all: each migration id is
-// claimed with a single atomic `INSERT ... ON CONFLICT DO NOTHING`, safe
-// under any pooling mode because it's one self-contained statement. Only
-// the process whose insert actually landed a row runs that migration's SQL;
-// every other concurrent process sees `rowCount === 0` and moves on. If the
-// migration SQL itself then fails, the claim is rolled back so a later
-// attempt retries it rather than skipping it forever.
+// It also went through a version in between this one and the advisory-lock
+// original that claimed each migration with a single, separately-committed
+// `INSERT ... ON CONFLICT DO NOTHING`, then ran that migration's SQL as a
+// second, later statement. That was still a real race: the claim row
+// commits (and becomes visible to every other connection) the instant that
+// INSERT returns, which is *before* the migration's own SQL has even
+// started — so a concurrent process checking the claim in that window sees
+// the row, correctly concludes someone else is handling it, and incorrectly
+// treats the migration as already fully applied while it's still running.
+//
+// This version claims and runs each migration inside one real transaction
+// on one dedicated client — BEGIN, the claiming INSERT, the migration's own
+// SQL, COMMIT. Postgres's normal MVCC behavior does the serializing for
+// free: a second transaction's `INSERT ... ON CONFLICT` against the same id
+// blocks until the first transaction actually resolves. If the first
+// commits, the second correctly sees "no row inserted" *and* can now trust
+// that the migration genuinely finished (commit only happens after the
+// migration SQL succeeded). If the first rolls back (the migration SQL
+// failed), the second's insert succeeds instead, and it becomes the new
+// claimant — a failed migration is retried, never skipped. This holds under
+// transaction-mode pooling too: PgBouncer guarantees one backend connection
+// for the full duration of one BEGIN…COMMIT, which is exactly what a single
+// `pool.connect()`ed client used for this whole sequence relies on.
 let migratedPromise: Promise<void> | null = null
 
 function ensureMigrated(): Promise<void> {
@@ -104,24 +114,29 @@ function ensureMigrated(): Promise<void> {
       }
 
       for (const migration of MIGRATIONS) {
-        let claimed = false
+        const client = await db.connect()
         try {
-          const claim = await db.query<{ id: string }>(
+          await client.query("BEGIN")
+          const claim = await client.query<{ id: string }>(
             `INSERT INTO schema_migrations (id, applied_at) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id`,
             [migration.id, Date.now()]
           )
-          claimed = (claim.rowCount ?? 0) > 0
-          if (!claimed) continue // already applied (or another process is applying it right now)
-          await db.query(migration.sql)
-        } catch (err) {
-          if (claimed) {
-            // Roll back the claim so this migration is retried next time,
-            // instead of being permanently marked "applied" when it never
-            // actually ran.
-            await db.query(`DELETE FROM schema_migrations WHERE id = $1`, [migration.id]).catch(() => {})
+          if ((claim.rowCount ?? 0) === 0) {
+            // Blocked above until whichever transaction held this id
+            // resolved, then found it already committed — genuinely,
+            // fully applied. Nothing to roll back; this transaction never
+            // did anything.
+            await client.query("ROLLBACK")
+            continue
           }
+          await client.query(migration.sql)
+          await client.query("COMMIT")
+        } catch (err) {
+          await client.query("ROLLBACK").catch(() => {})
           console.error(`db: migration "${migration.id}" failed`, describeDbError(err))
           throw err
+        } finally {
+          client.release()
         }
       }
     })()

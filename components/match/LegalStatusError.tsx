@@ -1,6 +1,8 @@
 "use client"
 
 type LegalStatusErrorProps = {
+  /** The real error code from GET /api/legal/status's JSON body (e.g. "database_error", "auth_error"), or "network_error" if the request never got a response at all — see hooks/useLegalAcceptance.ts. Shown in small print so a report of this screen actually carries which of several very different problems it was, instead of everyone just saying "it showed an error." */
+  errorCode: string | null
   onRetry: () => void
 }
 
@@ -14,7 +16,7 @@ type LegalStatusErrorProps = {
  * doesn't weaken the 18+ gate — it's just honest that the reason nothing's
  * happening is a server problem, not a normal step in signing up.
  */
-export function LegalStatusError({ onRetry }: LegalStatusErrorProps) {
+export function LegalStatusError({ errorCode, onRetry }: LegalStatusErrorProps) {
   return (
     <div className="flex h-full w-full flex-col items-center justify-center rounded-2xl bg-background px-7 py-6 text-center sm:px-10">
       <div className="w-full max-w-xs">
@@ -29,6 +31,7 @@ export function LegalStatusError({ onRetry }: LegalStatusErrorProps) {
         >
           Try again
         </button>
+        {errorCode && <p className="mt-3 text-[11px] text-muted">Reference: {errorCode}</p>}
       </div>
     </div>
   )

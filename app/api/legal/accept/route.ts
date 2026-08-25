@@ -10,32 +10,45 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * ("this account clicked accept on version X on date Y"), not identity-level
  * age verification — nothing here proves the person's real age.
  *
- * Every step that can genuinely fail (auth.js itself, then the database) is
- * wrapped in its own try/catch rather than left to Next.js's default error
- * handling. Not to hide failures — a real failure still comes back as a
- * non-2xx response and legal acceptance is never faked — but so a genuine
- * failure (e.g. the database being unreachable, or misconfigured for the
- * connection-pooling mode it's actually deployed against) is logged
- * server-side with the real Postgres/Node error code instead of
- * disappearing into a generic error page, and so the client reliably gets
- * back JSON it can check `res.ok` against rather than risking an HTML error
- * page that `fetch` still resolves (not rejects) for.
+ * Every branch logs the exact signal that decided the response, same as
+ * app/api/legal/status/route.ts — never the DATABASE_URL value itself, just
+ * whether it's configured, plus the real Postgres/Node error code when a
+ * query fails.
  */
 export async function POST() {
-  let userId: string | undefined
+  const databaseUrlConfigured = Boolean(process.env.DATABASE_URL)
+
+  // Not pre-declared with an explicit type: `auth` is an overloaded
+  // function (it also has middleware-wrapping call signatures), and
+  // `ReturnType<typeof auth>` picks the wrong one — letting `session`'s
+  // type come from this actual zero-argument call resolves correctly.
+  let session
   try {
-    const session = await auth()
-    userId = session?.user?.id
+    session = await auth()
   } catch (err) {
-    console.error("legal/accept: auth() itself threw", describeDbError(err))
-    return NextResponse.json({ error: "server_error" }, { status: 500 })
+    console.error("legal/accept: auth() threw — returning 500", {
+      databaseUrlConfigured,
+      ...describeDbError(err),
+    })
+    return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
+
+  const userId = session?.user?.id
   if (!userId) {
+    console.error("legal/accept: no session.user.id — returning 401", {
+      hasSession: Boolean(session),
+      databaseUrlConfigured,
+    })
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
   if (isRateLimited(`legal-accept:${userId}`, 10, 60_000)) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  }
+
+  if (!databaseUrlConfigured) {
+    console.error("legal/accept: DATABASE_URL is not configured — returning 500", { userId })
+    return NextResponse.json({ error: "database_not_configured" }, { status: 500 })
   }
 
   try {
@@ -45,9 +58,15 @@ export async function POST() {
     }
 
     await recordAcceptance(userId)
+    console.log("legal/accept: returning 200", { userId })
     return NextResponse.json({ ok: true })
   } catch (err) {
-    console.error("legal/accept: failed to record acceptance", { userId, ...describeDbError(err) })
-    return NextResponse.json({ error: "server_error" }, { status: 500 })
+    const details = describeDbError(err)
+    console.error("legal/accept: failed to record acceptance — returning 500", {
+      userId,
+      databaseUrlConfigured,
+      ...details,
+    })
+    return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

@@ -121,7 +121,10 @@ export function MatchStage() {
   // 18+ affirmation + Terms/Privacy acceptance, recorded server-side against
   // the signed-in account (see hooks/useLegalAcceptance.ts) — required
   // before matchmaking the same way choosing a username/gender is.
-  const legal = useLegalAcceptance(signedIn)
+  // `updateSession` lets the hook revalidate a possibly-stale session once
+  // if its own status check ever comes back 401 despite `signedIn` here
+  // still reading true.
+  const legal = useLegalAcceptance(signedIn, updateSession)
   const legalAccepted = legal.status === "accepted"
 
   // Auth.js lands a failed/cancelled Google sign-in back on this page with
@@ -427,7 +430,7 @@ export function MatchStage() {
           ) : restriction ? (
             <AccountRestricted restriction={restriction} onSignOut={() => signOut({ callbackUrl: "/" })} />
           ) : legal.status === "checking" ? null : legal.status === "error" ? (
-            <LegalStatusError onRetry={legal.retry} />
+            <LegalStatusError errorCode={legal.errorCode} onRetry={legal.retry} />
           ) : legal.status === "required" ? (
             <AgeGate onAccept={legal.accept} />
           ) : !hasUsername ? (
