@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "August 24, 2026"
+const LAST_UPDATED = "August 25, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
@@ -127,6 +127,12 @@ export default function PrivacyPolicyPage() {
                 typed in, which call it relates to, and status.
               </li>
               <li>Moderation actions taken against this account, who (which admin) took them, and why.</li>
+              <li>
+                Friend requests this account has sent or received, and their status (pending, accepted, or
+                declined), and any resulting friendships — the accounts on each side and when the friendship
+                formed. Sending or accepting a friend request is a deliberate action you take, not something that
+                happens automatically.
+              </li>
             </ul>
             <p className="mt-2 text-muted">
               None of the rest of your profile content (gender, bio, photo, posts) is written to this database —
@@ -233,6 +239,7 @@ export default function PrivacyPolicyPage() {
             <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
               <li><strong className="text-foreground">Authentication</strong> — knowing which Google account is signed in, via Auth.js.</li>
               <li><strong className="text-foreground">Matchmaking</strong> — pairing you with another available, opposite-selected-gender account, and honoring blocks.</li>
+              <li><strong className="text-foreground">Friends</strong> — recording who&apos;s sent or accepted a friend request with whom, and delivering a pending request live to the other account if they&apos;re online.</li>
               <li><strong className="text-foreground">Safety &amp; abuse prevention</strong> — reviewing reports and applying warnings/suspensions/bans.</li>
               <li><strong className="text-foreground">Moderation</strong> — giving admins the information needed to review reports and act consistently.</li>
               <li><strong className="text-foreground">Legal acceptance</strong> — keeping a factual record of what each account agreed to, and when.</li>
@@ -342,6 +349,15 @@ export default function PrivacyPolicyPage() {
               <li>
                 <strong className="text-foreground">Usernames</strong> — kept indefinitely once claimed (see Section 4), including if the account that
                 claimed it later stops using Rizzuno; no feature currently releases a username automatically.
+              </li>
+              <li>
+                <strong className="text-foreground">Friend requests</strong> — kept indefinitely regardless of outcome (pending, accepted, or declined); no
+                feature currently deletes the record of a request once made.
+              </li>
+              <li>
+                <strong className="text-foreground">Friendships</strong> — kept until either side unfriends the other (see Section 18) — this is the one
+                relationship in this list a user can actually end themselves, rather than it being retained
+                indefinitely by default.
               </li>
             </ul>
             <p className="mt-2 text-muted">
@@ -464,6 +480,14 @@ export default function PrivacyPolicyPage() {
               <li>
                 <strong className="text-foreground">Change your username</strong> — from My Profile → Edit profile, any time, subject to it not
                 already being claimed by another account (see Section 4).
+              </li>
+              <li>
+                <strong className="text-foreground">Send, accept, or decline a friend request</strong> — directly, from the match or friends
+                screens; declining does not notify the sender.
+              </li>
+              <li>
+                <strong className="text-foreground">Unfriend</strong> — ends the friendship immediately for both accounts; either side can do
+                this at any time, and Rizzuno does not notify the other account when it happens.
               </li>
             </ul>
             <p className="mt-2 text-muted">

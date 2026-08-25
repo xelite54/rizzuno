@@ -401,7 +401,7 @@ export function FriendsPanel({
                                       type="button"
                                       onClick={() => {
                                         if (rowMenuConfirm === "block") {
-                                          handleBlockPerson(friend.id, friend.displayName)
+                                          handleBlockPerson(friend.userId, friend.displayName)
                                         } else {
                                           handleRemoveFriend(friend.id)
                                         }
@@ -754,7 +754,7 @@ export function FriendsPanel({
                           type="button"
                           onClick={() =>
                             friendActionConfirm === "block"
-                              ? handleBlockPerson(viewingFriend.id, viewingFriend.displayName)
+                              ? handleBlockPerson(viewingFriend.userId, viewingFriend.displayName)
                               : handleRemoveFriend(viewingFriend.id)
                           }
                           className="flex-1 rounded-lg bg-danger px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"

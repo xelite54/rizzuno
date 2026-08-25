@@ -7,6 +7,7 @@ import { resizeImageToDataUrl } from "@/lib/image"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { PeerProfileSheet } from "./PeerProfileSheet"
+import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
 import type { Post, Gender } from "@/hooks/useMyProfile"
 import type { BlockedUser } from "@/hooks/useFriends"
@@ -16,6 +17,10 @@ type MyProfileSheetProps = {
   handle: string
   history: PeerProfile[]
   blockedUsers: BlockedUser[]
+  /** Per-displayId outcome of a friend request sent this session — same map useMatchmaking.ts drives the in-call FriendButton from, reused here so History's "Add"/"Requested" state is the same real thing, not a separate local list. */
+  friendActionState: Map<string, "requested" | "friends" | "failed">
+  /** Sends a friend request to whoever currently holds this displayId — see lib/signaling/protocol.ts's "friend-request" for how the server resolves it. */
+  onSendFriendRequest: (displayId: string) => void
   /** Destroys the real Auth.js session. Profile data itself is untouched — it's keyed by the account's stable id (see useMyProfile.ts), so signing back in with the same Google account restores it. */
   onSignOut: () => void
   open: boolean
@@ -46,6 +51,8 @@ export function MyProfileSheet({
   handle,
   history,
   blockedUsers,
+  friendActionState,
+  onSendFriendRequest,
   onSignOut,
   open,
   onClose,
@@ -74,10 +81,6 @@ export function MyProfileSheet({
   // Same for signing out — needs a second tap too.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
-  // Outgoing friend requests sent from History — local-only, like everything
-  // else here, and separate from the incoming requests the Friends panel
-  // manages.
-  const [sentRequestIds, setSentRequestIds] = useState<string[]>([])
 
   const editPhotoInputRef = useRef<HTMLInputElement | null>(null)
   const postInputRef = useRef<HTMLInputElement | null>(null)
@@ -95,6 +98,12 @@ export function MyProfileSheet({
   function handleClose() {
     resetToProfile()
     onClose()
+  }
+
+  /** Maps a displayId's raw session outcome ("failed" included) down to the three states PeerProfileSheet's FriendButton actually understands — a failed attempt should just look like "none" there (retryable via the same Add button), whereas the History row list below shows "Try again" explicitly instead of collapsing it. */
+  function friendStateFor(displayId: string): FriendState {
+    const action = friendActionState.get(displayId)
+    return action === "friends" ? "friends" : action === "requested" ? "requested" : "none"
   }
 
   function startEditing() {
@@ -190,9 +199,6 @@ export function MyProfileSheet({
     onSignOut()
   }
 
-  function sendFriendRequest(displayId: string) {
-    setSentRequestIds((prev) => (prev.includes(displayId) ? prev : [...prev, displayId]))
-  }
 
   // Basic data-export: whatever Rizzuno's server actually holds about this
   // account (see app/api/account/data). Profile content itself isn't in
@@ -577,7 +583,7 @@ export function MyProfileSheet({
                   <div className="space-y-1">
                     {history.map((person, index) => {
                       const identity = person.username ? `@${person.username}` : person.handle
-                      const requested = sentRequestIds.includes(person.displayId)
+                      const friendAction = friendActionState.get(person.displayId) ?? "none"
                       return (
                         <div
                           key={`${person.displayId}-${index}`}
@@ -609,12 +615,18 @@ export function MyProfileSheet({
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation()
-                                sendFriendRequest(person.displayId)
+                                onSendFriendRequest(person.displayId)
                               }}
-                              disabled={requested}
+                              disabled={friendAction === "requested" || friendAction === "friends"}
                               className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
                             >
-                              {requested ? "Requested" : "Add"}
+                              {friendAction === "friends"
+                                ? "Friend"
+                                : friendAction === "requested"
+                                  ? "Requested"
+                                  : friendAction === "failed"
+                                    ? "Try again"
+                                    : "Add"}
                             </button>
                           )}
                         </div>
@@ -663,8 +675,8 @@ export function MyProfileSheet({
     <PeerProfileSheet
       peer={viewingHistoryPerson}
       open={viewingHistoryPerson !== null}
-      friendState={viewingHistoryPerson && sentRequestIds.includes(viewingHistoryPerson.displayId) ? "requested" : "none"}
-      onAddFriend={() => viewingHistoryPerson && sendFriendRequest(viewingHistoryPerson.displayId)}
+      friendState={viewingHistoryPerson ? friendStateFor(viewingHistoryPerson.displayId) : "none"}
+      onAddFriend={() => viewingHistoryPerson && onSendFriendRequest(viewingHistoryPerson.displayId)}
       onClose={() => setViewingHistoryPerson(null)}
     />
     </>

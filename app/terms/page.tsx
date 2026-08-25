@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "August 24, 2026"
+const LAST_UPDATED = "August 25, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -36,27 +36,28 @@ const SECTIONS = [
   { id: "evasion", label: "21. Bypassing bans, security & rate limits" },
   { id: "reports", label: "22. Reports" },
   { id: "blocks", label: "23. Blocks" },
-  { id: "moderation", label: "24. Moderation" },
-  { id: "enforcement", label: "25. Warnings, suspensions & bans" },
-  { id: "enforcement-limits", label: "26. Enforcement limitations" },
-  { id: "deletion", label: "27. Stopping use and privacy requests" },
-  { id: "availability", label: "28. Service availability" },
-  { id: "network-limits", label: "29. WebRTC & network limitations" },
-  { id: "third-party", label: "30. Third-party infrastructure" },
-  { id: "ip", label: "31. Intellectual property" },
-  { id: "content-ownership", label: "32. User content, ownership & limited license" },
-  { id: "feedback", label: "33. Feedback" },
-  { id: "disclaimers", label: "34. Disclaimers" },
-  { id: "liability", label: "35. Limitation of liability" },
-  { id: "indemnification", label: "36. Indemnification" },
-  { id: "no-relationship", label: "37. No business relationship" },
-  { id: "changes-service", label: "38. Changes to Rizzuno" },
-  { id: "changes-terms", label: "39. Changes to these Terms" },
-  { id: "acceptance-history", label: "40. Legal-version acceptance history" },
-  { id: "related", label: "41. Related policies" },
-  { id: "survival", label: "42. Survival" },
-  { id: "severability", label: "43. Severability" },
-  { id: "contact", label: "44. Governing law & contact" },
+  { id: "friends", label: "24. Friends & friend requests" },
+  { id: "moderation", label: "25. Moderation" },
+  { id: "enforcement", label: "26. Warnings, suspensions & bans" },
+  { id: "enforcement-limits", label: "27. Enforcement limitations" },
+  { id: "deletion", label: "28. Stopping use and privacy requests" },
+  { id: "availability", label: "29. Service availability" },
+  { id: "network-limits", label: "30. WebRTC & network limitations" },
+  { id: "third-party", label: "31. Third-party infrastructure" },
+  { id: "ip", label: "32. Intellectual property" },
+  { id: "content-ownership", label: "33. User content, ownership & limited license" },
+  { id: "feedback", label: "34. Feedback" },
+  { id: "disclaimers", label: "35. Disclaimers" },
+  { id: "liability", label: "36. Limitation of liability" },
+  { id: "indemnification", label: "37. Indemnification" },
+  { id: "no-relationship", label: "38. No business relationship" },
+  { id: "changes-service", label: "39. Changes to Rizzuno" },
+  { id: "changes-terms", label: "40. Changes to these Terms" },
+  { id: "acceptance-history", label: "41. Legal-version acceptance history" },
+  { id: "related", label: "42. Related policies" },
+  { id: "survival", label: "43. Survival" },
+  { id: "severability", label: "44. Severability" },
+  { id: "contact", label: "45. Governing law & contact" },
 ]
 
 export default function TermsOfServicePage() {
@@ -151,7 +152,7 @@ export default function TermsOfServicePage() {
               image chat. Rizzuno&apos;s servers handle matching you with someone, relaying the technical handshake
               that sets up a direct connection, relaying in-call chat live, and enforcing reports, blocks, and bans.
               Rizzuno does not itself verify that affirmation and does not otherwise verify a user&apos;s identity —
-              see Section 2 and Section 26.
+              see Section 2 and Section 27.
             </p>
           </section>
 
@@ -171,7 +172,7 @@ export default function TermsOfServicePage() {
               directly to the other person&apos;s device rather than through Rizzuno&apos;s servers, and Rizzuno
               does not monitor, record, or review that stream. Establishing this direct connection can expose
               limited network information — such as your public IP address — to the person you&apos;re matched with
-              and to the connectivity infrastructure involved in setting it up (see Section 30 and our{" "}
+              and to the connectivity infrastructure involved in setting it up (see Section 31 and our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
               </Link>
@@ -349,8 +350,27 @@ export default function TermsOfServicePage() {
             </p>
           </section>
 
+          <section id="friends">
+            <h2 className="text-[16px] font-semibold">24. Friends &amp; friend requests</h2>
+            <p className="mt-2 text-muted">
+              You can send a friend request to someone you&apos;re matched with, and accept, decline, or ignore a
+              request someone sends you. Rizzuno delivers a pending request to the other account live, if
+              they&apos;re online, and stores it either way so it&apos;s still there the next time they connect.
+              Declining a request does not notify the sender. Either side of a friendship can end it at any time
+              (&ldquo;unfriend&rdquo;), and Rizzuno does not notify the other account when that happens. Blocking
+              someone (see Section 23) also ends any existing friendship or pending request between you
+              automatically.
+            </p>
+            <p className="mt-2 text-muted">
+              Being friends on Rizzuno only affects who can send each other friend requests and how you appear to
+              one another in the friends list — it does not currently provide a way to message a friend outside of
+              an active video call, and does not let you find someone by searching for their username. Features
+              that appear to offer either of those today are not yet functional.
+            </p>
+          </section>
+
           <section id="moderation">
-            <h2 className="text-[16px] font-semibold">24. Moderation</h2>
+            <h2 className="text-[16px] font-semibold">25. Moderation</h2>
             <p className="mt-2 text-muted">
               Reports are reviewed by human moderators, not resolved automatically. Rizzuno does not monitor,
               record, or review live video or audio, and does not automatically screen calls for violations — the
@@ -360,19 +380,19 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="enforcement">
-            <h2 className="text-[16px] font-semibold">25. Warnings, suspensions &amp; bans</h2>
+            <h2 className="text-[16px] font-semibold">26. Warnings, suspensions &amp; bans</h2>
             <p className="mt-2 text-muted">
               A reviewed report can result in no action, an internal warning on the account&apos;s moderation
               record, a temporary suspension, or a permanent ban, at Rizzuno&apos;s discretion. Rizzuno may also
               take any of these actions, or otherwise discontinue your access, for any other reason at its
               discretion, including suspected abuse, fraud, or risk to other users — with or without a prior report.
               A ban or suspension record tied to an account is retained regardless of the account&apos;s status, and
-              is not something signing out or requesting deletion of your other data can erase — see Section 27.
+              is not something signing out or requesting deletion of your other data can erase — see Section 28.
             </p>
           </section>
 
           <section id="enforcement-limits">
-            <h2 className="text-[16px] font-semibold">26. Enforcement limitations</h2>
+            <h2 className="text-[16px] font-semibold">27. Enforcement limitations</h2>
             <p className="mt-2 text-muted">
               Enforcement applies to the Rizzuno/Google account involved and is designed to persist across sessions
               and devices signed in with that account. Rizzuno enforces against the Google account it can identify —
@@ -383,7 +403,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="deletion">
-            <h2 className="text-[16px] font-semibold">27. Stopping use and privacy requests</h2>
+            <h2 className="text-[16px] font-semibold">28. Stopping use and privacy requests</h2>
             <p className="mt-2 text-muted">
               You may stop using Rizzuno at any time — signing out or simply not signing back in is enough; Rizzuno
               does not currently provide an automated, self-service account-deletion control. Signing out only ends
@@ -405,7 +425,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="availability">
-            <h2 className="text-[16px] font-semibold">28. Service availability</h2>
+            <h2 className="text-[16px] font-semibold">29. Service availability</h2>
             <p className="mt-2 text-muted">
               Rizzuno is provided on an &ldquo;as available&rdquo; basis. Matching depends on how many other users
               are online at the time; there is no guarantee you&apos;ll be matched quickly, or at all. Rizzuno does
@@ -414,7 +434,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="network-limits">
-            <h2 className="text-[16px] font-semibold">29. WebRTC &amp; network limitations</h2>
+            <h2 className="text-[16px] font-semibold">30. WebRTC &amp; network limitations</h2>
             <p className="mt-2 text-muted">
               Live video/audio calls use WebRTC, a real-time peer-to-peer technology that depends on both
               users&apos; network conditions, devices, and browsers. Connection quality, delays, drops, and
@@ -424,7 +444,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="third-party">
-            <h2 className="text-[16px] font-semibold">30. Third-party infrastructure</h2>
+            <h2 className="text-[16px] font-semibold">31. Third-party infrastructure</h2>
             <p className="mt-2 text-muted">
               Rizzuno relies on third-party infrastructure to operate — sign-in through Google, hosting through
               Vercel and Railway, a database provider (e.g. Supabase), and Google&apos;s public STUN servers to help
@@ -438,7 +458,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="ip">
-            <h2 className="text-[16px] font-semibold">31. Intellectual property</h2>
+            <h2 className="text-[16px] font-semibold">32. Intellectual property</h2>
             <p className="mt-2 text-muted">
               Rizzuno and its branding, design, and software are owned by Rizzuno&apos;s operator or its licensors.
               You may not copy, modify, reverse-engineer, or create derivative works of Rizzuno&apos;s software or
@@ -447,7 +467,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="content-ownership">
-            <h2 className="text-[16px] font-semibold">32. User content, ownership &amp; limited license</h2>
+            <h2 className="text-[16px] font-semibold">33. User content, ownership &amp; limited license</h2>
             <p className="mt-2 text-muted">
               Subject to these Terms, Rizzuno grants you a personal, limited, non-exclusive, non-transferable,
               revocable license to access and use Rizzuno for your own personal, non-commercial use.
@@ -473,7 +493,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="feedback">
-            <h2 className="text-[16px] font-semibold">33. Feedback</h2>
+            <h2 className="text-[16px] font-semibold">34. Feedback</h2>
             <p className="mt-2 text-muted">
               If you send us feedback, suggestions, or ideas about Rizzuno, you agree we can use them without owing
               you anything for it, and without an obligation to keep them confidential.
@@ -481,7 +501,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="disclaimers">
-            <h2 className="text-[16px] font-semibold">34. Disclaimers</h2>
+            <h2 className="text-[16px] font-semibold">35. Disclaimers</h2>
             <p className="mt-2 text-muted">
               RIZZUNO IS PROVIDED &ldquo;AS IS&rdquo; AND &ldquo;AS AVAILABLE,&rdquo; WITHOUT WARRANTIES OF ANY
               KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
@@ -497,7 +517,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="liability">
-            <h2 className="text-[16px] font-semibold">35. Limitation of liability</h2>
+            <h2 className="text-[16px] font-semibold">36. Limitation of liability</h2>
             <p className="mt-2 text-muted">
               TO THE FULLEST EXTENT PERMITTED BY LAW, RIZZUNO AND ITS OPERATOR WILL NOT BE LIABLE FOR ANY INDIRECT,
               INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF DATA, PROFITS, OR GOODWILL,
@@ -509,7 +529,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="indemnification">
-            <h2 className="text-[16px] font-semibold">36. Indemnification</h2>
+            <h2 className="text-[16px] font-semibold">37. Indemnification</h2>
             <p className="mt-2 text-muted">
               You agree to defend, indemnify, and hold harmless Rizzuno and its operator from claims, damages, and
               expenses (including reasonable legal fees) arising from your violation of these Terms, your violation
@@ -519,7 +539,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="no-relationship">
-            <h2 className="text-[16px] font-semibold">37. No business relationship</h2>
+            <h2 className="text-[16px] font-semibold">38. No business relationship</h2>
             <p className="mt-2 text-muted">
               Using Rizzuno does not create a partnership, joint venture, agency, employment, or franchise
               relationship between you and Rizzuno.
@@ -527,14 +547,14 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="changes-service">
-            <h2 className="text-[16px] font-semibold">38. Changes to Rizzuno</h2>
+            <h2 className="text-[16px] font-semibold">39. Changes to Rizzuno</h2>
             <p className="mt-2 text-muted">
               Rizzuno may add, change, or remove features, or discontinue the service, at any time.
             </p>
           </section>
 
           <section id="changes-terms">
-            <h2 className="text-[16px] font-semibold">39. Changes to these Terms</h2>
+            <h2 className="text-[16px] font-semibold">40. Changes to these Terms</h2>
             <p className="mt-2 text-muted">
               We may update these Terms. When we make a material change, we update the version and date at the top
               of this page, and accounts that previously accepted an older version are asked to review and accept
@@ -544,7 +564,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="acceptance-history">
-            <h2 className="text-[16px] font-semibold">40. Legal-version acceptance history</h2>
+            <h2 className="text-[16px] font-semibold">41. Legal-version acceptance history</h2>
             <p className="mt-2 text-muted">
               Rizzuno keeps a record of which version of the age affirmation, these Terms, and the Privacy Policy
               your account accepted, and when. That record is appended to, never overwritten or deleted — a prior
@@ -553,7 +573,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="related">
-            <h2 className="text-[16px] font-semibold">41. Related policies</h2>
+            <h2 className="text-[16px] font-semibold">42. Related policies</h2>
             <p className="mt-2 text-muted">
               These Terms should be read together with our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
@@ -573,7 +593,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="survival">
-            <h2 className="text-[16px] font-semibold">42. Survival</h2>
+            <h2 className="text-[16px] font-semibold">43. Survival</h2>
             <p className="mt-2 text-muted">
               Sections that by their nature should survive your stopping use of Rizzuno — including Intellectual
               Property (31), Disclaimers (34), Limitation of Liability (35), Indemnification (36), and any
@@ -581,16 +601,16 @@ export default function TermsOfServicePage() {
               deleted or your access ends.
             </p>
             <p className="mt-2 text-muted">
-              The operational content license described in Section 32 does not survive as a whole — it&apos;s tied
+              The operational content license described in Section 33 does not survive as a whole — it&apos;s tied
               to running the service and ends when the underlying use does. The one exception is the retained-record
-              carve-out in Section 32: any permission necessary to maintain information lawfully retained under the
+              carve-out in Section 33: any permission necessary to maintain information lawfully retained under the
               Privacy Policy survives only to the extent, and for the duration, necessary to maintain, secure,
               review, enforce, or comply with obligations relating to that retained information.
             </p>
           </section>
 
           <section id="severability">
-            <h2 className="text-[16px] font-semibold">43. Severability</h2>
+            <h2 className="text-[16px] font-semibold">44. Severability</h2>
             <p className="mt-2 text-muted">
               If any part of these Terms is found unenforceable, the rest remains in full force, and the
               unenforceable part is interpreted to reflect the parties&apos; original intent as closely as the law
@@ -599,7 +619,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="contact">
-            <h2 className="text-[16px] font-semibold">44. Governing law &amp; contact</h2>
+            <h2 className="text-[16px] font-semibold">45. Governing law &amp; contact</h2>
             {LEGAL_CONFIG.governingLaw && (
               <p className="mt-2 text-muted">These Terms are governed by {LEGAL_CONFIG.governingLaw}.</p>
             )}

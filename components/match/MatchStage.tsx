@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react"
 import { useSession, signIn, signOut } from "next-auth/react"
 import { useLocalMedia } from "@/hooks/useLocalMedia"
 import { useMatchmaking } from "@/hooks/useMatchmaking"
-import { useFriends } from "@/hooks/useFriends"
 import { useMyProfile } from "@/hooks/useMyProfile"
 import { SwipeStage } from "./SwipeStage"
 import { SelfPanel } from "./SelfPanel"
@@ -27,7 +26,7 @@ import { MyProfileSheet } from "./MyProfileSheet"
 import { UndoSkipToast } from "./UndoSkipToast"
 import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
-import type { PendingRequest } from "@/hooks/useFriends"
+import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends"
 import { useLegalAcceptance } from "@/hooks/useLegalAcceptance"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { UsersIcon } from "@/components/icons"
@@ -99,6 +98,16 @@ export function MatchStage() {
     notifyTyping,
     report,
     block,
+    friends: rawFriends,
+    friendRequestsReceived: rawFriendRequestsReceived,
+    blockedUsers: rawBlockedUsers,
+    friendActionState,
+    friendToastRequestId,
+    sendFriendRequestTo,
+    respondToFriendRequest,
+    unfriend,
+    blockFriendAccount,
+    dismissFriendToast,
   } = useMatchmaking(
     videoTrack,
     audioTrack,
@@ -315,24 +324,34 @@ export function MatchStage() {
   const swipeMatchState = pendingSkip || (state === "active" && !peer) ? "searching" : state
   const inCall = state === "active" && !pendingSkip && Boolean(peer)
 
-  // Friends + friend requests live here, shared between the Friends panel
-  // and the live in-call incoming-request toast, so accepting/declining
-  // from either place stays in sync with the other.
-  const {
-    friends,
-    requests,
-    blockedIds,
-    blockedUsers,
-    toastRequestId,
-    acceptRequest,
-    declineRequest,
-    removeFriend,
-    blockPerson,
-    dismissToast,
-  } = useFriends()
+  // Friends + friend requests — real data now (see useMatchmaking.ts, which
+  // owns the one WebSocket connection this all rides on, and
+  // server/ws-server.ts + lib/db.ts for the actual persisted backend).
+  // Mapped here into the same shapes FriendsPanel.tsx and friends already
+  // expected (see hooks/useFriends.ts) so those components needed close to
+  // no changes for what's underneath them to stop being fake.
+  const friends: DemoFriend[] = rawFriends.map((f) => ({
+    id: f.id,
+    userId: f.userId,
+    displayName: f.username ?? "Someone",
+    username: f.username ?? "",
+    online: f.online,
+  }))
+  const requests: PendingRequest[] = rawFriendRequestsReceived.map((r) => ({
+    id: r.id,
+    senderId: r.senderId,
+    displayName: r.username ?? "Someone",
+    username: r.username ?? "",
+  }))
+  const blockedUsers: BlockedUser[] = rawBlockedUsers.map((b) => ({
+    id: b.userId,
+    displayName: b.username ?? "Someone",
+  }))
+  const blockedIds = rawBlockedUsers.map((b) => b.userId)
+
   const [unreadMessages, setUnreadMessages] = useState(0)
   const friendsNotifications = requests.length + unreadMessages
-  const toastRequest = requests.find((request) => request.id === toastRequestId) ?? null
+  const toastRequest = requests.find((request) => request.id === friendToastRequestId) ?? null
   // Set when "View profile" is tapped on the live toast — shows the request's
   // full-screen profile (Decline/Accept) directly, separate from opening the
   // whole Friends panel. Captured as its own value (not derived from the
@@ -342,34 +361,30 @@ export function MatchStage() {
 
   const [friendsOpen, setFriendsOpen] = useState(false)
 
-  // Friend status for the *current match* (separate from the Friends panel's
-  // own demo data) — resets whenever the matched person changes, and is
-  // shared between the inline badge and the "View profile" sheet so they
-  // never disagree. Reset happens during render (React's documented pattern
-  // for "adjust state when a prop changes"), not in an effect, so it can't
-  // flash the previous person's state for a frame.
-  const [friendState, setFriendState] = useState<FriendState>("none")
-  const [friendStatePeerId, setFriendStatePeerId] = useState<string | null>(null)
-  if ((peer?.displayId ?? null) !== friendStatePeerId) {
-    setFriendStatePeerId(peer?.displayId ?? null)
-    setFriendState("none")
-  }
+  // Friend status for the *current match* — derived from
+  // useMatchmaking's friendActionState, keyed by the peer's displayId (see
+  // "friend-request" in lib/signaling/protocol.ts for why that's the only
+  // thing either side ever addresses each other by before a request is
+  // actually accepted). No local reset-on-peer-change needed anymore: since
+  // this is a plain lookup keyed by the *current* peer's displayId, it
+  // naturally reads "none" for a peer nothing's been sent to yet.
+  // "failed" (e.g. the match ended before the request landed) reads as
+  // "none" here — the FriendButton's own Add action is the retry, there's
+  // no separate "try again" affordance on this specific surface the way
+  // MyProfileSheet's History list has one.
+  const peerFriendAction = peer ? friendActionState.get(peer.displayId) : undefined
+  const friendState: FriendState = peerFriendAction === "friends" ? "friends" : peerFriendAction === "requested" ? "requested" : "none"
 
-  // Sending a request only ever moves this to "requested" — it becomes
-  // "friends" solely if the other person actually accepts. There's no real
-  // backend for a demo match to do that, so it honestly stays pending rather
-  // than faking an instant mutual friendship.
   function handleAddFriend() {
-    if (friendState !== "none") return
-    setFriendState("requested")
+    if (!peer || friendState !== "none") return
+    sendFriendRequestTo(peer.displayId)
   }
 
-  // Blocking from the match screen ends the call (the real block()) and also
-  // remembers them in the shared blocked list, so they're kept out of
-  // Friends search and can't send a request later, same as blocking from
-  // the Friends panel.
+  // Blocking from the match screen ends the call (the real block()) —
+  // lib/db.ts's addBlock() now also severs any friendship/pending request
+  // between the two accounts as part of that same transaction, so there's
+  // no separate "also remove them as a friend" step needed here anymore.
   function handleBlockPeer() {
-    if (peer) blockPerson(peer.displayId, peer.username ?? peer.handle)
     block()
   }
 
@@ -490,27 +505,27 @@ export function MatchStage() {
             friends={friends}
             requests={requests}
             blockedIds={blockedIds}
-            onAcceptRequest={acceptRequest}
-            onDeclineRequest={declineRequest}
-            onRemoveFriend={removeFriend}
-            onBlockPerson={blockPerson}
+            onAcceptRequest={(id) => respondToFriendRequest(id, true)}
+            onDeclineRequest={(id) => respondToFriendRequest(id, false)}
+            onRemoveFriend={unfriend}
+            onBlockPerson={(userId) => blockFriendAccount(userId)}
             onUnreadMessagesChange={setUnreadMessages}
           />
           <IncomingFriendRequestToast
             request={toastRequest}
-            onAccept={acceptRequest}
-            onDecline={declineRequest}
-            onDismiss={dismissToast}
+            onAccept={(id) => respondToFriendRequest(id, true)}
+            onDecline={(id) => respondToFriendRequest(id, false)}
+            onDismiss={dismissFriendToast}
             onViewProfile={() => setViewingToastRequest(toastRequest)}
           />
           <RequestProfileSheet
             request={viewingToastRequest}
             onAccept={(id) => {
-              acceptRequest(id)
+              respondToFriendRequest(id, true)
               setViewingToastRequest(null)
             }}
             onDecline={(id) => {
-              declineRequest(id)
+              respondToFriendRequest(id, false)
               setViewingToastRequest(null)
             }}
             onClose={() => setViewingToastRequest(null)}
@@ -528,6 +543,8 @@ export function MatchStage() {
         handle={myProfile.handle}
         history={history}
         blockedUsers={blockedUsers}
+        friendActionState={friendActionState}
+        onSendFriendRequest={sendFriendRequestTo}
         onSignOut={() => signOut({ callbackUrl: "/" })}
         open={myProfileOpen}
         onClose={() => setMyProfileOpen(false)}

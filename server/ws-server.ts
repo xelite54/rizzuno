@@ -5,7 +5,19 @@ import { matchmaker } from "./matchmaker"
 import { MAX_CHAT_IMAGE_LENGTH } from "../lib/signaling/protocol"
 import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from "../lib/signaling/protocol"
 import { verifyTicket } from "../lib/realtimeTicket"
-import { getUserStatus, addBlock, fileReport } from "../lib/db"
+import {
+  getUserStatus,
+  addBlock,
+  fileReport,
+  areFriends,
+  sendFriendRequest,
+  respondToFriendRequest,
+  removeFriendship,
+  listFriends,
+  listPendingRequestsReceived,
+  listPendingRequestsSent,
+  listBlockedByUserWithUsernames,
+} from "../lib/db"
 import { sanitizeText, containsSevereContent } from "../lib/textFilter"
 
 const MAX_HANDLE_LENGTH = 40
@@ -30,6 +42,15 @@ type ConnectionState = {
 // overwrites its old entry; the old socket's own "close" handler cleans up
 // its room membership.
 const connections = new Map<string, ConnectionState>()
+
+// The reverse of the map above, specifically for friend requests: sending
+// one only ever names a displayId (see PublicPeerIdentity's own docs on
+// why — a peer is never told anyone's real account id), so this is how
+// "friend-request" resolves that displayId back to the real account it
+// currently belongs to. Kept in lockstep with `connections` — set wherever
+// a ConnectionState's displayId is established (every "hello"), removed on
+// that same connection's close.
+const connectionsByDisplayId = new Map<string, string>()
 
 function send(ws: WebSocket, message: ServerMessage) {
   if (ws.readyState === WebSocket.OPEN) {
@@ -59,6 +80,40 @@ function roomPartner(state: ConnectionState): ConnectionState | undefined {
   return connections.get(partnerId)
 }
 
+/** The full current friends/requests/blocks picture for this account — sent after every successful "hello", and re-sent to whoever's affected (if they're online) after any friends-related action, so every open tab converges on the same state without diffing granular events itself. */
+async function sendFriendsSnapshot(state: ConnectionState) {
+  const [friends, requestsReceived, requestsSent, blocked] = await Promise.all([
+    listFriends(state.userId),
+    listPendingRequestsReceived(state.userId),
+    listPendingRequestsSent(state.userId),
+    listBlockedByUserWithUsernames(state.userId),
+  ])
+  send(state.ws, {
+    type: "friends-snapshot",
+    friends: friends.map((f) => ({
+      id: f.friendshipId,
+      userId: f.userId,
+      username: f.username,
+      online: connections.has(f.userId),
+      since: f.since,
+    })),
+    requestsReceived: requestsReceived.map((r) => ({
+      id: r.requestId,
+      senderId: r.senderId,
+      username: r.username,
+      createdAt: r.createdAt,
+    })),
+    requestsSent: requestsSent.map((r) => ({ id: r.requestId, recipientId: r.recipientId, createdAt: r.createdAt })),
+    blocked: blocked.map((b) => ({ userId: b.userId, username: b.username })),
+  })
+}
+
+/** Re-sends a snapshot to an account only if they're currently connected — used after a friends action affects someone other than the account that triggered it. */
+async function refreshSnapshotIfOnline(userId: string) {
+  const state = connections.get(userId)
+  if (state) await sendFriendsSnapshot(state)
+}
+
 async function tryMatch(state: ConnectionState) {
   const room = await matchmaker.enqueue({
     userId: state.userId,
@@ -76,17 +131,20 @@ async function tryMatch(state: ConnectionState) {
 
   aState.roomId = room.id
   bState.roomId = room.id
+  const alreadyFriends = await areFriends(room.a, room.b)
   send(aState.ws, {
     type: "matched",
     roomId: room.id,
     initiator: true,
     peer: toPublicIdentity(bState),
+    alreadyFriends,
   })
   send(bState.ws, {
     type: "matched",
     roomId: room.id,
     initiator: false,
     peer: toPublicIdentity(aState),
+    alreadyFriends,
   })
 }
 
@@ -238,6 +296,7 @@ export function createRizzunoWebSocketServer() {
           roomId: existing?.roomId ?? null,
         }
         connections.set(userId, state)
+        connectionsByDisplayId.set(state.displayId, userId)
 
         // If they're mid-call, their partner is already showing a "matched"
         // snapshot of them from whenever the room started — push a refresh
@@ -253,6 +312,8 @@ export function createRizzunoWebSocketServer() {
             })
           }
         }
+
+        await sendFriendsSnapshot(state)
         return
       }
 
@@ -344,8 +405,48 @@ export function createRizzunoWebSocketServer() {
           if (partner) {
             await addBlock(state.userId, partner.userId)
             leaveCurrentRoom(state, true)
+            await sendFriendsSnapshot(state)
+            await refreshSnapshotIfOnline(partner.userId)
           }
           send(state.ws, { type: "blocked" })
+          break
+        }
+        case "friend-request": {
+          const targetUserId = connectionsByDisplayId.get(message.targetDisplayId)
+          if (!targetUserId || !connections.has(targetUserId)) {
+            send(state.ws, { type: "friend-request-result", targetDisplayId: message.targetDisplayId, result: "peer_offline" })
+            break
+          }
+          const result = await sendFriendRequest(state.userId, targetUserId)
+          send(state.ws, { type: "friend-request-result", targetDisplayId: message.targetDisplayId, result: result.status })
+          if (result.status === "sent" || result.status === "auto_accepted") {
+            await sendFriendsSnapshot(state)
+            await refreshSnapshotIfOnline(targetUserId)
+          }
+          break
+        }
+        case "friend-respond": {
+          const result = await respondToFriendRequest(state.userId, message.requestId, message.accept)
+          if (result.status !== "not_found") {
+            await sendFriendsSnapshot(state)
+            await refreshSnapshotIfOnline(result.senderId)
+          }
+          break
+        }
+        case "unfriend": {
+          const result = await removeFriendship(state.userId, message.friendshipId)
+          if (result) {
+            await sendFriendsSnapshot(state)
+            await refreshSnapshotIfOnline(result.otherId)
+          }
+          break
+        }
+        case "friend-block": {
+          if (message.targetUserId && message.targetUserId !== state.userId) {
+            await addBlock(state.userId, message.targetUserId)
+            await sendFriendsSnapshot(state)
+            await refreshSnapshotIfOnline(message.targetUserId)
+          }
           break
         }
         default:
@@ -359,6 +460,7 @@ export function createRizzunoWebSocketServer() {
       leaveCurrentRoom(state, true)
       matchmaker.removeFromQueue(state.userId)
       if (connections.get(state.userId) === state) connections.delete(state.userId)
+      if (connectionsByDisplayId.get(state.displayId) === state.userId) connectionsByDisplayId.delete(state.displayId)
     })
   })
 

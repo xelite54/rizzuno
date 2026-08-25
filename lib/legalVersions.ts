@@ -93,6 +93,24 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // asked again. None of these bumps touch or remove any prior acceptance
   // row (see lib/db.ts's recordAcceptance/hasAcceptedCurrent) — this list
   // only changes what counts as "current" going forward.
-  { document: "terms", version: "2026-08-25" },
-  { document: "privacy", version: "2026-08-25" },
+  // Bumped 2026-08-25b: the friends feature now has a real, persisted
+  // backend (migration 0004_friends adds friend_requests/friendships
+  // tables; lib/db.ts's sendFriendRequest/respondToFriendRequest/
+  // removeFriendship/listFriends/etc.; server/ws-server.ts's
+  // "friend-request"/"friend-respond"/"unfriend"/"friend-block" handlers).
+  // Terms gained a new §24 "Friends & friend requests" (all sections from
+  // 24 onward renumbered by one) describing sending/accepting/declining/
+  // unfriending and that blocking severs any friendship/pending request;
+  // it also states friend-to-friend chat and username search are still not
+  // functional despite appearing in the UI. Privacy §3 now discloses the
+  // friend_requests/friendships tables, §7 adds a "Friends" purpose-of-
+  // processing bullet, §12 adds retention entries for friend requests
+  // (indefinite) and friendships (until unfriended), and §18's rights list
+  // adds "Send, accept, or decline a friend request" and "Unfriend" as real
+  // controls. Material change, so every account with a prior acceptance
+  // record is asked again. None of these bumps touch or remove any prior
+  // acceptance row (see lib/db.ts's recordAcceptance/hasAcceptedCurrent) —
+  // this list only changes what counts as "current" going forward.
+  { document: "terms", version: "2026-08-25b" },
+  { document: "privacy", version: "2026-08-25b" },
 ]

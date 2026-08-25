@@ -28,6 +28,11 @@ export type PeerIdentity = {
  * or target them outside the current call. Block/report never rely on it
  * either — see server/ws-server.ts, which resolves "who's in my room right
  * now" from its own server-side room state, not from a client-supplied id.
+ *
+ * Sending a friend request also goes through `displayId`, not a
+ * client-known real id (see "friend-request" below) — the server is the
+ * only thing that ever resolves a displayId to the real account behind it,
+ * exactly like block/report already do for room membership.
  */
 export type PublicPeerIdentity = Omit<PeerIdentity, "userId"> & { displayId: string }
 
@@ -61,6 +66,32 @@ export type ChatContent = { kind: "text"; text: string } | { kind: "image"; data
 // server-side backstop against an oversized payload getting through.
 export const MAX_CHAT_IMAGE_LENGTH = 2_000_000
 
+/**
+ * A confirmed friend — unlike PublicPeerIdentity, this one *does* carry the
+ * real account id. That's a deliberate, narrow exception: it's only ever
+ * sent for a relationship both accounts explicitly agreed to (a mutually
+ * accepted friend request), never for an ordinary match, so it doesn't
+ * expose anyone's identity involuntarily the way including it in
+ * PublicPeerIdentity would.
+ */
+export type FriendSummary = { id: string; userId: string; username: string | null; online: boolean; since: number }
+
+/** A friend request someone else sent you — `id` is the request's own opaque id (used to accept/decline it), not the sender's account id, which this doesn't expose until you accept. */
+export type ReceivedFriendRequest = { id: string; senderId: string; username: string | null; createdAt: number }
+
+/** A friend request you sent — `recipientId` is included because, unlike an incoming request, you already necessarily learned it by choosing to send this (it's your own action, not exposure of a stranger's identity). */
+export type SentFriendRequest = { id: string; recipientId: string; createdAt: number }
+
+export type BlockedUserSummary = { userId: string; username: string | null }
+
+export type FriendRequestResult =
+  | "sent"
+  | "auto_accepted"
+  | "already_friends"
+  | "already_requested"
+  | "blocked"
+  | "peer_offline"
+
 export type ClientMessage =
   | {
       type: "hello"
@@ -80,10 +111,16 @@ export type ClientMessage =
   | { type: "block"; roomId: string }
   | { type: "mic-state"; roomId: string; micEnabled: boolean }
   | { type: "typing"; roomId: string }
+  /** Sends a friend request to whoever currently holds this displayId — resolved server-side to a real account (see server/ws-server.ts's connectionsByDisplayId); the client never supplies or learns a target's real id here. */
+  | { type: "friend-request"; targetDisplayId: string }
+  | { type: "friend-respond"; requestId: string; accept: boolean }
+  | { type: "unfriend"; friendshipId: string }
+  /** Blocking someone you're already friends with (or have a pending request with) — `targetUserId` is one the client only ever learned from a prior friends-snapshot/request, i.e. a relationship it was already told about, not an arbitrary id it's guessing. */
+  | { type: "friend-block"; targetUserId: string }
 
 export type ServerMessage =
   | { type: "queued" }
-  | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity }
+  | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity; alreadyFriends: boolean }
   /** The current partner edited their own profile mid-call (e.g. set/changed their username) — same shape as "matched"'s peer, just a refresh rather than a new match. */
   | { type: "peer-updated"; roomId: string; peer: PublicPeerIdentity }
   | { type: "signal"; roomId: string; data: RtcSignal }
@@ -96,6 +133,15 @@ export type ServerMessage =
   /** "hello" was rejected — an expired/invalid ticket, or an account status (banned/suspended) that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket) or stop trying (banned/suspended). */
   | { type: "rejected"; reason: "invalid_ticket" | "banned" | "suspended" }
   | { type: "error"; message: string }
+  /** The full current picture of friends/requests/blocks — sent right after a successful "hello", and re-sent to any online, affected account after any friends-related action (send/accept/decline/unfriend/block) so every open tab stays in sync without needing to diff granular events itself. */
+  | {
+      type: "friends-snapshot"
+      friends: FriendSummary[]
+      requestsReceived: ReceivedFriendRequest[]
+      requestsSent: SentFriendRequest[]
+      blocked: BlockedUserSummary[]
+    }
+  /** Tells the *sender* what happened to a specific "friend-request" they just sent — a snapshot alone can't convey "this one failed because you're already friends" vs. "this one failed because they're offline right now". */
+  | { type: "friend-request-result"; targetDisplayId: string; result: FriendRequestResult }
 
-/** Path the realtime WebSocket upgrades on — kept separate from Next's own internal upgrade traffic (e.g. HMR). */
 export const WS_PATH = "/rizzuno-ws"

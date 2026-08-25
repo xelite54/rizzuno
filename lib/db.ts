@@ -318,13 +318,45 @@ export async function claimUsername(userId: string, username: string): Promise<C
   }
 }
 
+/** Both accounts, lower id first — a friendship or a block-driven friend-cleanup is symmetric, and storing/querying it one canonical way (rather than once per direction) is what lets a plain UNIQUE constraint do the deduplication. */
+function pairKey(a: string, b: string): [string, string] {
+  return a < b ? [a, b] : [b, a]
+}
+
+/**
+ * Records a block — transactional because a block is also always stronger
+ * than a friendship: blocking someone severs any existing friendship and
+ * cancels any pending friend request between the two accounts, in either
+ * direction, regardless of which surface (in-call safety menu or the
+ * Friends panel) the block was made from. All in one transaction so a block
+ * is never left half-applied (the block itself recorded but a stale
+ * friendship left standing, or vice versa).
+ */
 export async function addBlock(blockerId: string, blockedId: string) {
   await ensureUser(blockerId)
   await ensureUser(blockedId)
-  await q(
-    `INSERT INTO blocks (id, blocker_id, blocked_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
-    [randomUUID(), blockerId, blockedId, now()]
-  )
+  const ts = now()
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    await client.query(
+      `INSERT INTO blocks (id, blocker_id, blocked_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
+      [randomUUID(), blockerId, blockedId, ts]
+    )
+    const [a, b] = pairKey(blockerId, blockedId)
+    await client.query(`DELETE FROM friendships WHERE user_a_id = $1 AND user_b_id = $2`, [a, b])
+    await client.query(
+      `UPDATE friend_requests SET status = 'declined', resolved_at = $1
+       WHERE status = 'pending' AND ((sender_id = $2 AND recipient_id = $3) OR (sender_id = $3 AND recipient_id = $2))`,
+      [ts, blockerId, blockedId]
+    )
+    await client.query("COMMIT")
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
 }
 
 export async function isBlockedEitherWay(a: string, b: string): Promise<boolean> {
@@ -338,6 +370,197 @@ export async function isBlockedEitherWay(a: string, b: string): Promise<boolean>
 export async function listBlockedByUser(userId: string): Promise<string[]> {
   const { rows } = await q<{ blocked_id: string }>(`SELECT blocked_id FROM blocks WHERE blocker_id = $1`, [userId])
   return rows.map((r) => r.blocked_id)
+}
+
+/** The current, non-PII-adjacent snapshot of who you've blocked — just the account id and whatever username (if any) that account has claimed, for My Profile's "Blocked users" list. */
+export async function listBlockedByUserWithUsernames(userId: string): Promise<{ userId: string; username: string | null }[]> {
+  const { rows } = await q<{ blocked_id: string; username: string | null }>(
+    `SELECT b.blocked_id, u.username FROM blocks b LEFT JOIN users u ON u.id = b.blocked_id WHERE b.blocker_id = $1 ORDER BY b.created_at DESC`,
+    [userId]
+  )
+  return rows.map((r) => ({ userId: r.blocked_id, username: r.username }))
+}
+
+export async function areFriends(a: string, b: string): Promise<boolean> {
+  const [x, y] = pairKey(a, b)
+  const { rows } = await q(`SELECT 1 FROM friendships WHERE user_a_id = $1 AND user_b_id = $2 LIMIT 1`, [x, y])
+  return rows.length > 0
+}
+
+export type SendFriendRequestResult =
+  | { status: "sent"; requestId: string }
+  | { status: "auto_accepted" }
+  | { status: "already_friends" }
+  | { status: "already_requested" }
+  | { status: "blocked" }
+
+/**
+ * Sends a friend request — or, if the other side already sent one to you,
+ * treats this as accepting theirs instead, so two people who both hit "Add"
+ * end up mutual friends rather than two one-sided pending rows silently
+ * pointing at each other forever.
+ */
+export async function sendFriendRequest(senderId: string, recipientId: string): Promise<SendFriendRequestResult> {
+  if (senderId === recipientId) return { status: "blocked" }
+  await ensureUser(senderId)
+  await ensureUser(recipientId)
+  if (await isBlockedEitherWay(senderId, recipientId)) return { status: "blocked" }
+
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+
+    const [a, b] = pairKey(senderId, recipientId)
+    const existingFriendship = await client.query(
+      `SELECT 1 FROM friendships WHERE user_a_id = $1 AND user_b_id = $2`,
+      [a, b]
+    )
+    if (existingFriendship.rows.length > 0) {
+      await client.query("ROLLBACK")
+      return { status: "already_friends" }
+    }
+
+    const existingOutgoing = await client.query(
+      `SELECT 1 FROM friend_requests WHERE sender_id = $1 AND recipient_id = $2 AND status = 'pending'`,
+      [senderId, recipientId]
+    )
+    if (existingOutgoing.rows.length > 0) {
+      await client.query("ROLLBACK")
+      return { status: "already_requested" }
+    }
+
+    // Mutual: the other side already requested you — accept theirs instead
+    // of creating a second, redundant pending row. FOR UPDATE so a
+    // concurrent response to this same row can't race with this claim.
+    const reverse = await client.query<{ id: string }>(
+      `SELECT id FROM friend_requests WHERE sender_id = $1 AND recipient_id = $2 AND status = 'pending' FOR UPDATE`,
+      [recipientId, senderId]
+    )
+    if (reverse.rows[0]) {
+      const ts = now()
+      await client.query(`UPDATE friend_requests SET status = 'accepted', resolved_at = $1 WHERE id = $2`, [
+        ts,
+        reverse.rows[0].id,
+      ])
+      await client.query(
+        `INSERT INTO friendships (id, user_a_id, user_b_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
+        [randomUUID(), a, b, ts]
+      )
+      await client.query("COMMIT")
+      return { status: "auto_accepted" }
+    }
+
+    const id = randomUUID()
+    await client.query(
+      `INSERT INTO friend_requests (id, sender_id, recipient_id, status, created_at) VALUES ($1, $2, $3, 'pending', $4)`,
+      [id, senderId, recipientId, now()]
+    )
+    await client.query("COMMIT")
+    return { status: "sent", requestId: id }
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+export type RespondToFriendRequestResult =
+  | { status: "accepted"; senderId: string }
+  | { status: "declined"; senderId: string }
+  | { status: "not_found" }
+
+/** `recipientId` is who's responding — a request can only be answered by the account it was actually sent to, never the sender or anyone else, checked here rather than trusted from the client. */
+export async function respondToFriendRequest(
+  recipientId: string,
+  requestId: string,
+  accept: boolean
+): Promise<RespondToFriendRequestResult> {
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    const { rows } = await client.query<{ sender_id: string }>(
+      `SELECT sender_id FROM friend_requests WHERE id = $1 AND recipient_id = $2 AND status = 'pending' FOR UPDATE`,
+      [requestId, recipientId]
+    )
+    const row = rows[0]
+    if (!row) {
+      await client.query("ROLLBACK")
+      return { status: "not_found" }
+    }
+    const ts = now()
+    await client.query(`UPDATE friend_requests SET status = $1, resolved_at = $2 WHERE id = $3`, [
+      accept ? "accepted" : "declined",
+      ts,
+      requestId,
+    ])
+    if (accept) {
+      const [a, b] = pairKey(row.sender_id, recipientId)
+      await client.query(
+        `INSERT INTO friendships (id, user_a_id, user_b_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
+        [randomUUID(), a, b, ts]
+      )
+    }
+    await client.query("COMMIT")
+    return { status: accept ? "accepted" : "declined", senderId: row.sender_id }
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+}
+
+/** Returns the other account's id if a friendship was actually removed, or null if `friendshipId` didn't exist or didn't belong to `userId` — checked by the query itself (the WHERE clause), not trusted from the client. */
+export async function removeFriendship(userId: string, friendshipId: string): Promise<{ otherId: string } | null> {
+  const { rows } = await q<{ user_a_id: string; user_b_id: string }>(
+    `DELETE FROM friendships WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2) RETURNING user_a_id, user_b_id`,
+    [friendshipId, userId]
+  )
+  const row = rows[0]
+  if (!row) return null
+  return { otherId: row.user_a_id === userId ? row.user_b_id : row.user_a_id }
+}
+
+export type FriendSummary = { friendshipId: string; userId: string; username: string | null; since: number }
+
+export async function listFriends(userId: string): Promise<FriendSummary[]> {
+  const { rows } = await q<{ id: string; other_id: string; created_at: string; username: string | null }>(
+    `SELECT f.id,
+            CASE WHEN f.user_a_id = $1 THEN f.user_b_id ELSE f.user_a_id END AS other_id,
+            f.created_at,
+            u.username
+     FROM friendships f
+     JOIN users u ON u.id = CASE WHEN f.user_a_id = $1 THEN f.user_b_id ELSE f.user_a_id END
+     WHERE f.user_a_id = $1 OR f.user_b_id = $1
+     ORDER BY f.created_at DESC`,
+    [userId]
+  )
+  return rows.map((r) => ({ friendshipId: r.id, userId: r.other_id, username: r.username, since: Number(r.created_at) }))
+}
+
+export type ReceivedFriendRequest = { requestId: string; senderId: string; username: string | null; createdAt: number }
+
+export async function listPendingRequestsReceived(userId: string): Promise<ReceivedFriendRequest[]> {
+  const { rows } = await q<{ id: string; sender_id: string; created_at: string; username: string | null }>(
+    `SELECT fr.id, fr.sender_id, fr.created_at, u.username
+     FROM friend_requests fr
+     JOIN users u ON u.id = fr.sender_id
+     WHERE fr.recipient_id = $1 AND fr.status = 'pending'
+     ORDER BY fr.created_at DESC`,
+    [userId]
+  )
+  return rows.map((r) => ({ requestId: r.id, senderId: r.sender_id, username: r.username, createdAt: Number(r.created_at) }))
+}
+
+export type SentFriendRequest = { requestId: string; recipientId: string; createdAt: number }
+
+export async function listPendingRequestsSent(userId: string): Promise<SentFriendRequest[]> {
+  const { rows } = await q<{ id: string; recipient_id: string; created_at: string }>(
+    `SELECT id, recipient_id, created_at FROM friend_requests WHERE sender_id = $1 AND status = 'pending' ORDER BY created_at DESC`,
+    [userId]
+  )
+  return rows.map((r) => ({ requestId: r.id, recipientId: r.recipient_id, createdAt: Number(r.created_at) }))
 }
 
 export type ReportInput = {

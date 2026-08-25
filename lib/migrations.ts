@@ -122,4 +122,42 @@ export const MIGRATIONS: Migration[] = [
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users (username);
     `,
   },
+  {
+    // The real backend behind the Friends feature — previously a request
+    // only ever set a flag on the sender's own screen (see
+    // FRIENDS_ENABLED's history in lib/featureFlags.ts). `friend_requests`
+    // is the durable, account-to-account record of who asked whom;
+    // `friendships` is the resulting mutual relationship once accepted (or
+    // auto-formed if both sides happened to request each other).
+    //
+    // `friendships` always stores the lower account id as user_a_id and the
+    // higher as user_b_id (enforced in application code, see lib/db.ts's
+    // pairKey()) — a friendship is symmetric, and storing it this one
+    // canonical way (rather than once per direction) is what lets a plain
+    // UNIQUE constraint prevent a duplicate row for the same pair.
+    id: "0004_friends",
+    sql: `
+      CREATE TABLE IF NOT EXISTS friend_requests (
+        id TEXT PRIMARY KEY,
+        sender_id TEXT NOT NULL,
+        recipient_id TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at BIGINT NOT NULL,
+        resolved_at BIGINT,
+        UNIQUE (sender_id, recipient_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_friend_requests_recipient ON friend_requests(recipient_id, status);
+      CREATE INDEX IF NOT EXISTS idx_friend_requests_sender ON friend_requests(sender_id, status);
+
+      CREATE TABLE IF NOT EXISTS friendships (
+        id TEXT PRIMARY KEY,
+        user_a_id TEXT NOT NULL,
+        user_b_id TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        UNIQUE (user_a_id, user_b_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_friendships_a ON friendships(user_a_id);
+      CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(user_b_id);
+    `,
+  },
 ]

@@ -1,15 +1,18 @@
 /**
- * The Friends system (friend requests, friend-to-friend messaging) still
- * has no real backend behind it — a "request" only ever sets a flag on the
- * sender's own screen, and nothing ever reaches the other person (see the
- * legal-fact-sheet audit that originally flagged this). Showing "Add
- * friend" / "Requested" implies a real request was delivered, which isn't
- * true — turned back on anyway, as an explicit, informed product decision
- * (2026-08-25), not because that limitation was fixed. If you're looking at
- * this because someone reported "Add friend" not actually reaching the
- * other person: that's this, working as currently (not) built, not a bug.
- * Building the real backend (persisted requests, delivery to the other
- * account, accept/decline that both sides see) is the actual fix; this flag
- * has nothing left to do once that exists.
+ * Friend requests and friendships are real and persisted as of 2026-08-25 —
+ * see lib/db.ts's friend_requests/friendships tables (migration
+ * 0004_friends), server/ws-server.ts's "friend-request"/"friend-respond"/
+ * "unfriend"/"friend-block" handlers, and hooks/useMatchmaking.ts, which
+ * drives the UI from the server's actual state instead of a local flag.
+ * Sending a request now genuinely reaches the other account — live, if
+ * they're online, and durably either way (it's still there next time they
+ * connect).
+ *
+ * Friend-to-friend chat/messaging (the "message" view inside
+ * FriendsPanel.tsx) and the username-search directory (FriendsPanel.tsx's
+ * `DIRECTORY`, still hardcoded empty) are both still exactly as fake as
+ * before — out of scope of the request/friendship work above, not
+ * accidentally left behind. Don't infer from this flag being `true` that
+ * those work too.
  */
 export const FRIENDS_ENABLED = true
