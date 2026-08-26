@@ -65,19 +65,6 @@ export function useMatchmaking(
   // never gets ahead of what the server actually has registered for us.
   const [realtimeReady, setRealtimeReady] = useState(false)
 
-  // `connected` toggling false (transport dropped) always means whatever
-  // "ready" we had is stale — the server's ConnectionState for our old
-  // socket is gone (see its "close" handler). Reconnecting starts this over
-  // from `connected: true, realtimeReady: false` until a fresh "hello"
-  // round-trips again.
-  useEffect(() => {
-    // Reacting to an external system (the transport just dropped) — not
-    // mirroring React state, same reasoning as the "announce on connect"
-    // effect below.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!connected) setRealtimeReady(false)
-  }, [connected])
-
   // `serverState` tracks what the signaling server has told us (queued,
   // matched, peer left). Whether the call is actually "active" is a
   // derived read of the live WebRTC connection, not a copy of it — see
@@ -116,10 +103,70 @@ export function useMatchmaking(
   useEffect(() => {
     serverStateRef.current = serverState
   }, [serverState])
+
+  // Whether the guest currently *wants* automatic matching to be happening
+  // — the "desired intent" this whole reconnect fix hinges on, kept
+  // deliberately separate from `serverState` (which only reflects what the
+  // server last actually told us, and goes stale the instant the socket
+  // drops — see the effect below). Starts false: nothing auto-starts until
+  // MatchStage's own onboarding-gated effect calls findMatch() for the
+  // first time. From then on, findMatch() (called directly, by skip, or by
+  // the peer-left auto-retry) sets it true; pauseMatching() is the only
+  // thing that sets it back to false.
+  //
+  // A ref, not state, on purpose: it's read by the reconnect-resume effect
+  // further down, and if it were state, flipping it inside findMatch()
+  // would itself be a dependency change that re-triggers that same effect
+  // a second time — double-sending "find" the moment MatchStage's own
+  // auto-start effect calls findMatch() directly (realtimeReady/roomId
+  // wouldn't have changed, only this). A ref sidesteps that: writing to it
+  // doesn't schedule a re-render or re-run any effect, so the reconnect
+  // effect only ever re-evaluates when realtimeReady or roomId actually
+  // change — a genuine reconnect or a room actually clearing, never this.
+  const wantsMatchingRef = useRef(false)
+
   const recordHistory = useCallback((entry: PeerProfile | null) => {
     if (!entry) return
     setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY))
   }, [])
+
+  // The transport dropping means whatever the server knew about us is gone
+  // — server/ws-server.ts's close handler tears down both this account's
+  // matchmaker queue entry and any active room the instant it sees the
+  // close (and tells our old partner, if any, "peer-left" on their side).
+  // Two things follow from that, and neither can wait for a "peer-left" of
+  // our own (we're the one who disconnected — nothing will ever tell us):
+  //
+  //  1. `realtimeReady` must drop immediately — whatever "ready" we had
+  //     described a ConnectionState the server no longer has.
+  //  2. Any room we thought we were in must be treated as lost right now,
+  //     not assumed to survive until told otherwise (see requirement: "do
+  //     not pretend an in-memory room survived"). Left alone, a stale
+  //     `roomId` would also block the reconnect-resume effect below from
+  //     ever re-sending "find", since it only fires when there's no room —
+  //     exactly the bug this whole fix is for.
+  //
+  // `serverState` is only forced to "searching" here if we actually had a
+  // room to lose (an idle/already-searching guest has no room, and
+  // "searching" is already the right thing to keep showing through a brief
+  // reconnect gap) and only if the guest still wants matching — if they'd
+  // paused, pauseMatching() already cleared the room itself before this
+  // could ever run.
+  useEffect(() => {
+    if (connected) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRealtimeReady(false)
+    if (!roomId) return
+    console.log("matchmaking: transport dropped mid-room — treating the room as lost, not assuming it survived")
+    recordHistory(peerRef.current)
+    setRoomId(null)
+    setPeer(null)
+    setMessages([])
+    setPeerMicEnabled(true)
+    setPeerTyping(false)
+    if (wantsMatchingRef.current) setServerState("searching")
+  }, [connected, roomId, recordHistory])
+
   const failedSince = useRef<number | null>(null)
   const signalListeners = useRef(new Set<(roomId: string, data: RtcSignal) => void>())
   const peerTypingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -172,6 +219,7 @@ export function useMatchmaking(
 
   const findMatch = useCallback(() => {
     console.log("matchmaking: sending find")
+    wantsMatchingRef.current = true
     setServerState("searching")
     send({ type: "find" })
   }, [send])
@@ -270,6 +318,10 @@ export function useMatchmaking(
   // just calling findMatch() again.
   const pauseMatching = useCallback(() => {
     recordHistory(peerRef.current)
+    // The one place this flips back to false — a reconnect after this must
+    // NOT auto-enqueue the guest again (see the reconnect-resume effect
+    // below, which checks this before ever sending a fresh "find").
+    wantsMatchingRef.current = false
     setRoomId(null)
     setPeer(null)
     setMessages([])
@@ -428,6 +480,15 @@ export function useMatchmaking(
             setTimeout(() => {
               if (serverStateRef.current === "searching") findMatch()
             }, 2000)
+          } else if (message.context === "hello") {
+            // hello itself failed server-side before "ready" could be sent
+            // (see server/ws-server.ts's catch around handleParsedMessage)
+            // — nothing else is ever coming for this attempt. Re-announce
+            // (fresh ticket + a fresh hello) after a short delay rather than
+            // leaving the guest waiting on a "ready" that's never arriving;
+            // announce() itself resets realtimeReady first, so this can't
+            // race a "ready" that unexpectedly still shows up right after.
+            setTimeout(() => announce(), 2000)
           }
           break
         case "friends-snapshot": {
@@ -472,6 +533,44 @@ export function useMatchmaking(
     if (!roomId) return
     send({ type: "mic-state", roomId, micEnabled })
   }, [roomId, micEnabled, send])
+
+  // Per-"ready"-session guard for the reconnect-resume effect right below —
+  // the "explicit per-ready generation" state that keeps it from
+  // double-sending "find". `roomId` has to be in that effect's dependency
+  // array (a genuine reconnect clears it, and the effect needs to react to
+  // that), but `roomId` *also* legitimately goes to `null` for reasons that
+  // already send their own follow-up request — an ordinary skip() (which
+  // re-queues server-side as part of handling "skip" itself) and the
+  // deliberately-delayed "peer-left" auto-retry effect further down. Without
+  // this guard, either of those would make the reconnect-resume effect fire
+  // *again* too, sending a redundant second "find". Reset to false the
+  // moment `realtimeReady` itself drops (a genuine disconnect) so the next
+  // time it becomes true is treated as a fresh session worth resuming into;
+  // left `true` for the rest of an already-ready session so any later
+  // `roomId` churn from skip/peer-left is recognized as already handled.
+  const resumedForCurrentReadyRef = useRef(false)
+
+  // THE reconnect-resume fix: once a fresh "hello" is actually acknowledged
+  // (`realtimeReady` — never the raw transport `connected`, and never
+  // `serverState`, which is exactly what goes stale across a disconnect —
+  // see the effect above), re-request a match if the guest still wants one
+  // and doesn't currently have an active room. This is deliberately
+  // independent of whatever `serverState`/`state` happened to be before the
+  // disconnect — a stale "searching" works exactly the same as "idle" here,
+  // which is the actual bug this fixes: MatchStage's own auto-start effect
+  // only ever fires from `state === "idle"`, so a disconnect that happened
+  // while genuinely searching (or mid-call) left nothing to ever retry it.
+  useEffect(() => {
+    if (!realtimeReady) {
+      resumedForCurrentReadyRef.current = false
+      return
+    }
+    if (resumedForCurrentReadyRef.current) return
+    resumedForCurrentReadyRef.current = true
+    if (roomId || !wantsMatchingRef.current) return
+    console.log("matchmaking: ready + still wants matching + no active room — sending find")
+    findMatch()
+  }, [realtimeReady, roomId, findMatch])
 
   // "peer-left" is a brief transitional state — automatically look for
   // someone new. Also gated on `realtimeReady`: a peer-left right as the

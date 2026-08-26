@@ -275,20 +275,7 @@ export function MyProfileSheet({
               >
                 <ChevronLeftIcon className="h-4 w-4" />
               </button>
-            ) : (
-              // Icon only, no background/border of its own — same plain
-              // treatment as Back/Close either side of it, just a faint
-              // hover circle. Lives in the header (not next to Edit profile
-              // below) specifically so Edit profile can sit alone, centered.
-              <button
-                type="button"
-                onClick={() => setView("settings")}
-                aria-label="Settings"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-              >
-                <SettingsIcon className="h-4 w-4" />
-              </button>
-            )}
+            ) : null}
             <span className="flex-1 text-[15px] font-semibold text-foreground">
               {view === "edit"
                 ? "Edit profile"
@@ -336,28 +323,26 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={startEditing}
-                    className="mt-4 rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
-                  >
-                    Edit profile
-                  </button>
-                </div>
-
-                <div className="mt-6 border-t border-border pt-4">
-                  <p className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Privacy &amp; data
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleExportData}
-                    disabled={exportBusy}
-                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2 disabled:opacity-50"
-                  >
-                    <span>Download my data</span>
-                    <span className="text-[12px] text-muted">{exportBusy ? "Preparing…" : "Export"}</span>
-                  </button>
+                  <div className="mt-4 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      className="rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
+                    >
+                      Edit profile
+                    </button>
+                    {/* Icon only, no background/border of its own — History,
+                        Blocked users, Download my data, changing gender, and
+                        Sign out all live behind it now. */}
+                    <button
+                      type="button"
+                      onClick={() => setView("settings")}
+                      aria-label="Settings"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    >
+                      <SettingsIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-8">
@@ -560,6 +545,24 @@ export function MyProfileSheet({
                   </div>
                 </div>
 
+                <div className="mt-6 border-t border-border pt-4">
+                  <p className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
+                    Privacy &amp; data
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleExportData}
+                    disabled={exportBusy}
+                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    <span>Download my data</span>
+                    <span className="text-[12px] text-muted">{exportBusy ? "Preparing…" : "Export"}</span>
+                  </button>
+                </div>
+
+                {/* Sign out is deliberately last — everything else on this
+                    screen is a setting or a lookup; this is the one action
+                    that ends the session. */}
                 <div className="mt-6 border-t border-border pt-4">
                   {confirmingSignOut ? (
                     <div className="rounded-xl bg-surface-2 p-3">

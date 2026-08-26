@@ -264,18 +264,23 @@ export function MatchStage() {
   // including "find") until "hello" has actually been verified and
   // processed, which is a real async chain (ticket verify, a DB status
   // check, the friends-snapshot queries). Firing on `connected` alone could
-  // send "find" into that gap, get silently dropped, and — because
-  // `requested.current` was already latched true — never retry, leaving the
-  // guest stuck in "searching" forever. `realtimeReady` only ever flips true
-  // once the server's own "ready" ack comes back (see useMatchmaking.ts),
-  // so there's nothing to race.
+  // send "find" into that gap and get silently dropped. `realtimeReady`
+  // only ever flips true once the server's own "ready" ack comes back (see
+  // useMatchmaking.ts), so there's nothing to race.
   //
-  // Also gated on `state === "idle"`, and `realtimeReady` resets to false on
-  // every socket reconnect/re-hello (see useMatchmaking.ts) — together
-  // those mean `requested.current` is safe to reset alongside it: a
-  // reconnect while genuinely idle correctly retries the auto-start, while
-  // a reconnect mid-search/mid-call (state isn't "idle") never fires this
-  // again and doesn't interrupt anything already in progress.
+  // IMPORTANT — this effect is ONLY the initial bootstrap. `state ===
+  // "idle"` correctly describes "never started yet", which is exactly what
+  // this is for, but it does NOT (and must not be relied on to) describe
+  // "safe to resume after a reconnect" — a disconnect that happened while
+  // genuinely searching or mid-call leaves `state` stuck on a stale
+  // "searching"/"connecting"/"active" that this effect will then never see
+  // as "idle" again, which used to mean nothing ever retried it (the bug
+  // this comment used to describe as intentional). Reconnect-resume is now
+  // useMatchmaking.ts's own responsibility — see its `wantsMatchingRef` and
+  // the effect that resends "find" on every fresh `realtimeReady`
+  // regardless of what `state` was before the disconnect. `requested.current`
+  // here only guards THIS effect against firing more than once per ready
+  // session for its own (onboarding-gated) reasons.
   const requested = useRef(false)
   useEffect(() => {
     if (!realtimeReady) {

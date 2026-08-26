@@ -273,6 +273,22 @@ export function createRizzunoWebSocketServer() {
           })
           if (state && (message.type === "find" || message.type === "skip")) {
             send(state.ws, { type: "error", message: "Couldn't find a match right now. Retrying…", context: "find" })
+          } else if (message.type === "hello") {
+            // hello threw before "ready" could be sent (e.g. getUserStatus
+            // or sendFriendsSnapshot hit a real database error) — `state`
+            // is likely still null at this point (it's only assigned after
+            // those calls succeed), so there's no ConnectionState to send
+            // through; use the raw socket directly. Without this, the
+            // client has no way to distinguish "still waiting on a slow
+            // server" from "this hello is never going to succeed" and
+            // would just sit there forever with no "ready" and no error —
+            // see hooks/useMatchmaking.ts's "error" handling for what it
+            // does with this (retries hello after a short delay).
+            send(ws, {
+              type: "error",
+              message: "Couldn't set up your connection right now. Retrying…",
+              context: "hello",
+            })
           }
         })
 
@@ -534,17 +550,30 @@ export function createRizzunoWebSocketServer() {
 
     ws.on("close", () => {
       if (!state) return
+      // Only this socket's own entry, and only if it's still the live one —
+      // a superseded old socket (second-tab dedup, see "hello" above, or a
+      // reconnect that raced with the old socket's own close) closing after
+      // a newer one already took its place in `connections` must not touch
+      // ANY of the newer connection's state. Checked first, before anything
+      // else below runs, specifically because `leaveCurrentRoom` and
+      // `removeFromQueue` operate on `state.userId` — not on this specific
+      // socket/ConnectionState object — so without this guard, an old
+      // socket's belated close event would tear down whatever room or queue
+      // entry the *new* socket had already re-established for that same
+      // userId (e.g. a fresh "find" the new connection just sent), even
+      // though that account is still very much online.
+      const wasCurrent = connections.get(state.userId) === state
+      if (!wasCurrent) {
+        console.log("ws-server: close on a superseded socket — leaving the current connection's state alone", {
+          userId: state.userId,
+        })
+        return
+      }
       leaveCurrentRoom(state, true)
       matchmaker.removeFromQueue(state.userId)
-      // Only this socket's own entry, and only if it's still the live one —
-      // a superseded old socket (second-tab dedup, see "hello" above)
-      // closing after a newer one already took its place in `connections`
-      // must not delete the newer entry, and must not shrink the online
-      // count for an account that's actually still connected.
-      const wasCurrent = connections.get(state.userId) === state
-      if (wasCurrent) connections.delete(state.userId)
+      connections.delete(state.userId)
       if (connectionsByDisplayId.get(state.displayId) === state.userId) connectionsByDisplayId.delete(state.displayId)
-      if (wasCurrent) broadcastOnlineCount()
+      broadcastOnlineCount()
     })
   })
 

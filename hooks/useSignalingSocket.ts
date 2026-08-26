@@ -6,6 +6,38 @@ import type { ClientMessage, ServerMessage } from "@/lib/signaling/protocol"
 
 type Listener = (message: ServerMessage) => void
 
+/**
+ * Normalizes a configured NEXT_PUBLIC_WS_URL so it always lands on the
+ * realtime server's actual WebSocket path. server.ts only ever accepts an
+ * upgrade whose pathname is exactly WS_PATH ("/rizzuno-ws") — see its
+ * `httpServer.on("upgrade", ...)` handler — but the natural value to copy
+ * out of Railway's dashboard is a bare origin (e.g.
+ * "wss://rizzuno-realtime.up.railway.app") with no path at all. Without
+ * this, a bare-origin value would open a WebSocket connection to the right
+ * host but the wrong path, which server.ts rejects outright (falls through
+ * to Next's own upgrade handling, which doesn't recognize it either) — the
+ * socket would just never open, indistinguishable from the host itself
+ * being unreachable.
+ *
+ * Idempotent: a value that already ends in WS_PATH is left alone rather
+ * than duplicated.
+ */
+function normalizeWsUrl(configuredUrl: string): string {
+  try {
+    const url = new URL(configuredUrl)
+    url.pathname = WS_PATH
+    url.search = ""
+    url.hash = ""
+    return url.toString()
+  } catch {
+    // Not a parseable absolute URL (e.g. a typo missing the wss:// scheme)
+    // — fall back to plain string handling rather than throwing; a
+    // malformed env var should degrade, not crash the whole app.
+    const trimmed = configuredUrl.replace(/\/+$/, "")
+    return trimmed.endsWith(WS_PATH) ? trimmed : `${trimmed}${WS_PATH}`
+  }
+}
+
 /** Low-level WebSocket lifecycle: connect, auto-reconnect with backoff, queue sends while offline. */
 export function useSignalingSocket() {
   const [connected, setConnected] = useState(false)
@@ -28,7 +60,7 @@ export function useSignalingSocket() {
       // browser at that other host instead — no other code has to change.
       const configuredUrl = process.env.NEXT_PUBLIC_WS_URL
       const protocol = window.location.protocol === "https:" ? "wss" : "ws"
-      const url = configuredUrl || `${protocol}://${window.location.host}${WS_PATH}`
+      const url = configuredUrl ? normalizeWsUrl(configuredUrl) : `${protocol}://${window.location.host}${WS_PATH}`
       socket = new WebSocket(url)
       wsRef.current = socket
 

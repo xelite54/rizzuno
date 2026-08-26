@@ -142,8 +142,8 @@ export type ServerMessage =
   | { type: "blocked" }
   /** "hello" was rejected — an expired/invalid ticket, or an account status (banned/suspended) that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket) or stop trying (banned/suspended). */
   | { type: "rejected"; reason: "invalid_ticket" | "banned" | "suspended" }
-  /** `context` names which action the error is about, so the client can react appropriately (e.g. retry a failed "find") instead of just logging it — "Message blocked." (chat) carries no context since there's nothing to retry there. */
-  | { type: "error"; message: string; context?: "find" }
+  /** `context` names which action the error is about, so the client can react appropriately (e.g. retry a failed "find" or "hello") instead of just logging it — "Message blocked." (chat) carries no context since there's nothing to retry there. `"hello"` specifically means hello was received but processing it threw (e.g. a database error) before "ready" could be sent — without this, the client would otherwise just wait for a "ready" that's never coming. */
+  | { type: "error"; message: string; context?: "find" | "hello" }
   /**
    * How many accounts currently have a live, hello-accepted realtime
    * connection — sent right after this connection's own "ready", and
