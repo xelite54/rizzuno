@@ -112,6 +112,19 @@ export function MyProfileSheet({
     resetToProfile()
   }
 
+  // The header's X only actually closes the whole sheet (and drops you back
+  // out to the match screen) from the main profile view. From anywhere
+  // else — Settings included — it's "done with this", not "cancel the
+  // profile too": it returns to the profile view but leaves the sheet
+  // itself open, same as tapping Back until you're home again.
+  function handleXClick() {
+    if (view === "profile") {
+      handleClose()
+    } else {
+      resetToProfile()
+    }
+  }
+
   /** Maps a displayId's raw session outcome ("failed" included) down to the three states PeerProfileSheet's FriendButton actually understands — a failed attempt should just look like "none" there (retryable via the same Add button), whereas the History row list below shows "Try again" explicitly instead of collapsing it. */
   function friendStateFor(displayId: string): FriendState {
     const action = friendActionState.get(displayId)
@@ -262,7 +275,20 @@ export function MyProfileSheet({
               >
                 <ChevronLeftIcon className="h-4 w-4" />
               </button>
-            ) : null}
+            ) : (
+              // Icon only, no background/border of its own — same plain
+              // treatment as Back/Close either side of it, just a faint
+              // hover circle. Lives in the header (not next to Edit profile
+              // below) specifically so Edit profile can sit alone, centered.
+              <button
+                type="button"
+                onClick={() => setView("settings")}
+                aria-label="Settings"
+                className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+              >
+                <SettingsIcon className="h-4 w-4" />
+              </button>
+            )}
             <span className="flex-1 text-[15px] font-semibold text-foreground">
               {view === "edit"
                 ? "Edit profile"
@@ -280,8 +306,8 @@ export function MyProfileSheet({
             </span>
             <button
               type="button"
-              onClick={handleClose}
-              aria-label="Close"
+              onClick={handleXClick}
+              aria-label={view === "profile" ? "Close" : "Done"}
               className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
             >
               <CloseIcon className="h-4 w-4" />
@@ -310,26 +336,13 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  <div className="mt-4 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={startEditing}
-                      className="rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
-                    >
-                      Edit profile
-                    </button>
-                    {/* History, Blocked users, Sign out, and changing gender all
-                        live behind this icon now — account-management actions,
-                        kept separate from editing the profile itself. */}
-                    <button
-                      type="button"
-                      onClick={() => setView("settings")}
-                      aria-label="Settings"
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                    >
-                      <SettingsIcon className="h-4 w-4" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={startEditing}
+                    className="mt-4 rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
+                  >
+                    Edit profile
+                  </button>
                 </div>
 
                 <div className="mt-6 border-t border-border pt-4">
