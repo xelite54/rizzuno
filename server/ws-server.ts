@@ -114,6 +114,27 @@ async function refreshSnapshotIfOnline(userId: string) {
   if (state) await sendFriendsSnapshot(state)
 }
 
+/**
+ * Tells every currently-connected account how many accounts are online —
+ * called whenever that number changes (a connect or a disconnect), so
+ * someone sitting in "Finding someone…" sees it update live instead of only
+ * reflecting the moment they themselves connected. `connections.size`
+ * counts distinct accounts, not sockets/tabs (see the "hello" handler's
+ * dedup of a second tab on the same account), so it's genuinely "people",
+ * not "browser tabs".
+ *
+ * O(n) sends per connect/disconnect — fine at this app's current scale (one
+ * in-memory realtime process, per server/matchmaker.ts's own doc comment);
+ * would need throttling or a push-on-interval design well before that
+ * stopped being true.
+ */
+function broadcastOnlineCount() {
+  const count = connections.size
+  for (const state of connections.values()) {
+    send(state.ws, { type: "online-count", count })
+  }
+}
+
 async function tryMatch(state: ConnectionState) {
   const room = await matchmaker.enqueue({
     userId: state.userId,
@@ -234,8 +255,25 @@ export function createRizzunoWebSocketServer() {
       // one connection.
       processingChain = processingChain
         .then(() => handleParsedMessage(message))
-        .catch(() => {
-          // Drop the malformed/failed message; the connection itself stays open.
+        .catch((err: unknown) => {
+          // A handler threw — e.g. a database round trip (isBlockedEitherWay,
+          // sendFriendRequest, ...) failed. This used to be swallowed
+          // silently here, which for "find"/"skip" specifically meant the
+          // client had already optimistically flipped to "searching" (see
+          // findMatch() in useMatchmaking.ts) and would then just sit there
+          // forever with nothing — no "queued", no "matched", no error —
+          // ever arriving to move it on. Log it so it's traceable, and tell
+          // the client so it isn't left hanging; the connection itself stays
+          // open either way (one bad/failed message must only ever cost
+          // itself, not the whole connection).
+          console.error("ws-server: message handling failed", {
+            type: message.type,
+            userId: state?.userId,
+            error: err instanceof Error ? err.message : String(err),
+          })
+          if (state && (message.type === "find" || message.type === "skip")) {
+            send(state.ws, { type: "error", message: "Couldn't find a match right now. Retrying…", context: "find" })
+          }
         })
 
       async function handleParsedMessage(message: ClientMessage) {
@@ -335,6 +373,14 @@ export function createRizzunoWebSocketServer() {
         // gone out, so "ready" really does mean "the server is ready".
         console.log("ws-server: hello accepted — sending ready", { userId, displayId: state.displayId })
         send(ws, { type: "ready" })
+
+        // A reconnect on an account that was already counted doesn't change
+        // `connections.size` (the old entry is overwritten in place, not
+        // added to), so this only actually changes the number — and is only
+        // worth a broadcast to everyone else — the first time this account
+        // shows up. `existing` was read before `connections.set()` above.
+        if (!existing) broadcastOnlineCount()
+        else send(ws, { type: "online-count", count: connections.size })
         return
       }
 
@@ -490,8 +536,15 @@ export function createRizzunoWebSocketServer() {
       if (!state) return
       leaveCurrentRoom(state, true)
       matchmaker.removeFromQueue(state.userId)
-      if (connections.get(state.userId) === state) connections.delete(state.userId)
+      // Only this socket's own entry, and only if it's still the live one —
+      // a superseded old socket (second-tab dedup, see "hello" above)
+      // closing after a newer one already took its place in `connections`
+      // must not delete the newer entry, and must not shrink the online
+      // count for an account that's actually still connected.
+      const wasCurrent = connections.get(state.userId) === state
+      if (wasCurrent) connections.delete(state.userId)
       if (connectionsByDisplayId.get(state.displayId) === state.userId) connectionsByDisplayId.delete(state.displayId)
+      if (wasCurrent) broadcastOnlineCount()
     })
   })
 

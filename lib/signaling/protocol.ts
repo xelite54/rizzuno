@@ -142,7 +142,18 @@ export type ServerMessage =
   | { type: "blocked" }
   /** "hello" was rejected — an expired/invalid ticket, or an account status (banned/suspended) that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket) or stop trying (banned/suspended). */
   | { type: "rejected"; reason: "invalid_ticket" | "banned" | "suspended" }
-  | { type: "error"; message: string }
+  /** `context` names which action the error is about, so the client can react appropriately (e.g. retry a failed "find") instead of just logging it — "Message blocked." (chat) carries no context since there's nothing to retry there. */
+  | { type: "error"; message: string; context?: "find" }
+  /**
+   * How many accounts currently have a live, hello-accepted realtime
+   * connection — sent right after this connection's own "ready", and
+   * re-broadcast to every connected account whenever someone else connects
+   * or disconnects, so it stays live while a guest is waiting rather than
+   * only ever reflecting the moment they connected. Counts accounts, not
+   * browser tabs — two tabs on the same account are one ConnectionState
+   * (see server/ws-server.ts), so they count once.
+   */
+  | { type: "online-count"; count: number }
   /** The full current picture of friends/requests/blocks — sent right after a successful "hello", and re-sent to any online, affected account after any friends-related action (send/accept/decline/unfriend/block) so every open tab stays in sync without needing to diff granular events itself. */
   | {
       type: "friends-snapshot"

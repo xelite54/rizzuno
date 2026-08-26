@@ -8,6 +8,12 @@ type StatusPillProps = {
   /** No live camera track right now — matching can't start (or resume) until there is one. Changes the idle/paused copy to say so, rather than a generic message that gives no indication anything's actually blocking it. */
   cameraOff?: boolean
   onPauseMatching?: () => void
+  /** How many accounts currently have a live connection — `null` until the server's first "online-count" arrives. Shown alongside the waiting-state label so "Finding someone…" isn't just a spinner with no sense of whether anyone else is even around. */
+  onlineCount?: number | null
+}
+
+function describeOnlineCount(count: number): string {
+  return count === 1 ? "1 person online" : `${count.toLocaleString()} people online`
 }
 
 // A function rather than a static lookup table — "idle" and "paused" both
@@ -35,15 +41,27 @@ function describeState(state: MatchState, cameraOff: boolean): string {
   }
 }
 
-export function StatusPill({ state, cameraOff = false, onPauseMatching }: StatusPillProps) {
+export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCount = null }: StatusPillProps) {
   const label = describeState(state, cameraOff)
   if (!label) return null
+
+  // Only the states where a guest is actually trying to get into a call —
+  // "paused" is a deliberate stop, not a wait, so it doesn't get this even
+  // though it can still render a label (the cameraOff-while-paused case).
+  const waitingForMatch = state === "idle" || state === "searching" || state === "connecting" || state === "peer-left"
+  const onlineCountLabel = waitingForMatch && onlineCount !== null ? describeOnlineCount(onlineCount) : null
 
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="flex items-center gap-3 rounded-full bg-black/60 py-3 pl-3 pr-5">
         <SearchingMark />
         <span className="text-[14px] font-semibold tracking-tight text-foreground">{label}</span>
+        {onlineCountLabel && (
+          <>
+            <span className="h-1 w-1 rounded-full bg-white/30" aria-hidden="true" />
+            <span className="text-[13px] font-medium text-muted">{onlineCountLabel}</span>
+          </>
+        )}
       </div>
       {/* Right away, not delayed — a delay just meant this and the "Finding
           someone…" label it sits under went out of sync with the moment

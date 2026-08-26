@@ -32,6 +32,8 @@ type SwipeStageProps = {
   onResume?: () => void
   /** No live camera track right now — passed through to StatusPill so the idle/paused copy explains why nothing's happening instead of a generic message. */
   cameraOff?: boolean
+  /** How many accounts are currently online — passed through to StatusPill so anyone sitting in a waiting state (idle/searching/connecting/peer-left) can see it, not just a static "Finding someone…". `null`/`undefined` until the server's first count arrives. */
+  onlineCount?: number | null
 }
 
 export function SwipeStage({
@@ -46,6 +48,7 @@ export function SwipeStage({
   onPauseMatching,
   onResume,
   cameraOff = false,
+  onlineCount = null,
 }: SwipeStageProps) {
   const reduceMotion = useReducedMotion()
   const x = useMotionValue(0)
@@ -213,7 +216,12 @@ export function SwipeStage({
               {matchState === "paused" && onResume ? (
                 <PausedNotice />
               ) : (
-                <StatusPill state={matchState} cameraOff={cameraOff} onPauseMatching={onPauseMatching} />
+                <StatusPill
+                  state={matchState}
+                  cameraOff={cameraOff}
+                  onPauseMatching={onPauseMatching}
+                  onlineCount={onlineCount}
+                />
               )}
             </motion.div>
           )}

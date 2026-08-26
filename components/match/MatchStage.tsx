@@ -84,6 +84,7 @@ export function MatchStage() {
   const {
     realtimeReady,
     state,
+    onlineCount,
     peer,
     peerMicEnabled,
     peerTyping,
@@ -512,6 +513,7 @@ export function MatchStage() {
                 onPauseMatching={handlePauseMatching}
                 onResume={cameraOff ? undefined : findMatch}
                 cameraOff={cameraOff}
+                onlineCount={onlineCount}
               />
               <SafetyMenu
                 disabled={!inCall}

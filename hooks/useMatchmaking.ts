@@ -98,10 +98,24 @@ export function useMatchmaking(
   // recorded whenever a match ends, whatever the reason. Session-local, like
   // everything else here — nothing is sent anywhere to persist it.
   const [history, setHistory] = useState<PeerProfile[]>([])
+  // How many accounts currently have a live connection — `null` until the
+  // server's first "online-count" arrives (right after "ready"), so the UI
+  // can tell "we don't know yet" apart from a genuine 0/1. Kept live for as
+  // long as the socket stays connected (see server/ws-server.ts's
+  // broadcastOnlineCount), not just a one-time snapshot from connect time.
+  const [onlineCount, setOnlineCount] = useState<number | null>(null)
   const peerRef = useRef<PeerProfile | null>(null)
   useEffect(() => {
     peerRef.current = peer
   }, [peer])
+  // Mirrors `serverState` for use inside the "error" handler below, which
+  // needs the *current* value at the moment a delayed retry fires, not
+  // whatever it was when the message arrived (the guest may have paused or
+  // navigated away in between).
+  const serverStateRef = useRef(serverState)
+  useEffect(() => {
+    serverStateRef.current = serverState
+  }, [serverState])
   const recordHistory = useCallback((entry: PeerProfile | null) => {
     if (!entry) return
     setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY))
@@ -395,6 +409,27 @@ export function useMatchmaking(
             setRestriction({ reason: message.reason })
           }
           break
+        case "online-count":
+          setOnlineCount(message.count)
+          break
+        case "error":
+          console.error("matchmaking: server reported an error", {
+            context: message.context,
+            message: message.message,
+          })
+          // The "find"/"skip" we just sent failed server-side (see
+          // server/ws-server.ts's catch around handleParsedMessage) — the
+          // client already optimistically flipped to "searching" and
+          // nothing else will ever arrive to move it on its own. Retry once
+          // the way "peer-left" already does, but only if still actually
+          // searching by the time this fires — the guest may have paused,
+          // skipped, or navigated away in the meantime.
+          if (message.context === "find") {
+            setTimeout(() => {
+              if (serverStateRef.current === "searching") findMatch()
+            }, 2000)
+          }
+          break
         case "friends-snapshot": {
           setFriends(message.friends)
           setFriendRequestsSent(message.requestsSent)
@@ -429,7 +464,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, recordHistory, announce])
+  }, [subscribe, recordHistory, announce, findMatch])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.
@@ -475,6 +510,7 @@ export function useMatchmaking(
     connected,
     realtimeReady,
     state,
+    onlineCount,
     peer,
     peerMicEnabled,
     peerTyping,
