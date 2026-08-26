@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon } from "@/components/icons"
+import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl } from "@/lib/image"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
@@ -40,7 +40,7 @@ type MyProfileSheetProps = {
   setPosts: (value: Post[] | ((prev: Post[]) => Post[])) => void
 }
 
-type View = "profile" | "edit" | "newPost" | "viewPost" | "history" | "blocked"
+type View = "profile" | "edit" | "newPost" | "viewPost" | "history" | "blocked" | "settings"
 
 const MAX_POSTS = 20
 
@@ -98,6 +98,18 @@ export function MyProfileSheet({
   function handleClose() {
     resetToProfile()
     onClose()
+  }
+
+  // History and Blocked users are now reached through Settings, not
+  // directly from the main profile view — back from either of those should
+  // return to Settings, not skip past it straight to the profile.
+  // Everywhere else, one tap back is always straight to the profile.
+  function goBack() {
+    if (view === "history" || view === "blocked") {
+      setView("settings")
+      return
+    }
+    resetToProfile()
   }
 
   /** Maps a displayId's raw session outcome ("failed" included) down to the three states PeerProfileSheet's FriendButton actually understands — a failed attempt should just look like "none" there (retryable via the same Add button), whereas the History row list below shows "Try again" explicitly instead of collapsing it. */
@@ -244,7 +256,7 @@ export function MyProfileSheet({
             {view !== "profile" ? (
               <button
                 type="button"
-                onClick={resetToProfile}
+                onClick={goBack}
                 aria-label="Back"
                 className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
               >
@@ -262,7 +274,9 @@ export function MyProfileSheet({
                       ? "History"
                       : view === "blocked"
                         ? "Blocked users"
-                        : "My profile"}
+                        : view === "settings"
+                          ? "Settings"
+                          : "My profile"}
             </span>
             <button
               type="button"
@@ -296,67 +310,26 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={startEditing}
-                    className="mt-4 rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
-                  >
-                    Edit profile
-                  </button>
-                </div>
-
-                <div className="mt-8 border-t border-border pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setView("history")}
-                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2"
-                  >
-                    <span>History</span>
-                    <span className="text-[12px] text-muted">
-                      {history.length > 0 ? `Last ${history.length}` : "Nobody yet"}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setView("blocked")}
-                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2"
-                  >
-                    <span>Blocked users</span>
-                    <span className="text-[12px] text-muted">
-                      {blockedUsers.length > 0 ? blockedUsers.length : "None"}
-                    </span>
-                  </button>
-                  {confirmingSignOut ? (
-                    <div className="mt-1 rounded-xl bg-surface-2 p-3">
-                      <p className="text-[12px] leading-relaxed text-muted">
-                        Sign out? Your profile stays saved for next time you sign back in.
-                      </p>
-                      <div className="mt-2.5 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingSignOut(false)}
-                          className="flex-1 rounded-lg border border-border py-2 text-[13px] font-medium text-muted transition hover:bg-surface hover:text-foreground"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSignOut}
-                          className="flex-1 rounded-lg bg-danger py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
-                        >
-                          Sign out
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
+                  <div className="mt-4 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setConfirmingSignOut(true)}
-                      className="mt-1 w-full rounded-xl px-1 py-2.5 text-left text-[13px] font-medium text-danger transition hover:bg-surface-2"
+                      onClick={startEditing}
+                      className="rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
                     >
-                      Sign out
+                      Edit profile
                     </button>
-                  )}
+                    {/* History, Blocked users, Sign out, and changing gender all
+                        live behind this icon now — account-management actions,
+                        kept separate from editing the profile itself. */}
+                    <button
+                      type="button"
+                      onClick={() => setView("settings")}
+                      aria-label="Settings"
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    >
+                      <SettingsIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-6 border-t border-border pt-4">
@@ -511,6 +484,102 @@ export function MyProfileSheet({
                 >
                   {savingEdit ? "Saving…" : "Save"}
                 </button>
+              </div>
+            )}
+
+            {view === "settings" && (
+              <div className="mx-auto w-full max-w-lg px-6 py-6">
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setView("history")}
+                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2"
+                  >
+                    <span>History</span>
+                    <span className="text-[12px] text-muted">
+                      {history.length > 0 ? `Last ${history.length}` : "Nobody yet"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setView("blocked")}
+                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2"
+                  >
+                    <span>Blocked users</span>
+                    <span className="text-[12px] text-muted">
+                      {blockedUsers.length > 0 ? blockedUsers.length : "None"}
+                    </span>
+                  </button>
+                </div>
+
+                <div className="mt-6 border-t border-border pt-4">
+                  <p className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">Gender</p>
+                  {/* Applies right away — unlike the picker inside Edit profile,
+                      there's no draft/Save step here; this is the quick,
+                      settings-style toggle. */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGender("male")}
+                      aria-pressed={gender === "male"}
+                      className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+                        gender === "male"
+                          ? "border-accent bg-accent/10 text-foreground"
+                          : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
+                      }`}
+                    >
+                      <MaleIcon className="h-4 w-4" />
+                      Male
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGender("female")}
+                      aria-pressed={gender === "female"}
+                      className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+                        gender === "female"
+                          ? "border-accent bg-accent/10 text-foreground"
+                          : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
+                      }`}
+                    >
+                      <FemaleIcon className="h-4 w-4" />
+                      Female
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t border-border pt-4">
+                  {confirmingSignOut ? (
+                    <div className="rounded-xl bg-surface-2 p-3">
+                      <p className="text-[12px] leading-relaxed text-muted">
+                        Sign out? Your profile stays saved for next time you sign back in.
+                      </p>
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingSignOut(false)}
+                          className="flex-1 rounded-lg border border-border py-2 text-[13px] font-medium text-muted transition hover:bg-surface hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSignOut}
+                          className="flex-1 rounded-lg bg-danger py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
+                        >
+                          Sign out
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingSignOut(true)}
+                      className="w-full rounded-xl px-1 py-2.5 text-left text-[13px] font-medium text-danger transition hover:bg-surface-2"
+                    >
+                      Sign out
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 

@@ -234,7 +234,7 @@ export function SwipeStage({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: DURATION_BASE, ease: EASE_OUT }}
-              className="pointer-events-none absolute bottom-5 right-5"
+              className="pointer-events-none absolute bottom-20 right-4 md:bottom-5 md:right-5"
             >
               <MicOffIcon className="h-5 w-5 text-white/80 drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)]" />
             </motion.div>

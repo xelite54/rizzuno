@@ -427,18 +427,41 @@ export function MatchStage() {
 
   return (
     <div className="relative flex h-dvh w-dvw flex-col overflow-hidden bg-background">
-      <main className="relative z-10 flex min-h-0 flex-1 flex-row gap-1 p-2">
-        <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-2xl border border-border">
+      <main className="relative z-10 flex min-h-0 flex-1 flex-row gap-1 p-0 md:p-2">
+        {/* Below `md`, this is your own small self-view bubble floating over
+            the full-screen peer video — the "picture in picture" frame
+            Omegle TV and similar mobile-optimized video-chat sites use,
+            rather than squeezing two equal-width columns into a phone-width
+            screen. `absolute` takes it out of `<main>`'s flex flow entirely
+            on mobile, so the peer panel below (still `flex-1`) is free to
+            become the only flex item and fill the whole screen on its own —
+            no separate "mobile" markup for that side. At `md` and up it
+            reverts to exactly the side-by-side desktop layout this always
+            was. */}
+        <div className="absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none">
           <SelfPanel stream={stream} status={status} cameraEnabled={cameraEnabled} />
-          {/* Your own controls — mic, camera, chat, friends, profile — all live
-              on your own video, mirroring the ••• utility corner on their side.
-              None of it is reachable until signed in and fully onboarded. */}
+          {/* Your own controls — mic, camera, chat, friends, profile. On
+              desktop (`md:relative` on the wrapper above) these still overlay
+              your own video tile via `md:absolute`, exactly as before.
+              Nested here (not moved out to be `<main>`'s direct children) on
+              purpose — `fixed` positions relative to the viewport regardless
+              of DOM nesting, so staying nested costs mobile nothing, while
+              moving them out would've broken `md:absolute`'s desktop
+              positioning (it'd anchor to `<main>`, not to this bubble).
+              Below `md`, `fixed` (not `absolute`) escapes the now-tiny
+              96px bubble entirely, overlaying the full viewport instead of
+              being crammed inside it. The friends/profile row also moves to
+              top-center on mobile — top-right is now the self-view bubble,
+              and top-left is PersonBadge's peer-name badge (SwipeStage.tsx)
+              once a call is active, so top-center is the one spot free in
+              both states. None of it is reachable until signed in and fully
+              onboarded. */}
           {signedIn && legalAccepted && onboarded && !restriction && (
             <>
               {/* Deliberately faint until touched — this is your own utility
                   corner, not the point of the screen, so it should recede
                   rather than compete with the person you're talking to. */}
-              <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-full bg-black/20 p-1 opacity-25 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100">
+              <div className="fixed left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/20 p-1 opacity-25 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 md:absolute md:left-auto md:right-4 md:top-4 md:z-10 md:translate-x-0">
                 {FRIENDS_ENABLED && (
                   <button
                     type="button"
@@ -461,7 +484,7 @@ export function MatchStage() {
                   onOpenProfile={() => setMyProfileOpen(true)}
                 />
               </div>
-              <div className="absolute bottom-4 right-4 z-10 flex items-center justify-end">
+              <div className="fixed bottom-4 right-4 z-30 flex items-center justify-end md:absolute md:z-10">
                 <div className="flex items-center gap-1 rounded-full bg-black/20 p-1 opacity-25 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100">
                   <ControlBar
                     micEnabled={micEnabled}
@@ -486,7 +509,7 @@ export function MatchStage() {
             </>
           )}
         </div>
-        <div className="relative h-full min-h-0 min-w-0 flex-1 rounded-2xl border border-border">
+        <div className="relative h-full min-h-0 min-w-0 flex-1 md:rounded-2xl md:border md:border-border">
           {authLoading ? null : !signedIn ? (
             <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
           ) : restriction ? (
