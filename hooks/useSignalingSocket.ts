@@ -38,12 +38,36 @@ function normalizeWsUrl(configuredUrl: string): string {
   }
 }
 
-/** Low-level WebSocket lifecycle: connect, auto-reconnect with backoff, queue sends while offline. */
+/**
+ * Low-level WebSocket lifecycle: connect, auto-reconnect with backoff.
+ *
+ * Deliberately does NOT queue-and-replay `send()`s made while offline. An
+ * earlier version did — any message sent while disconnected went into a
+ * queue and was flushed the instant `onopen` fired. That was wrong: `onopen`
+ * only means the *transport* reconnected, not that the server has verified
+ * a fresh "hello" and sent "ready" back (see useMatchmaking.ts's
+ * `realtimeReady`) — server/ws-server.ts silently ignores every non-"hello"
+ * message until that ConnectionState exists. Flushing a queued
+ * find/skip/leave/block/chat/signal/etc. straight into that gap meant it
+ * was either silently dropped, or — worse — replayed against a brand-new
+ * connection as if the old room/search/action it referred to still applied,
+ * when server/ws-server.ts's own close handler had already torn all of that
+ * down the moment the old socket disconnected.
+ *
+ * The fix is architectural, not a smarter queue: nothing sent while
+ * offline is persisted here at all — it's just dropped (logged, not
+ * thrown). "hello" is the one message that legitimately needs to go out
+ * again after a reconnect, and useMatchmaking.ts already re-sends it itself
+ * on every `connected` transition (not via this queue); "find" is
+ * re-established the same way, from `wantsMatching`, once "ready" actually
+ * comes back. Every other message type (skip/leave/block/chat/signal/...)
+ * is inherently tied to a specific room/search that a disconnect has
+ * already invalidated, so there is nothing correct to replay for it.
+ */
 export function useSignalingSocket() {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const listenersRef = useRef(new Set<Listener>())
-  const queueRef = useRef<ClientMessage[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -68,13 +92,13 @@ export function useSignalingSocket() {
         // Transport-connected only — NOT the same as "the realtime server
         // has processed our hello and is ready for 'find'" (see
         // useMatchmaking.ts's `realtimeReady`, which waits for the server's
-        // own "ready" ack instead of inferring readiness from this).
+        // own "ready" ack instead of inferring readiness from this). Nothing
+        // is flushed/replayed here on purpose — see the module doc comment
+        // above; useMatchmaking.ts reacts to `connected` itself and sends a
+        // fresh "hello" from scratch instead.
         console.log("signaling: transport connected")
         retryDelay = 500
         setConnected(true)
-        const queued = queueRef.current
-        queueRef.current = []
-        queued.forEach((message) => socket?.send(JSON.stringify(message)))
       }
 
       socket.onmessage = (event) => {
@@ -112,9 +136,13 @@ export function useSignalingSocket() {
     const socket = wsRef.current
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message))
-    } else {
-      queueRef.current.push(message)
+      return
     }
+    // Dropped, not queued — see the module doc comment above for why. A
+    // caller that genuinely needs this to survive a reconnect (hello, find)
+    // already re-issues it itself once the connection is actually ready
+    // again, rather than relying on this transport layer to remember it.
+    console.warn("signaling: dropping message — socket not open", { type: message.type })
   }, [])
 
   const subscribe = useCallback((listener: Listener) => {

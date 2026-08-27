@@ -16,7 +16,23 @@ export type Room = {
 }
 
 // How long two people who just talked stay off each other's candidate list
-// (spec §32: no repeated people right after a skip).
+// (spec §32: no repeated people right after a skip). Scoped to the exact
+// pair — see isRecentPartner()/remember() below, both keyed on the specific
+// (a, b) userId pair via a nested Map, never on just one side alone — so
+// this can only ever keep two people who already matched from immediately
+// re-matching each other; it has no way to affect matching between anyone
+// else, including a third account either of them later queues up against.
+// If matching between two accounts that have *never* met seems blocked,
+// this cooldown is not why; look at gender pairing or blocks instead.
+//
+// This lives in `recentPartners`, in-process memory (see the class doc
+// comment below) — restarting the single Railway process (or the local dev
+// server) clears it completely. That's expected, not a bug: it's exactly
+// how you get two test accounts to immediately re-match each other while
+// testing locally, without waiting out the full 10 minutes. Production
+// behavior is unaffected by that — Railway isn't restarting mid-session
+// under normal operation, and this cooldown existing at all, even
+// imperfectly durable, is what the spec actually asks for.
 const RECENT_PARTNER_TTL_MS = 10 * 60 * 1000
 
 /**
@@ -102,7 +118,16 @@ class Matchmaker {
     this.removeFromQueue(client.userId)
 
     for (const candidate of [...this.waiting]) {
-      if (!this.isOppositeGender(client, candidate) || this.isRecentPartner(client.userId, candidate.userId)) {
+      if (!this.isOppositeGender(client, candidate)) continue
+      if (this.isRecentPartner(client.userId, candidate.userId)) {
+        // Logged specifically so "these two won't match" during manual
+        // testing can be told apart at a glance from a real bug — this
+        // candidate is skipped ONLY relative to `client`, not removed from
+        // the queue, and remains a normal candidate for anyone else.
+        console.log("matchmaker: skipping candidate — recent-partner cooldown", {
+          userId: client.userId,
+          candidateId: candidate.userId,
+        })
         continue
       }
       if (!(await isBlockedEitherWay(client.userId, candidate.userId))) {
