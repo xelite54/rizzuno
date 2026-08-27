@@ -214,7 +214,7 @@ export function SwipeStage({
               className="absolute inset-0 flex items-center justify-center"
             >
               {matchState === "paused" && onResume ? (
-                <PausedNotice />
+                <PausedNotice onlineCount={onlineCount} />
               ) : (
                 <StatusPill
                   state={matchState}
