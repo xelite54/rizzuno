@@ -6,6 +6,11 @@
 
 export type Gender = "male" | "female"
 
+/** Runtime guard for a value that's typed as `Gender` but arrived over the wire (client-supplied `ClientMessage` fields are only ever TypeScript types at runtime — nothing actually enforces them) — used wherever a client-declared gender is about to affect matching, so a malformed/tampered value can't slip past the opposite-gender-only rule as some third, unhandled case. */
+export function isValidGender(value: unknown): value is Gender {
+  return value === "male" || value === "female"
+}
+
 export type PeerIdentity = {
   /** The Google account's own stable id, verified server-side from a signed ticket (see lib/realtimeTicket.ts) — never a bare client-supplied value. Not shown to the peer (see PublicPeerIdentity below); used internally for matching/blocks/reports. */
   userId: string
@@ -98,6 +103,7 @@ export type ClientMessage =
       /** Minted by app/api/realtime/ticket — proves who this connection is on behalf of. The server verifies it and derives userId itself; nothing here is trusted at face value (see server/ws-server.ts). */
       ticket: string
       handle: string
+      /** The one-time baseline identity snapshot for this connection/auth generation — everything after "ready" that changes this goes through "profile-update" instead (see below), never a repeat "hello". */
       username?: string
       gender?: Gender
       profilePhoto?: string | null
@@ -109,8 +115,30 @@ export type ClientMessage =
   | { type: "chat"; roomId: string; content: ChatContent }
   | { type: "report"; roomId: string; category: ReportCategory; details?: string }
   | { type: "block"; roomId: string }
+  /** Reverses a block this account previously placed — never the other direction (see lib/db.ts's removeBlock). `targetUserId` is one the client only ever learned from its own blocked-users snapshot, not a value it's guessing. */
+  | { type: "unblock"; targetUserId: string }
   | { type: "mic-state"; roomId: string; micEnabled: boolean }
   | { type: "typing"; roomId: string }
+  /**
+   * A change to username/gender/profilePhoto made *after* "hello" already
+   * established this connection's baseline identity — deliberately a
+   * separate message from "hello" (see its own doc comment) so editing a
+   * profile mid-session never re-runs ticket verification / account-status
+   * checks / friends-snapshot loading, and can't race a concurrent "hello".
+   * `revision` must be strictly greater than the last one this connection
+   * applied (starting from the hello snapshot, which counts as revision 0)
+   * — the server drops anything not strictly increasing (see
+   * server/ws-server.ts), so several rapid edits always converge on
+   * whichever was sent *last*, never whichever network round trip happened
+   * to finish last.
+   */
+  | {
+      type: "profile-update"
+      revision: number
+      username?: string
+      gender?: Gender
+      profilePhoto?: string | null
+    }
   /** Sends a friend request to whoever currently holds this displayId — resolved server-side to a real account (see server/ws-server.ts's connectionsByDisplayId); the client never supplies or learns a target's real id here. */
   | { type: "friend-request"; targetDisplayId: string }
   | { type: "friend-respond"; requestId: string; accept: boolean }
@@ -139,7 +167,10 @@ export type ServerMessage =
   | { type: "typing"; roomId: string }
   | { type: "peer-left"; roomId: string }
   | { type: "reported" }
-  | { type: "blocked" }
+  /** `ok: false` means the block was NOT actually persisted (e.g. a database failure, or there was no live partner to block by the time this was processed) — the client must not present the interaction as blocked if this comes back false; see server/ws-server.ts's "block" handler and hooks/useMatchmaking.ts's handling of it. */
+  | { type: "blocked"; ok: boolean }
+  /** Ack for "unblock" — `ok` mirrors lib/db.ts's removeBlock() return value (whether a block row actually existed and was removed). */
+  | { type: "unblocked"; ok: boolean; targetUserId: string }
   /** "hello" was rejected — an expired/invalid ticket, or an account status (banned/suspended) that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket) or stop trying (banned/suspended). */
   | { type: "rejected"; reason: "invalid_ticket" | "banned" | "suspended" }
   /** `context` names which action the error is about, so the client can react appropriately (e.g. retry a failed "find" or "hello") instead of just logging it — "Message blocked." (chat) carries no context since there's nothing to retry there. `"hello"` specifically means hello was received but processing it threw (e.g. a database error) before "ready" could be sent — without this, the client would otherwise just wait for a "ready" that's never coming. */

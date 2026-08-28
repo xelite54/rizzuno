@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl } from "@/lib/image"
@@ -17,6 +17,8 @@ type MyProfileSheetProps = {
   handle: string
   history: PeerProfile[]
   blockedUsers: BlockedUser[]
+  /** Reverses a block this account previously placed — see server/ws-server.ts's "unblock" handler and lib/db.ts's removeBlock(). `BlockedUser.id` is the real account id (see MatchStage.tsx's mapping from the server's blocked-users snapshot). */
+  onUnblockUser: (userId: string) => void
   /** Per-displayId outcome of a friend request sent this session — same map useMatchmaking.ts drives the in-call FriendButton from, reused here so History's "Add"/"Requested" state is the same real thing, not a separate local list. */
   friendActionState: Map<string, "requested" | "friends" | "failed">
   /** Sends a friend request to whoever currently holds this displayId — see lib/signaling/protocol.ts's "friend-request" for how the server resolves it. */
@@ -51,6 +53,7 @@ export function MyProfileSheet({
   handle,
   history,
   blockedUsers,
+  onUnblockUser,
   friendActionState,
   onSendFriendRequest,
   onSignOut,
@@ -81,6 +84,15 @@ export function MyProfileSheet({
   // Same for signing out — needs a second tap too.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
+  // Which blocked-user ids currently have an in-flight unblock request —
+  // per-row, so tapping one doesn't disable the whole list, and disabled
+  // long enough to prevent a double-tap sending two "unblock"s for the same
+  // person. Cleared reactively once that id actually leaves `blockedUsers`
+  // (the server re-sends a fresh snapshot on success — see
+  // hooks/useMatchmaking.ts), with a timeout backstop in case it never
+  // does (e.g. the request failed silently) so the button doesn't stay
+  // stuck on "Unblocking…" forever.
+  const [unblockingIds, setUnblockingIds] = useState<Set<string>>(new Set())
 
   const editPhotoInputRef = useRef<HTMLInputElement | null>(null)
   const postInputRef = useRef<HTMLInputElement | null>(null)
@@ -222,6 +234,45 @@ export function MyProfileSheet({
     // useMyProfile.ts), so it's still there next time this same Google
     // account signs back in.
     onSignOut()
+  }
+
+  // The real, reactive clear: once a previously-blocked id is no longer in
+  // `blockedUsers` (the server re-sent a fresh snapshot after a successful
+  // unblock), its "Unblocking…" busy state is done, whether or not the
+  // 5-second backstop in handleUnblock has fired yet.
+  useEffect(() => {
+    if (unblockingIds.size === 0) return
+    const stillBlocked = new Set(blockedUsers.map((b) => b.id))
+    // Reacting to an external system (the server's own snapshot changing)
+    // — not mirroring existing React state; bails out via the same-
+    // reference `prev` return below when nothing actually changed.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUnblockingIds((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const id of prev) {
+        if (!stillBlocked.has(id)) {
+          next.delete(id)
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [blockedUsers, unblockingIds])
+
+  function handleUnblock(userId: string) {
+    setUnblockingIds((prev) => new Set(prev).add(userId))
+    onUnblockUser(userId)
+    // Backstop only — the normal path clears this reactively (see the
+    // effect below) the moment `blockedUsers` no longer includes this id.
+    setTimeout(() => {
+      setUnblockingIds((prev) => {
+        if (!prev.has(userId)) return prev
+        const next = new Set(prev)
+        next.delete(userId)
+        return next
+      })
+    }, 5000)
   }
 
 
@@ -728,25 +779,32 @@ export function MyProfileSheet({
                   <p className="mt-8 text-center text-[13px] text-muted">Nobody blocked.</p>
                 ) : (
                   <>
-                    {/* Blocking is enforced server-side and, as currently built, can't be
-                        reversed from here (or anywhere) — no "Unblock" control is shown,
-                        since one that didn't actually remove the server-side block would
-                        be misleading. See the Community Guidelines for the accurate,
-                        current behavior. */}
                     <p className="mb-3 px-1 text-[12px] leading-relaxed text-muted">
-                      Blocking is permanent for now — there&apos;s no way to undo it yet.
+                      Unblocking makes it possible to match with this person again — it doesn&apos;t notify them either
+                      way.
                     </p>
                     <div className="space-y-1">
-                      {blockedUsers.map((person) => (
-                        <div key={person.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
-                            {person.displayName.charAt(0).toUpperCase()}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground">
-                            {person.displayName}
-                          </span>
-                        </div>
-                      ))}
+                      {blockedUsers.map((person) => {
+                        const busy = unblockingIds.has(person.id)
+                        return (
+                          <div key={person.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5">
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
+                              {person.displayName.charAt(0).toUpperCase()}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-foreground">
+                              {person.displayName}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleUnblock(person.id)}
+                              disabled={busy}
+                              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-[12px] font-medium text-foreground transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
+                            >
+                              {busy ? "Unblocking…" : "Unblock"}
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
                   </>
                 )}

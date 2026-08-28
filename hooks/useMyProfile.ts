@@ -48,35 +48,80 @@ export function useMyProfile() {
   // a second render, so there's never a moment where `hydrated` is true but
   // the fields loaded under the wrong key. Re-runs if the signed-in account
   // itself changes (e.g. sign out, sign in as someone else in the same tab).
+  //
+  // Always resets to blank FIRST, unconditionally, before attempting to
+  // load anything for the new `userId` — a real bug this fixes: the
+  // previous version only reset on sign-out (`!userId`); switching directly
+  // from account A to account B in the same tab, where B has never saved a
+  // profile before (`raw` comes back null), left every field exactly as A
+  // had left them — B would silently see A's photo/username/gender/bio/
+  // posts until they happened to edit one. A blank slate first means an
+  // account with nothing saved actually presents as nothing saved.
   useEffect(() => {
     if (sessionStatus === "loading") return
-    if (!userId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- signed out: nothing to load, reset to blank
-      setProfilePhoto(null)
-      setUsername("")
-      setGender(null)
-      setBio("")
-      setPosts([])
-      setHandle("")
-      setHydrated(false)
-      return
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting before loading the new account's own data (or nothing, if signed out) — never carrying over the previous account's fields
+    setProfilePhoto(null)
+    setUsername("")
+    setGender(null)
+    setBio("")
+    setPosts([])
+    setHandle("")
+    setHydrated(false)
+
+    if (!userId) return
+
+    let cancelled = false
+
+    async function load() {
+      let localUsername = ""
+      try {
+        const raw = window.localStorage.getItem(STORAGE_PREFIX + userId)
+        if (raw) {
+          const stored = JSON.parse(raw) as Partial<StoredProfile>
+          if (cancelled) return
+          setProfilePhoto(stored.profilePhoto ?? null)
+          localUsername = stored.username ?? ""
+          setUsername(localUsername)
+          setGender(stored.gender ?? null)
+          setBio(stored.bio ?? "")
+          setPosts(stored.posts ?? [])
+        }
+      } catch {
+        // Corrupt or unavailable storage — start fresh rather than crash.
+      }
+
+      // The server is the actual source of truth for username uniqueness
+      // (see lib/db.ts's claimUsername/app/api/profile/username) — this
+      // browser's own localStorage is just a client-side cache of it. If
+      // this browser has never saved one locally (a new device, or storage
+      // that got cleared) but the account already permanently claimed one
+      // server-side, restore that instead of showing ChooseUsername again
+      // for an account that isn't actually new. Best-effort: a failed fetch
+      // just leaves whatever localStorage already provided (usually
+      // nothing, in this branch) — never blocks hydration on it.
+      if (!localUsername) {
+        try {
+          const res = await fetch("/api/profile/username")
+          if (!cancelled && res.ok) {
+            const data: { username: string | null } = await res.json()
+            if (data.username) setUsername(data.username)
+          }
+        } catch {
+          // Network hiccup — ChooseUsername (or a retry) covers this case;
+          // not worth blocking the rest of hydration on it.
+        }
+      }
+
+      if (cancelled) return
+      setHandle(getOrCreateHandle(userId))
+      setHydrated(true)
     }
 
-    try {
-      const raw = window.localStorage.getItem(STORAGE_PREFIX + userId)
-      if (raw) {
-        const stored = JSON.parse(raw) as Partial<StoredProfile>
-        setProfilePhoto(stored.profilePhoto ?? null)
-        setUsername(stored.username ?? "")
-        setGender(stored.gender ?? null)
-        setBio(stored.bio ?? "")
-        setPosts(stored.posts ?? [])
-      }
-    } catch {
-      // Corrupt or unavailable storage — start fresh rather than crash.
+    load()
+    return () => {
+      cancelled = true
     }
-    setHandle(getOrCreateHandle(userId))
-    setHydrated(true)
   }, [userId, sessionStatus])
 
   // Saves on every change, but only once the load above has actually run —
@@ -94,6 +139,8 @@ export function useMyProfile() {
 
   return {
     handle,
+    /** Whether this account's profile has actually finished loading (from localStorage, plus a best-effort canonical-username restore from the server) — false for the brief gap while `userId` is known but its data hasn't loaded yet, and while nothing is loaded at all (signed out). MatchStage waits for this before treating onboarding/realtime as ready to evaluate, so it never judges "has a username" from fields that are still mid-reset to blank. */
+    profileHydrated: hydrated,
     profilePhoto,
     setProfilePhoto,
     username,

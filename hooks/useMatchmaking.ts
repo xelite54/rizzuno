@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSignalingSocket } from "./useSignalingSocket"
 import { useWebRTC } from "./useWebRTC"
+import { SignalBacklog } from "@/lib/signalBacklog"
 import type {
   ChatContent,
   Gender,
@@ -37,6 +38,21 @@ const STUCK_CONNECTION_GRACE_MS = 6000
 const MAX_HISTORY = 30
 
 export function useMatchmaking(
+  /**
+   * Whether realtime should exist at all — authentication owns this
+   * lifecycle now (see MatchStage.tsx, which computes it from `signedIn &&
+   * legalAccepted && profileHydrated && hasUsername && hasGender`). This
+   * used to be implicit — the WebSocket connected unconditionally the
+   * moment the component mounted, so a not-yet-legally-accepted or
+   * not-yet-onboarded guest could still open a realtime connection and hit
+   * "acceptance_required" from the ticket endpoint, which surfaced as
+   * AccountRestricted ("terms changed, sign out and back in") instead of
+   * just... not having connected yet, or correctly showing AgeGate. `false`
+   * here means no realtime connection exists at all, not "connected but
+   * idle" — see the teardown effect below for everything that resets when
+   * this flips.
+   */
+  enabled: boolean,
   videoTrack: MediaStreamTrack | null,
   audioTrack: MediaStreamTrack | null,
   micEnabled: boolean,
@@ -49,20 +65,20 @@ export function useMatchmaking(
   /** This user's own chosen profile photo, if any — sent to the server so a real match sees it too, not just an initial letter. */
   myProfilePhoto?: string | null
 ) {
-  const { connected, send, subscribe } = useSignalingSocket()
+  const { connected, send, subscribe } = useSignalingSocket(enabled)
 
   // `connected` only means the WebSocket transport opened — it says nothing
   // about whether the realtime server has actually verified our ticket and
   // finished processing "hello" yet (that's a real await chain server-side:
-  // getUserStatus(), sendFriendsSnapshot()'s several queries, etc). Matching
-  // on `connected` alone let the client fire "find" before the server had
-  // any ConnectionState for this socket, which server/ws-server.ts silently
-  // drops (`if (!state) return`) — the guest would then sit in "searching"
-  // forever with nothing left to retry it. `realtimeReady` instead only ever
-  // flips true when the server's own "ready" ack (sent right after "hello"
-  // is fully processed — see server/ws-server.ts) comes back, and flips
-  // false again on every disconnect and every fresh "hello" attempt, so it
-  // never gets ahead of what the server actually has registered for us.
+  // getUserStatus(), etc). Matching on `connected` alone let the client fire
+  // "find" before the server had any ConnectionState for this socket, which
+  // server/ws-server.ts silently drops (`if (!state) return`) — the guest
+  // would then sit in "searching" forever with nothing left to retry it.
+  // `realtimeReady` instead only ever flips true when the server's own
+  // "ready" ack (sent right after "hello" is fully processed — see
+  // server/ws-server.ts) comes back, and flips false again on every
+  // disconnect and every fresh "hello" attempt, so it never gets ahead of
+  // what the server actually has registered for us.
   const [realtimeReady, setRealtimeReady] = useState(false)
 
   // `serverState` tracks what the signaling server has told us (queued,
@@ -110,9 +126,10 @@ export function useMatchmaking(
   // server last actually told us, and goes stale the instant the socket
   // drops — see the effect below). Starts false: nothing auto-starts until
   // MatchStage's own onboarding-gated effect calls findMatch() for the
-  // first time. From then on, findMatch() (called directly, by skip, or by
-  // the peer-left auto-retry) sets it true; pauseMatching() is the only
-  // thing that sets it back to false.
+  // first time. From then on, findMatch() (called directly, by skip, the
+  // peer-left auto-retry, or a successful block) sets it true;
+  // pauseMatching() and the full teardown effect are the only things that
+  // set it back to false.
   //
   // A ref, not state, on purpose: it's read by the reconnect-resume effect
   // further down, and if it were state, flipping it inside findMatch()
@@ -140,11 +157,9 @@ export function useMatchmaking(
   //  1. `realtimeReady` must drop immediately — whatever "ready" we had
   //     described a ConnectionState the server no longer has.
   //  2. Any room we thought we were in must be treated as lost right now,
-  //     not assumed to survive until told otherwise (see requirement: "do
-  //     not pretend an in-memory room survived"). Left alone, a stale
+  //     not assumed to survive until told otherwise. Left alone, a stale
   //     `roomId` would also block the reconnect-resume effect below from
-  //     ever re-sending "find", since it only fires when there's no room —
-  //     exactly the bug this whole fix is for.
+  //     ever re-sending "find", since it only fires when there's no room.
   //
   // `serverState` is only forced to "searching" here if we actually had a
   // room to lose (an idle/already-searching guest has no room, and
@@ -169,8 +184,24 @@ export function useMatchmaking(
 
   const failedSince = useRef<number | null>(null)
   const signalListeners = useRef(new Set<(roomId: string, data: RtcSignal) => void>())
+  // Ordered per-room backlog for "signal" messages that arrive before
+  // useWebRTC has actually subscribed yet — see lib/signalBacklog.ts for
+  // why this needs to exist and why it's a plain, framework-independent
+  // class (unit-tested there, not through this hook).
+  const signalBacklog = useRef(new SignalBacklog())
   const peerTypingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lastTypingSentAt = useRef(0)
+
+  // A fresh `roomId` (or none) means any leftover backlog from the
+  // PREVIOUS room is definitely stale now — cleared on the way out of
+  // whatever room this was, so it can never leak into a future one.
+  useEffect(() => {
+    const roomToClear = roomId
+    const backlog = signalBacklog.current
+    return () => {
+      if (roomToClear) backlog.clear(roomToClear)
+    }
+  }, [roomId])
 
   // The real Friends backend — every value here ultimately traces back to
   // lib/db.ts's friend_requests/friendships tables via server/ws-server.ts's
@@ -200,6 +231,12 @@ export function useMatchmaking(
 
   const onSignal = useCallback((handler: (roomId: string, data: RtcSignal) => void) => {
     signalListeners.current.add(handler)
+    // Replay anything that arrived before this subscription existed, in
+    // order. The handler filters by its own roomId internally (see
+    // useWebRTC), so replaying entries for a room this particular handler
+    // doesn't care about is a harmless no-op for it.
+    console.log("webrtc: room initialized — flushing any buffered signals")
+    signalBacklog.current.drainAll(handler)
     return () => {
       signalListeners.current.delete(handler)
     }
@@ -222,6 +259,21 @@ export function useMatchmaking(
     wantsMatchingRef.current = true
     setServerState("searching")
     send({ type: "find" })
+  }, [send])
+
+  // Leaves the real server-side queue WITHOUT touching `wantsMatching` or
+  // showing "paused" — used when something external and temporary makes
+  // matching impossible right now (e.g. the camera turning off mid-search;
+  // see MatchStage.tsx's camera-controls-queue-membership effect), where
+  // the guest hasn't actually changed their mind about wanting to match.
+  // `serverState` goes back to "idle" specifically so StatusPill's existing
+  // camera-aware copy ("Turn on your camera to start matching") is what
+  // shows, instead of "Finding someone…" over a queue entry that doesn't
+  // actually exist server-side anymore.
+  const leaveQueueOnly = useCallback(() => {
+    console.log("matchmaking: leaving queue only (not a pause — wantsMatching stays true)")
+    send({ type: "leave" })
+    setServerState((prev) => (prev === "searching" ? "idle" : prev))
   }, [send])
 
   const skip = useCallback(() => {
@@ -268,11 +320,25 @@ export function useMatchmaking(
   const block = useCallback(() => {
     recordHistory(peerRef.current)
     if (!roomId) return
+    // Terminates the interaction locally right away, unconditionally — a
+    // real database write (server/ws-server.ts's addBlock) still has to
+    // succeed or fail, but safety doesn't wait on that: see the "blocked"
+    // case in the message switch below for what happens once the server
+    // actually confirms it (including re-starting the search).
     send({ type: "block", roomId })
     setRoomId(null)
     setPeer(null)
     setServerState("searching")
   }, [roomId, send, recordHistory])
+
+  /** Reverses a block this account previously placed — see server/ws-server.ts's "unblock" handler and lib/db.ts's removeBlock(). `targetUserId` only ever comes from this account's own blocked-users snapshot. */
+  const unblockUser = useCallback(
+    (targetUserId: string) => {
+      console.log("matchmaking: sending unblock")
+      send({ type: "unblock", targetUserId })
+    },
+    [send]
+  )
 
   // Sends a friend request to whoever currently holds `targetDisplayId` —
   // the current match's peer, or a past match from History. The server
@@ -318,9 +384,10 @@ export function useMatchmaking(
   // just calling findMatch() again.
   const pauseMatching = useCallback(() => {
     recordHistory(peerRef.current)
-    // The one place this flips back to false — a reconnect after this must
-    // NOT auto-enqueue the guest again (see the reconnect-resume effect
-    // below, which checks this before ever sending a fresh "find").
+    // The one place this flips back to false during a normal session — a
+    // reconnect after this must NOT auto-enqueue the guest again (see the
+    // reconnect-resume effect below, which checks this before ever sending
+    // a fresh "find").
     wantsMatchingRef.current = false
     setRoomId(null)
     setPeer(null)
@@ -331,21 +398,50 @@ export function useMatchmaking(
     send({ type: "leave" })
   }, [send, recordHistory])
 
+  // Refs mirroring the latest profile field values — read at call time
+  // inside announce()/the profile-update effect below, deliberately NOT
+  // used as either callback's own dependency. If they were, editing your
+  // username while already connected would change announce()'s identity,
+  // which would re-run the "announce on connect" effect further down and
+  // re-send a full "hello" for what should be a routine profile edit —
+  // exactly the out-of-order-identity-update problem a separate
+  // "profile-update" message (see lib/signaling/protocol.ts) exists to fix.
+  const latestUsernameRef = useRef(myUsername)
+  const latestGenderRef = useRef(myGender)
+  const latestProfilePhotoRef = useRef(myProfilePhoto)
+  useEffect(() => {
+    latestUsernameRef.current = myUsername
+    latestGenderRef.current = myGender
+    latestProfilePhotoRef.current = myProfilePhoto
+  }, [myUsername, myGender, myProfilePhoto])
+
+  // This connection's own profile-update revision counter (see
+  // lib/signaling/protocol.ts's "profile-update") — reset to 0 by announce()
+  // every time a fresh "hello" goes out (a new connection/auth generation),
+  // since hello's own payload already IS that generation's revision-0
+  // baseline. `lastSentProfileRef` is what the effect below diffs against
+  // to decide whether anything has *actually* changed since the last thing
+  // sent (hello or a profile-update) — seeded by announce() to exactly
+  // whatever hello just sent, so the first render after a fresh "ready"
+  // never sees a false "changed" and fires a redundant profile-update
+  // immediately after hello already carried the same values.
+  const profileRevisionRef = useRef(0)
+  const lastSentProfileRef = useRef<{ username?: string; gender?: Gender; profilePhoto?: string | null } | null>(null)
+
   // Mints a fresh, short-lived realtime ticket from the authenticated
   // session (see app/api/realtime/ticket) and announces this connection to
   // the server with it — never a bare self-declared id (spec: "never trust
-  // a user ID supplied by the client without server verification"). Runs on
-  // every (re)connect, and again whenever the guest's own username, gender,
-  // or profile photo changes — so a match, current or future, can actually
-  // see it (the server preserves any in-progress room across this
-  // re-announce, it isn't treated as a fresh reconnect).
+  // a user ID supplied by the client without server verification"). Runs
+  // only on every (re)connect now — see the profile-update effect below for
+  // what handles a username/gender/photo change on an already-open
+  // connection instead (the server preserves any in-progress room across a
+  // reconnect's re-hello, it isn't treated as abandoning it).
   const announce = useCallback(async () => {
     if (!myHandle) return
     // Every fresh "hello" attempt invalidates whatever "ready" we had —
-    // either we're not connected to say it to anyone yet, or we're about to
-    // ask the server to re-process our identity (e.g. a changed
-    // username/gender/photo) and the old ack no longer describes the
-    // connection's current state until a new one arrives.
+    // either we're not connected to say it to anyone yet, or (on an actual
+    // reconnect) the old ack no longer describes the connection's current
+    // state until a new one arrives.
     setRealtimeReady(false)
     try {
       const res = await fetch("/api/realtime/ticket")
@@ -360,21 +456,26 @@ export function useMatchmaking(
       }
       const { ticket } = (await res.json()) as { ticket: string }
       setRestriction(null)
+      const username = latestUsernameRef.current
+      const gender = latestGenderRef.current
+      const profilePhoto = latestProfilePhotoRef.current
+      profileRevisionRef.current = 0
+      lastSentProfileRef.current = { username: username || undefined, gender, profilePhoto }
       console.log("matchmaking: sending hello")
       send({
         type: "hello",
         ticket,
         handle: myHandle,
-        username: myUsername || undefined,
-        gender: myGender,
-        profilePhoto: myProfilePhoto,
+        username: username || undefined,
+        gender,
+        profilePhoto,
       })
     } catch {
       // Network hiccup minting the ticket — the socket's own reconnect will
       // trigger this again; nothing to announce this time around.
       console.warn("matchmaking: ticket fetch threw (network hiccup) — will retry on next reconnect")
     }
-  }, [myHandle, myUsername, myGender, myProfilePhoto, send])
+  }, [myHandle, send])
 
   useEffect(() => {
     // Reacting to an external system (the socket just (re)connected) by
@@ -384,6 +485,28 @@ export function useMatchmaking(
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (connected) announce()
   }, [connected, announce])
+
+  // Sends a "profile-update" (never a repeat "hello" — see its own doc
+  // comment) whenever username/gender/profilePhoto actually change while
+  // already connected and ready. Compares against `lastSentProfileRef`
+  // (seeded by announce() to whatever hello/the last profile-update already
+  // sent) so this never fires for a value that's already been communicated
+  // — including right after a fresh "ready", when hello just sent the exact
+  // same snapshot this effect would otherwise see as "new".
+  useEffect(() => {
+    if (!realtimeReady) return
+    const current = { username: myUsername || undefined, gender: myGender, profilePhoto: myProfilePhoto }
+    const last = lastSentProfileRef.current
+    if (last && last.username === current.username && last.gender === current.gender && last.profilePhoto === current.profilePhoto) {
+      return
+    }
+    profileRevisionRef.current += 1
+    const revision = profileRevisionRef.current
+    const genderChanged = Boolean(last && last.gender !== current.gender)
+    lastSentProfileRef.current = current
+    console.log("matchmaking: sending profile-update", { revision, genderChanged })
+    send({ type: "profile-update", revision, ...current })
+  }, [realtimeReady, myUsername, myGender, myProfilePhoto, send])
 
   useEffect(() => {
     return subscribe((message: ServerMessage) => {
@@ -426,9 +549,23 @@ export function useMatchmaking(
           // refreshed identity into the peer we already have.
           setPeer((prev) => (prev ? { ...prev, ...message.peer } : prev))
           break
-        case "signal":
-          signalListeners.current.forEach((listener) => listener(message.roomId, message.data))
+        case "signal": {
+          const kind = message.data.kind
+          const label =
+            kind === "offer" ? "webrtc: offer received" : kind === "answer" ? "webrtc: answer received" : "webrtc: ice received"
+          console.log(`matchmaking: ${label}`, { roomId: message.roomId })
+          if (signalListeners.current.size > 0) {
+            signalListeners.current.forEach((listener) => listener(message.roomId, message.data))
+          } else {
+            // No useWebRTC subscriber yet — buffer it rather than dropping
+            // it silently (see lib/signalBacklog.ts).
+            console.warn(`matchmaking: webrtc: no listener yet — ${kind === "ice" ? "ice buffered" : `${kind} queued`}`, {
+              roomId: message.roomId,
+            })
+            signalBacklog.current.push(message.roomId, message.data)
+          }
           break
+        }
         case "chat":
           setPeerTyping(false)
           setMessages((prev) => [
@@ -463,6 +600,24 @@ export function useMatchmaking(
           break
         case "online-count":
           setOnlineCount(message.count)
+          break
+        case "blocked":
+          console.log("matchmaking: blocked ack", { ok: message.ok })
+          if (message.ok && wantsMatchingRef.current) {
+            // The interaction already ended locally the instant block() was
+            // called — this is what actually gets a fresh search going
+            // again, mirroring skip() (which re-queues as part of handling
+            // "skip" itself, server-side) instead of leaving the guest
+            // stuck showing "searching" with nothing actually re-queued.
+            findMatch()
+          }
+          break
+        case "unblocked":
+          // The blocked-users list itself updates via the "friends-snapshot"
+          // the server re-sends right after a successful unblock — this is
+          // just for any UI feedback (e.g. clearing a "removing…" state) a
+          // caller of unblockUser() wants to react to directly.
+          console.log("matchmaking: unblock ack", { ok: message.ok, targetUserId: message.targetUserId })
           break
         case "error":
           console.error("matchmaking: server reported an error", {
@@ -540,14 +695,15 @@ export function useMatchmaking(
   // array (a genuine reconnect clears it, and the effect needs to react to
   // that), but `roomId` *also* legitimately goes to `null` for reasons that
   // already send their own follow-up request — an ordinary skip() (which
-  // re-queues server-side as part of handling "skip" itself) and the
-  // deliberately-delayed "peer-left" auto-retry effect further down. Without
-  // this guard, either of those would make the reconnect-resume effect fire
-  // *again* too, sending a redundant second "find". Reset to false the
-  // moment `realtimeReady` itself drops (a genuine disconnect) so the next
-  // time it becomes true is treated as a fresh session worth resuming into;
-  // left `true` for the rest of an already-ready session so any later
-  // `roomId` churn from skip/peer-left is recognized as already handled.
+  // re-queues server-side as part of handling "skip" itself), a successful
+  // block() (see the "blocked" case above), and the deliberately-delayed
+  // "peer-left" auto-retry effect further down. Without this guard, any of
+  // those would make the reconnect-resume effect fire *again* too, sending
+  // a redundant second "find". Reset to false the moment `realtimeReady`
+  // itself drops (a genuine disconnect) so the next time it becomes true is
+  // treated as a fresh session worth resuming into; left `true` for the
+  // rest of an already-ready session so any later `roomId` churn from
+  // skip/block/peer-left is recognized as already handled.
   const resumedForCurrentReadyRef = useRef(false)
 
   // THE reconnect-resume fix: once a fresh "hello" is actually acknowledged
@@ -605,6 +761,57 @@ export function useMatchmaking(
     return () => clearTimeout(timer)
   }, [rtcStatus, skip])
 
+  // Full teardown when realtime is disabled — sign-out, session expiry,
+  // legal becoming invalid, an account switch, or plain unmount-adjacent
+  // teardown (see `enabled`'s own doc comment above). Deliberately resets
+  // EVERY piece of presentation state this hook owns, not just the
+  // connection-related ones — a stale friends list, online count, or match
+  // history-in-progress must never survive into whatever comes next (a
+  // different signed-in account, or a fully signed-out screen). Placed last
+  // (after every ref/state it touches has already been declared above) —
+  // not just for readability, but because referencing them from an earlier
+  // position defeats the React Compiler's ability to verify this hook's
+  // other memoization is still correct.
+  useEffect(() => {
+    if (enabled) return
+    console.log("matchmaking: realtime disabled — full teardown")
+    wantsMatchingRef.current = false
+    resumedForCurrentReadyRef.current = false
+    profileRevisionRef.current = 0
+    lastSentProfileRef.current = null
+    signalBacklog.current.clearAll()
+    // Best-effort courtesy only — useSignalingSocket's own effect (reacting
+    // to this same `enabled` prop, and registered earlier in this hook's
+    // body, so its effects run first within one React commit) may already
+    // have closed the socket by the time this runs. The server's own close
+    // handler (cleanUpAccount() in server/ws-server.ts) is what's actually
+    // authoritative for tearing down this account's room/queue state
+    // either way — this send is not load-bearing.
+    send({ type: "leave" })
+    // Reacting to an external system (`enabled` flipping off — sign-out,
+    // session expiry, legal becoming invalid, an account switch) by
+    // resetting this hook's entire presentation state, not mirroring
+    // existing React state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRealtimeReady(false)
+    setServerState("idle")
+    setRoomId(null)
+    setInitiator(false)
+    setPeer(null)
+    setMessages([])
+    setPeerMicEnabled(true)
+    setPeerTyping(false)
+    setOnlineCount(null)
+    setRestriction(null)
+    setFriends([])
+    setFriendRequestsReceived([])
+    setFriendRequestsSent([])
+    setBlockedUsers([])
+    setFriendActionState(new Map())
+    setFriendToastRequestId(null)
+    previousReceivedIds.current = new Set()
+  }, [enabled, send])
+
   return {
     connected,
     realtimeReady,
@@ -618,12 +825,14 @@ export function useMatchmaking(
     history,
     restriction,
     findMatch,
+    leaveQueueOnly,
     skip,
     pauseMatching,
     sendChat,
     notifyTyping,
     report,
     block,
+    unblockUser,
     // Friends — see the state block above for what each one actually traces back to.
     friends,
     friendRequestsReceived,

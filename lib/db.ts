@@ -359,6 +359,30 @@ export async function addBlock(blockerId: string, blockedId: string) {
   }
 }
 
+/**
+ * Reverses a block — the real unblock feature this app previously didn't
+ * have (blocking was permanent, by design, until now). Deliberately
+ * directional and narrow: only the row `blockerId` themselves created
+ * against `blockedId` is removable, and only that exact row — this can
+ * never be used to remove a block the OTHER side placed (there is no way to
+ * un-block yourself from someone else's perspective; that decision only
+ * ever belongs to whoever made it). Returns whether a row actually existed
+ * to remove, so a caller can tell "unblocked" apart from "there was nothing
+ * to unblock" without a second query.
+ *
+ * Friendship/pending-request state is untouched — addBlock() severs those
+ * as a side effect of blocking, but unblocking doesn't restore them; that
+ * severing was a real, intentional consequence of the block, not bookkeeping
+ * to roll back.
+ */
+export async function removeBlock(blockerId: string, blockedId: string): Promise<boolean> {
+  const { rows } = await q(
+    `DELETE FROM blocks WHERE blocker_id = $1 AND blocked_id = $2 RETURNING id`,
+    [blockerId, blockedId]
+  )
+  return rows.length > 0
+}
+
 export async function isBlockedEitherWay(a: string, b: string): Promise<boolean> {
   const { rows } = await q(
     `SELECT 1 FROM blocks WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $3 AND blocked_id = $4) LIMIT 1`,

@@ -6,7 +6,8 @@
     "dev": "tsx watch server.ts",
     "build": "next build",
     "start": "NODE_ENV=production tsx server.ts",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsx --test --experimental-test-module-mocks tests/**/*.test.mts"
   },
   "dependencies": {
     "motion": "^13.1.0",

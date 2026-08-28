@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { claimUsername, getUserStatus, describeDbError } from "@/lib/db"
+import { claimUsername, getUsername, getUserStatus, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 
 // Same character set and length ChooseUsername.tsx and MyProfileSheet.tsx's
@@ -22,6 +22,38 @@ const USERNAME_PATTERN = /^[a-z0-9_.]{3,24}$/
  * logged as a boolean, and a real database error carries its actual
  * Postgres error code.
  */
+/**
+ * Returns whichever username (if any) this account has already permanently
+ * claimed server-side — see hooks/useMyProfile.ts, which calls this when a
+ * browser's own localStorage has no username cached for this account (a new
+ * device, or storage that got cleared), so an account that already claimed
+ * one permanently doesn't get shown ChooseUsername again as if it were
+ * brand new. Read-only; never mints/changes anything.
+ */
+export async function GET() {
+  let session
+  try {
+    session = await auth()
+  } catch (err) {
+    console.error("profile/username: auth() threw on GET — returning 500", describeDbError(err))
+    return NextResponse.json({ error: "auth_error" }, { status: 500 })
+  }
+
+  const userId = session?.user?.id
+  if (!userId) {
+    return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
+  }
+
+  try {
+    const username = await getUsername(userId)
+    return NextResponse.json({ username })
+  } catch (err) {
+    const details = describeDbError(err)
+    console.error("profile/username: GET failed", { userId, ...details })
+    return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
+  }
+}
+
 export async function POST(request: Request) {
   const databaseUrlConfigured = Boolean(process.env.DATABASE_URL)
 

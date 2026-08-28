@@ -64,12 +64,35 @@ function normalizeWsUrl(configuredUrl: string): string {
  * is inherently tied to a specific room/search that a disconnect has
  * already invalidated, so there is nothing correct to replay for it.
  */
-export function useSignalingSocket() {
+/**
+ * @param enabled Whether the transport should exist at all. Authentication
+ * owns the realtime lifecycle (see hooks/useMatchmaking.ts and
+ * MatchStage.tsx) — this used to connect unconditionally the instant the
+ * component mounted, regardless of whether the guest was even signed in
+ * yet, which is how a not-fully-onboarded account's ticket request could
+ * come back `acceptance_required` and get misread as an account
+ * restriction (see AccountRestricted.tsx) instead of just... not having
+ * connected yet. `false` here means no WebSocket exists at all — not
+ * "connected but not sending anything" — and if one was already open, this
+ * effect's own cleanup (below) closes it and cancels any pending retry the
+ * instant `enabled` flips.
+ */
+export function useSignalingSocket(enabled: boolean) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const listenersRef = useRef(new Set<Listener>())
 
   useEffect(() => {
+    if (!enabled) {
+      // Nothing to do if we were never connected in the first place (e.g.
+      // signed out from the start). If we WERE connected, `enabled` just
+      // flipped from true to false, which means THIS effect run is really
+      // just standing in for the previous run's cleanup path below — React
+      // already ran that cleanup (closing the socket, cancelling the retry
+      // timer) before ever reaching this line, since dependency changes
+      // always tear down the prior effect first.
+      return
+    }
     let cancelled = false
     let retryDelay = 500
     let socket: WebSocket | null = null
@@ -130,7 +153,7 @@ export function useSignalingSocket() {
       clearTimeout(retryTimer)
       socket?.close()
     }
-  }, [])
+  }, [enabled])
 
   const send = useCallback((message: ClientMessage) => {
     const socket = wsRef.current

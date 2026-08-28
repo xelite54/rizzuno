@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto"
 import { WebSocketServer, WebSocket } from "ws"
 import type { RawData } from "ws"
 import { matchmaker } from "./matchmaker"
-import { MAX_CHAT_IMAGE_LENGTH } from "../lib/signaling/protocol"
+import { MAX_CHAT_IMAGE_LENGTH, isValidGender } from "../lib/signaling/protocol"
 import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from "../lib/signaling/protocol"
 import { verifyTicket } from "../lib/realtimeTicket"
 import {
   getUserStatus,
   addBlock,
+  removeBlock,
   fileReport,
   areFriends,
   sendFriendRequest,
@@ -29,18 +30,23 @@ type ConnectionState = {
   ws: WebSocket
   /** The Google account's own stable id — verified from the "hello" ticket, never taken from any other client-supplied field. */
   userId: string
-  /** Random per-connection token, unrelated to `userId` — this, not the real account id, is what a matched peer actually sees (see PublicPeerIdentity in lib/signaling/protocol.ts). */
+  /** Random per-connection token, unrelated to `userId` — this, not the real account id, is what a matched peer actually sees (see PublicPeerIdentity in lib/signaling/protocol.ts), and what this file's own diagnostic logs use instead of `userId`. */
   displayId: string
   handle: string
   username?: string
   gender?: Gender
   profilePhoto?: string | null
   roomId: string | null
+  /** Whether this connection currently sits in the real matchmaker queue (server/matchmaker.ts's `waiting`) — distinct from `roomId` (null while queued too) and from the client's own `wantsMatching` intent, which this server has no visibility into. Used so a gender change mid-search (see "profile-update") knows whether to re-evaluate the queue, without guessing intent. */
+  queued: boolean
+  /** The last "profile-update" revision this connection actually applied. Starts at 0 — the "hello" snapshot itself counts as revision 0 — so the first real profile-update only needs revision 1. A message whose revision isn't strictly greater than this is stale (arrived out of order relative to one already applied) and is dropped. */
+  profileRevision: number
 }
 
 // userId -> live connection. A reconnect (e.g. after a network blip) simply
 // overwrites its old entry; the old socket's own "close" handler cleans up
-// its room membership.
+// its room membership (see cleanUpAccount(), also used for the same-socket
+// account-switch case below).
 const connections = new Map<string, ConnectionState>()
 
 // The reverse of the map above, specifically for friend requests: sending
@@ -48,14 +54,19 @@ const connections = new Map<string, ConnectionState>()
 // why — a peer is never told anyone's real account id), so this is how
 // "friend-request" resolves that displayId back to the real account it
 // currently belongs to. Kept in lockstep with `connections` — set wherever
-// a ConnectionState's displayId is established (every "hello"), removed on
-// that same connection's close.
+// a ConnectionState's displayId is established (every "hello"), removed by
+// cleanUpAccount().
 const connectionsByDisplayId = new Map<string, string>()
 
 function send(ws: WebSocket, message: ServerMessage) {
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(message))
   }
+}
+
+/** Formats a thrown value into the field actually worth logging — never the full stack in production noise, just a message string. Mirrors lib/db.ts's describeDbError but generic to any error, not just Postgres ones. */
+function describeErr(err: unknown): { error: string } {
+  return { error: err instanceof Error ? err.message : String(err) }
 }
 
 // The identity fields a peer is allowed to see about someone — pulled into
@@ -80,7 +91,7 @@ function roomPartner(state: ConnectionState): ConnectionState | undefined {
   return connections.get(partnerId)
 }
 
-/** The full current friends/requests/blocks picture for this account — sent after every successful "hello", and re-sent to whoever's affected (if they're online) after any friends-related action, so every open tab converges on the same state without diffing granular events itself. */
+/** The full current friends/requests/blocks picture for this account — sent right after "ready" (best-effort, never a prerequisite for it — see the "hello" handler), and re-sent to whoever's affected (if they're online) after any friends-related action, so every open tab converges on the same state without diffing granular events itself. */
 async function sendFriendsSnapshot(state: ConnectionState) {
   const [friends, requestsReceived, requestsSent, blocked] = await Promise.all([
     listFriends(state.userId),
@@ -108,10 +119,27 @@ async function sendFriendsSnapshot(state: ConnectionState) {
   })
 }
 
+/**
+ * A Friends-DB failure must never propagate into matchmaking or crash a
+ * connection — every call site that used to `await sendFriendsSnapshot`
+ * directly now goes through this instead, which logs and swallows instead
+ * of throwing. Friends may be temporarily unavailable; matching must not be.
+ */
+async function trySendFriendsSnapshot(state: ConnectionState) {
+  try {
+    await sendFriendsSnapshot(state)
+  } catch (err) {
+    console.error("ws-server: friends snapshot failed — friends feature degraded, unrelated to matchmaking", {
+      displayId: state.displayId,
+      ...describeErr(err),
+    })
+  }
+}
+
 /** Re-sends a snapshot to an account only if they're currently connected — used after a friends action affects someone other than the account that triggered it. */
 async function refreshSnapshotIfOnline(userId: string) {
   const state = connections.get(userId)
-  if (state) await sendFriendsSnapshot(state)
+  if (state) await trySendFriendsSnapshot(state)
 }
 
 /**
@@ -135,47 +163,76 @@ function broadcastOnlineCount() {
   }
 }
 
+/**
+ * Two-phase match attempt (see server/matchmaker.ts's own doc comment for
+ * why): reserve, verify both ConnectionStates are still actually live here
+ * (matchmaker.ts has no visibility into WebSocket connections itself, only
+ * `isLive` callbacks this file supplies), then commit — or roll back and
+ * requeue whoever's still around.
+ */
 async function tryMatch(state: ConnectionState) {
-  const room = await matchmaker.enqueue({
-    userId: state.userId,
-    gender: state.gender,
-    enqueuedAt: Date.now(),
-  })
+  const room = await matchmaker.reserveMatch(
+    { userId: state.userId, gender: state.gender, enqueuedAt: Date.now(), debugId: state.displayId },
+    (userId) => connections.has(userId)
+  )
   if (!room) {
-    console.log("ws-server: queued", { userId: state.userId })
+    state.queued = true
+    console.log("ws-server: queue entered", { displayId: state.displayId, queueSize: matchmaker.queueSize })
     send(state.ws, { type: "queued" })
     return
   }
 
+  // `room.a` is always the account that just called tryMatch (`state`
+  // itself) — reserveMatch() constructs it that way. So if `aState` is
+  // missing, `state`'s own connection vanished in the last synchronous
+  // tick since reserveMatch's own liveness check (essentially impossible,
+  // but checked anyway); if `bState` is missing, the candidate's socket
+  // closed in that same narrow window. Either way, nothing survives to
+  // commit — only `aState`, if it's still there, has anything left to
+  // requeue for.
   const aState = connections.get(room.a)
   const bState = connections.get(room.b)
   if (!aState || !bState) {
-    console.warn("ws-server: matchmaker returned a room with a missing connection", {
+    console.warn("ws-server: pair rollback — a connection vanished before commit", {
       roomId: room.id,
       hasA: Boolean(aState),
       hasB: Boolean(bState),
     })
+    matchmaker.rollbackMatch(
+      room.id,
+      aState ? { userId: room.a, gender: aState.gender, enqueuedAt: Date.now(), debugId: aState.displayId } : null
+    )
+    if (aState) {
+      aState.queued = true
+      send(aState.ws, { type: "queued" })
+    }
     return
   }
 
+  matchmaker.commitMatch(room.id)
   aState.roomId = room.id
   bState.roomId = room.id
-  const alreadyFriends = await areFriends(room.a, room.b)
-  console.log("ws-server: matched", { roomId: room.id, a: room.a, b: room.b })
-  send(aState.ws, {
-    type: "matched",
-    roomId: room.id,
-    initiator: true,
-    peer: toPublicIdentity(bState),
-    alreadyFriends,
-  })
-  send(bState.ws, {
-    type: "matched",
-    roomId: room.id,
-    initiator: false,
-    peer: toPublicIdentity(aState),
-    alreadyFriends,
-  })
+  aState.queued = false
+  bState.queued = false
+
+  // A Friends-DB failure must never cancel a valid core match — the room is
+  // already committed above; `alreadyFriends` is optional metadata from
+  // here on, not a precondition for either side actually being told they
+  // matched.
+  let alreadyFriends = false
+  try {
+    alreadyFriends = await areFriends(room.a, room.b)
+  } catch (err) {
+    console.error("ws-server: areFriends failed — proceeding without it, match still commits", {
+      roomId: room.id,
+      ...describeErr(err),
+    })
+  }
+
+  send(aState.ws, { type: "matched", roomId: room.id, initiator: true, peer: toPublicIdentity(bState), alreadyFriends })
+  console.log("ws-server: matched sent to A", { roomId: room.id, displayId: aState.displayId })
+  send(bState.ws, { type: "matched", roomId: room.id, initiator: false, peer: toPublicIdentity(aState), alreadyFriends })
+  console.log("ws-server: matched sent to B", { roomId: room.id, displayId: bState.displayId })
 }
 
 function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean) {
@@ -188,6 +245,38 @@ function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean) {
     partner.roomId = null
     send(partner.ws, { type: "peer-left", roomId })
   }
+}
+
+/**
+ * Fully removes one account's server-side state — leaves any room, drops
+ * any queue entry, and clears both connection maps. The one authoritative
+ * cleanup path, used by BOTH a genuine socket close (see the "close"
+ * handler) and a same-socket account switch (a fresh "hello" for a
+ * *different* account arriving on an already-authenticated socket — see
+ * the "hello" handler) — a physical socket must never represent more than
+ * one live account at a time, and this is what guarantees the old one is
+ * completely gone from `connections`/the matchmaker queue/any room before
+ * the new one is ever attached.
+ *
+ * A no-op if `oldState` is no longer the live entry for its own userId (a
+ * stale/superseded state object calling this must never clobber whatever's
+ * actually live now for that same userId).
+ */
+function cleanUpAccount(oldState: ConnectionState) {
+  const wasCurrent = connections.get(oldState.userId) === oldState
+  if (!wasCurrent) {
+    console.log("ws-server: cleanup skipped — this state was already superseded", { displayId: oldState.displayId })
+    return
+  }
+  leaveCurrentRoom(oldState, true)
+  matchmaker.removeFromQueue(oldState.userId)
+  oldState.queued = false
+  connections.delete(oldState.userId)
+  if (connectionsByDisplayId.get(oldState.displayId) === oldState.userId) {
+    connectionsByDisplayId.delete(oldState.displayId)
+  }
+  console.log("ws-server: queue removed", { displayId: oldState.displayId })
+  broadcastOnlineCount()
 }
 
 // Per-connection spam guard. A sliding window (not a fixed counter that
@@ -219,14 +308,15 @@ export function createRizzunoWebSocketServer() {
   const wss = new WebSocketServer({ noServer: true })
 
   wss.on("connection", (ws: WebSocket) => {
+    console.log("ws-server: connection accepted")
     let state: ConnectionState | null = null
     const checkRate = createRateLimiter()
     // Block/report/match checks are now real database round trips, so
     // handling one message can involve a genuine await. Messages from the
     // same connection must still be handled in the order they arrived, one
     // at a time — otherwise two rapid "find"/"skip" presses could each
-    // start their own concurrent matchmaker.enqueue() call for the same
-    // connection (spec: "race conditions when rapidly pressing skip").
+    // start their own concurrent matchmaker.reserveMatch() call for the
+    // same connection (spec: "race conditions when rapidly pressing skip").
     // Chaining onto this promise serializes them without blocking the
     // event loop for anyone else.
     let processingChain: Promise<void> = Promise.resolve()
@@ -268,22 +358,22 @@ export function createRizzunoWebSocketServer() {
           // itself, not the whole connection).
           console.error("ws-server: message handling failed", {
             type: message.type,
-            userId: state?.userId,
-            error: err instanceof Error ? err.message : String(err),
+            displayId: state?.displayId,
+            ...describeErr(err),
           })
           if (state && (message.type === "find" || message.type === "skip")) {
             send(state.ws, { type: "error", message: "Couldn't find a match right now. Retrying…", context: "find" })
           } else if (message.type === "hello") {
             // hello threw before "ready" could be sent (e.g. getUserStatus
-            // or sendFriendsSnapshot hit a real database error) — `state`
-            // is likely still null at this point (it's only assigned after
-            // those calls succeed), so there's no ConnectionState to send
-            // through; use the raw socket directly. Without this, the
-            // client has no way to distinguish "still waiting on a slow
-            // server" from "this hello is never going to succeed" and
-            // would just sit there forever with no "ready" and no error —
-            // see hooks/useMatchmaking.ts's "error" handling for what it
-            // does with this (retries hello after a short delay).
+            // hit a real database error) — `state` is likely still null at
+            // this point (it's only assigned after those calls succeed), so
+            // there's no ConnectionState to send through; use the raw
+            // socket directly. Without this, the client has no way to
+            // distinguish "still waiting on a slow server" from "this hello
+            // is never going to succeed" and would just sit there forever
+            // with no "ready" and no error — see hooks/useMatchmaking.ts's
+            // "error" handling for what it does with this (retries hello
+            // after a short delay).
             send(ws, {
               type: "error",
               message: "Couldn't set up your connection right now. Retrying…",
@@ -311,6 +401,7 @@ export function createRizzunoWebSocketServer() {
           return
         }
         const { userId } = verified
+        console.log("ws-server: hello authenticated")
 
         // Defense in depth: the ticket route already refuses to mint a
         // ticket for a banned/suspended/deleted account, but a ticket is
@@ -331,10 +422,25 @@ export function createRizzunoWebSocketServer() {
           return
         }
 
-        // Also re-sent whenever the user updates their username, gender, or
-        // profile photo, not only on first connect — preserve any room
-        // they're currently in rather than assuming this is a fresh
-        // reconnect with nothing left to carry forward.
+        // If THIS SAME socket previously authenticated as a *different*
+        // account (sign-out-and-back-in-as-someone-else within one tab,
+        // without the socket ever actually closing in between — see
+        // AUTHENTICATION MUST OWN THE REALTIME LIFECYCLE), that old
+        // account's server-side state must be completely gone before the
+        // new one is attached. A no-op if this is the same account
+        // re-hello-ing (cleanUpAccount would find its own state already
+        // superseded by nothing — but we only call it for an actual
+        // account change, so it never runs in that case at all).
+        if (state && state.userId !== userId) {
+          console.log("ws-server: hello for a new account on an already-authenticated socket — cleaning up the old one first", {
+            oldDisplayId: state.displayId,
+          })
+          cleanUpAccount(state)
+        }
+
+        // Also re-sent whenever the user reconnects the same account —
+        // preserve any room they're currently in rather than assuming this
+        // is a fresh reconnect with nothing left to carry forward.
         const existing = connections.get(userId)
         // A second "hello" for the same account on a *different* socket
         // means the old one is superseded (e.g. a duplicated tab, or a
@@ -352,6 +458,10 @@ export function createRizzunoWebSocketServer() {
         // handle instead. This is a basic keyword filter, not real
         // moderation (see lib/textFilter.ts).
         const username = rawUsername && !containsSevereContent(rawUsername) ? rawUsername : undefined
+        // Validated the same way "profile-update" validates it below — a
+        // malformed/tampered value must never slip into matching as some
+        // unhandled third gender.
+        const gender = isValidGender(message.gender) ? message.gender : undefined
 
         state = {
           ws,
@@ -359,9 +469,11 @@ export function createRizzunoWebSocketServer() {
           displayId: existing?.displayId ?? randomUUID(),
           handle,
           username,
-          gender: message.gender,
+          gender,
           profilePhoto: message.profilePhoto,
           roomId: existing?.roomId ?? null,
+          queued: false,
+          profileRevision: 0,
         }
         connections.set(userId, state)
         connectionsByDisplayId.set(state.displayId, userId)
@@ -381,13 +493,14 @@ export function createRizzunoWebSocketServer() {
           }
         }
 
-        await sendFriendsSnapshot(state)
-
         // The explicit ack the client waits for before it's allowed to send
-        // "find" — sent last, once this connection is actually registered in
-        // `connections`/`connectionsByDisplayId` and its friends-snapshot has
-        // gone out, so "ready" really does mean "the server is ready".
-        console.log("ws-server: hello accepted — sending ready", { userId, displayId: state.displayId })
+        // "find" — sent as soon as this connection is authoritatively
+        // registered in `connections`/`connectionsByDisplayId`, so "ready"
+        // really does mean "the server is ready". Friends is deliberately
+        // NOT awaited before this: four optional DB queries must never be a
+        // prerequisite for matchmaking working at all (see
+        // trySendFriendsSnapshot below).
+        console.log("ws-server: ready sent", { displayId: state.displayId })
         send(ws, { type: "ready" })
 
         // A reconnect on an account that was already counted doesn't change
@@ -397,6 +510,10 @@ export function createRizzunoWebSocketServer() {
         // shows up. `existing` was read before `connections.set()` above.
         if (!existing) broadcastOnlineCount()
         else send(ws, { type: "online-count", count: connections.size })
+
+        // Best-effort, asynchronous, never awaited before "ready" above —
+        // see trySendFriendsSnapshot's own doc comment.
+        void trySendFriendsSnapshot(state)
         return
       }
 
@@ -414,7 +531,7 @@ export function createRizzunoWebSocketServer() {
       switch (message.type) {
         case "find":
         case "skip": {
-          console.log("ws-server: find received", { userId: state.userId, type: message.type })
+          console.log("ws-server: find received", { displayId: state.displayId, type: message.type })
           leaveCurrentRoom(state, true)
           await tryMatch(state)
           break
@@ -422,6 +539,8 @@ export function createRizzunoWebSocketServer() {
         case "leave": {
           leaveCurrentRoom(state, true)
           matchmaker.removeFromQueue(state.userId)
+          state.queued = false
+          console.log("ws-server: queue removed (explicit leave)", { displayId: state.displayId })
           break
         }
         case "signal": {
@@ -495,13 +614,105 @@ export function createRizzunoWebSocketServer() {
         }
         case "block": {
           const partner = roomPartner(state)
+          let ok = false
           if (partner) {
-            await addBlock(state.userId, partner.userId)
+            try {
+              await addBlock(state.userId, partner.userId)
+              ok = true
+            } catch (err) {
+              console.error("ws-server: addBlock failed — block NOT persisted", {
+                displayId: state.displayId,
+                ...describeErr(err),
+              })
+            }
+            // The interaction ends locally regardless of whether the block
+            // actually persisted — safety (getting away from this specific
+            // person right now) doesn't wait on a database write; only the
+            // *permanent* record depends on that succeeding, and `ok` below
+            // tells the client honestly which one actually happened rather
+            // than pretending it always persists.
             leaveCurrentRoom(state, true)
-            await sendFriendsSnapshot(state)
-            await refreshSnapshotIfOnline(partner.userId)
+            if (ok) {
+              await trySendFriendsSnapshot(state)
+              await refreshSnapshotIfOnline(partner.userId)
+            }
           }
-          send(state.ws, { type: "blocked" })
+          console.log("ws-server: block", { displayId: state.displayId, ok })
+          send(state.ws, { type: "blocked", ok })
+          break
+        }
+        case "unblock": {
+          if (!message.targetUserId || message.targetUserId === state.userId) break
+          let ok = false
+          try {
+            ok = await removeBlock(state.userId, message.targetUserId)
+          } catch (err) {
+            console.error("ws-server: removeBlock failed", { displayId: state.displayId, ...describeErr(err) })
+          }
+          console.log("ws-server: unblock", { displayId: state.displayId, ok })
+          send(state.ws, { type: "unblocked", ok, targetUserId: message.targetUserId })
+          if (ok) {
+            await trySendFriendsSnapshot(state)
+            await refreshSnapshotIfOnline(message.targetUserId)
+            // Already actively searching (server-authoritative — see
+            // `queued`) with no active room: whoever was just unblocked is
+            // a candidate again, so give this one queue entry a fresh
+            // evaluation now rather than leaving it stuck against a
+            // now-stale candidate pool until the next explicit find/skip.
+            if (state.queued && !state.roomId) {
+              console.log("ws-server: unblock — re-evaluating queue", { displayId: state.displayId })
+              await tryMatch(state)
+            }
+          }
+          break
+        }
+        case "profile-update": {
+          if (typeof message.revision !== "number" || message.revision <= state.profileRevision) {
+            console.warn("ws-server: profile-update ignored — stale or invalid revision", {
+              displayId: state.displayId,
+              revision: message.revision,
+              current: state.profileRevision,
+            })
+            break
+          }
+          state.profileRevision = message.revision
+
+          const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
+          const nextUsername = rawUsername && !containsSevereContent(rawUsername) ? rawUsername : state.username
+          const nextGender =
+            message.gender === undefined ? state.gender : isValidGender(message.gender) ? message.gender : state.gender
+          const genderChanged = nextGender !== state.gender
+
+          state.username = nextUsername
+          state.gender = nextGender
+          if (message.profilePhoto !== undefined) state.profilePhoto = message.profilePhoto
+
+          console.log("ws-server: profile-update applied", {
+            displayId: state.displayId,
+            revision: state.profileRevision,
+            genderChanged,
+          })
+
+          if (state.roomId) {
+            // ACTIVE: preserve the call itself — just refresh what the
+            // partner is shown. The NEXT match (not this one) is what
+            // actually uses the new gender for pairing.
+            const partner = roomPartner(state)
+            if (partner) {
+              send(partner.ws, { type: "peer-updated", roomId: state.roomId, peer: toPublicIdentity(state) })
+            }
+          } else if (state.queued && genderChanged) {
+            // SEARCHING: the queued snapshot's gender is now stale —
+            // re-evaluate with the new one immediately (this removes the
+            // old queue entry and re-inserts with the updated gender as
+            // part of the same reserveMatch() call — see
+            // server/matchmaker.ts) rather than leaving a stale entry
+            // sitting in the queue until the next explicit find/skip.
+            console.log("ws-server: gender changed while queued — re-evaluating queue", { displayId: state.displayId })
+            await tryMatch(state)
+          }
+          // PAUSED (no room, not queued): identity is already updated
+          // above; correctly stays outside the queue either way.
           break
         }
         case "friend-request": {
@@ -513,7 +724,7 @@ export function createRizzunoWebSocketServer() {
           const result = await sendFriendRequest(state.userId, targetUserId)
           send(state.ws, { type: "friend-request-result", targetDisplayId: message.targetDisplayId, result: result.status })
           if (result.status === "sent" || result.status === "auto_accepted") {
-            await sendFriendsSnapshot(state)
+            await trySendFriendsSnapshot(state)
             await refreshSnapshotIfOnline(targetUserId)
           }
           break
@@ -521,7 +732,7 @@ export function createRizzunoWebSocketServer() {
         case "friend-respond": {
           const result = await respondToFriendRequest(state.userId, message.requestId, message.accept)
           if (result.status !== "not_found") {
-            await sendFriendsSnapshot(state)
+            await trySendFriendsSnapshot(state)
             await refreshSnapshotIfOnline(result.senderId)
           }
           break
@@ -529,15 +740,20 @@ export function createRizzunoWebSocketServer() {
         case "unfriend": {
           const result = await removeFriendship(state.userId, message.friendshipId)
           if (result) {
-            await sendFriendsSnapshot(state)
+            await trySendFriendsSnapshot(state)
             await refreshSnapshotIfOnline(result.otherId)
           }
           break
         }
         case "friend-block": {
           if (message.targetUserId && message.targetUserId !== state.userId) {
-            await addBlock(state.userId, message.targetUserId)
-            await sendFriendsSnapshot(state)
+            try {
+              await addBlock(state.userId, message.targetUserId)
+            } catch (err) {
+              console.error("ws-server: friend-block addBlock failed", { displayId: state.displayId, ...describeErr(err) })
+              break
+            }
+            await trySendFriendsSnapshot(state)
             await refreshSnapshotIfOnline(message.targetUserId)
           }
           break
@@ -550,30 +766,8 @@ export function createRizzunoWebSocketServer() {
 
     ws.on("close", () => {
       if (!state) return
-      // Only this socket's own entry, and only if it's still the live one —
-      // a superseded old socket (second-tab dedup, see "hello" above, or a
-      // reconnect that raced with the old socket's own close) closing after
-      // a newer one already took its place in `connections` must not touch
-      // ANY of the newer connection's state. Checked first, before anything
-      // else below runs, specifically because `leaveCurrentRoom` and
-      // `removeFromQueue` operate on `state.userId` — not on this specific
-      // socket/ConnectionState object — so without this guard, an old
-      // socket's belated close event would tear down whatever room or queue
-      // entry the *new* socket had already re-established for that same
-      // userId (e.g. a fresh "find" the new connection just sent), even
-      // though that account is still very much online.
-      const wasCurrent = connections.get(state.userId) === state
-      if (!wasCurrent) {
-        console.log("ws-server: close on a superseded socket — leaving the current connection's state alone", {
-          userId: state.userId,
-        })
-        return
-      }
-      leaveCurrentRoom(state, true)
-      matchmaker.removeFromQueue(state.userId)
-      connections.delete(state.userId)
-      if (connectionsByDisplayId.get(state.displayId) === state.userId) connectionsByDisplayId.delete(state.displayId)
-      broadcastOnlineCount()
+      console.log("ws-server: peer disconnected", { displayId: state.displayId })
+      cleanUpAccount(state)
     })
   })
 

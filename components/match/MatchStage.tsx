@@ -81,44 +81,6 @@ export function MatchStage() {
   // to see this guest's username too — useMatchmaking hands it to the server.
   const myProfile = useMyProfile()
 
-  const {
-    realtimeReady,
-    state,
-    onlineCount,
-    peer,
-    peerMicEnabled,
-    peerTyping,
-    remoteStream,
-    messages,
-    history,
-    restriction,
-    findMatch,
-    skip,
-    pauseMatching,
-    sendChat,
-    notifyTyping,
-    report,
-    block,
-    friends: rawFriends,
-    friendRequestsReceived: rawFriendRequestsReceived,
-    blockedUsers: rawBlockedUsers,
-    friendActionState,
-    friendToastRequestId,
-    sendFriendRequestTo,
-    respondToFriendRequest,
-    unfriend,
-    blockFriendAccount,
-    dismissFriendToast,
-  } = useMatchmaking(
-    videoTrack,
-    audioTrack,
-    micEnabled,
-    myProfile.handle,
-    myProfile.username,
-    myProfile.gender ?? undefined,
-    myProfile.profilePhoto
-  )
-
   // Nothing works until the guest signs in with the real Google OAuth
   // session (see auth.ts). "loading" covers the brief moment right after a
   // refresh where Auth.js is still checking for an existing session cookie
@@ -136,6 +98,69 @@ export function MatchStage() {
   // still reading true.
   const legal = useLegalAcceptance(signedIn, updateSession)
   const legalAccepted = legal.status === "accepted"
+
+  // Choosing a username, then a gender, is required right after signing in,
+  // before matching starts — both are how a real match will actually see you.
+  const hasUsername = myProfile.username.trim().length > 0
+  const hasGender = myProfile.gender !== null
+  const onboarded = hasUsername && hasGender
+
+  // AUTHENTICATION MUST OWN THE REALTIME LIFECYCLE — realtime (the
+  // WebSocket connection itself, not just matchmaking on top of it) only
+  // ever exists once every one of these is true. This used to be implicit:
+  // the socket connected unconditionally the moment this component
+  // mounted, regardless of sign-in/legal/onboarding status, which had two
+  // real consequences — a not-yet-legally-accepted guest's ticket request
+  // could come back `acceptance_required` and get misread as
+  // AccountRestricted ("terms changed, sign out and back in") instead of
+  // correctly showing AgeGate below; and a not-yet-onboarded guest's socket
+  // existed (and consumed a slot in the online count) well before there was
+  // any username/gender to actually match with. Passed into useMatchmaking
+  // as `enabled` — see its own doc comment for everything that resets the
+  // instant this goes false (sign-out, session expiry, legal becoming
+  // invalid, an account switch, or teardown).
+  const realtimeEnabled = signedIn && legalAccepted && myProfile.profileHydrated && hasUsername && hasGender
+
+  const {
+    realtimeReady,
+    state,
+    onlineCount,
+    peer,
+    peerMicEnabled,
+    peerTyping,
+    remoteStream,
+    messages,
+    history,
+    restriction,
+    findMatch,
+    leaveQueueOnly,
+    skip,
+    pauseMatching,
+    sendChat,
+    notifyTyping,
+    report,
+    block,
+    unblockUser,
+    friends: rawFriends,
+    friendRequestsReceived: rawFriendRequestsReceived,
+    blockedUsers: rawBlockedUsers,
+    friendActionState,
+    friendToastRequestId,
+    sendFriendRequestTo,
+    respondToFriendRequest,
+    unfriend,
+    blockFriendAccount,
+    dismissFriendToast,
+  } = useMatchmaking(
+    realtimeEnabled,
+    videoTrack,
+    audioTrack,
+    micEnabled,
+    myProfile.handle,
+    myProfile.username,
+    myProfile.gender ?? undefined,
+    myProfile.profilePhoto
+  )
 
   // Auth.js lands a failed/cancelled Google sign-in back on this page with
   // `?error=...` — read it once, show it, then scrub it from the URL so a
@@ -235,12 +260,6 @@ export function MatchStage() {
     }
   }
 
-  // Choosing a username, then a gender, is required right after signing in,
-  // before matching starts — both are how a real match will actually see you.
-  const hasUsername = myProfile.username.trim().length > 0
-  const hasGender = myProfile.gender !== null
-  const onboarded = hasUsername && hasGender
-
   // A live camera track is required to start matching — a match with no
   // video on your end isn't the product this is, and there's no point
   // burning through the queue (and showing up as a candidate to other
@@ -301,6 +320,35 @@ export function MatchStage() {
       findMatch()
     }
   }, [realtimeReady, state, signedIn, legalAccepted, onboarded, restriction, cameraOff, findMatch])
+
+  // CAMERA MUST CONTROL QUEUE MEMBERSHIP — turning the camera off while
+  // actively searching used to only change local UI (the auto-start effect
+  // above just wouldn't retrigger); it never actually removed this account
+  // from the real server-side queue (server/matchmaker.ts's `waiting`), so
+  // a camera-off guest kept showing up as a live match candidate to other
+  // people with nothing to actually show them. `leaveQueueOnly` (unlike
+  // pauseMatching) doesn't touch `wantsMatching` — the guest hasn't changed
+  // their mind about wanting to match, the camera just makes it temporarily
+  // impossible — so turning it back on resumes automatically here, exactly
+  // once per off/on cycle, without needing a manual "start" step again.
+  const leftQueueForCameraOff = useRef(false)
+  useEffect(() => {
+    if (cameraOff) {
+      if (state === "searching" && !leftQueueForCameraOff.current) {
+        leftQueueForCameraOff.current = true
+        console.log("matchmaking: camera turned off while searching — leaving the real queue")
+        leaveQueueOnly()
+      }
+      return
+    }
+    if (leftQueueForCameraOff.current) {
+      leftQueueForCameraOff.current = false
+      if (realtimeReady && !restriction) {
+        console.log("matchmaking: camera back on — sending exactly one fresh find")
+        findMatch()
+      }
+    }
+  }, [cameraOff, state, realtimeReady, restriction, findMatch, leaveQueueOnly])
 
   // A completed skip doesn't tear down the connection right away — it waits
   // out a short undo window first. The match stays genuinely live behind the
@@ -517,13 +565,25 @@ export function MatchStage() {
         <div className="relative h-full min-h-0 min-w-0 flex-1 md:rounded-2xl md:border md:border-border">
           {authLoading ? null : !signedIn ? (
             <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
-          ) : restriction ? (
+          ) : restriction && restriction.reason !== "acceptance_required" ? (
+            // LEGAL FLOW OWNS LEGAL STATE — `acceptance_required` from the
+            // realtime ticket endpoint is deliberately excluded here.
+            // Realtime doesn't even connect until `legalAccepted` is
+            // already true (see `realtimeEnabled` above), so this
+            // shouldn't be reachable in the normal flow at all; if it ever
+            // is (e.g. legal requirements changed mid-session, server-side,
+            // between this render and a ticket request actually reaching
+            // it), the correct response is AgeGate below via `legal.status
+            // === "required"` re-checking for itself — never
+            // AccountRestricted's "sign out and back in" copy, which both
+            // mischaracterizes what's actually needed and duplicates a
+            // decision the legal-status check already owns.
             <AccountRestricted restriction={restriction} onSignOut={() => signOut({ callbackUrl: "/" })} />
           ) : legal.status === "checking" ? null : legal.status === "error" ? (
             <LegalStatusError errorCode={legal.errorCode} onRetry={legal.retry} />
           ) : legal.status === "required" ? (
             <AgeGate onAccept={legal.accept} />
-          ) : !hasUsername ? (
+          ) : !myProfile.profileHydrated ? null : !hasUsername ? (
             <ChooseUsername onChosen={myProfile.setUsername} />
           ) : !hasGender ? (
             <ChooseGender onChosen={myProfile.setGender} />
@@ -605,6 +665,7 @@ export function MatchStage() {
         handle={myProfile.handle}
         history={history}
         blockedUsers={blockedUsers}
+        onUnblockUser={unblockUser}
         friendActionState={friendActionState}
         onSendFriendRequest={sendFriendRequestTo}
         onSignOut={() => signOut({ callbackUrl: "/" })}
