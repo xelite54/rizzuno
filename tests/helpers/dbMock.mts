@@ -23,6 +23,8 @@ export const dbMockState = {
   friendsSnapshotShouldThrow: false,
   /** Artificial delay before the block check resolves — lets a test create a genuine async window (e.g. to disconnect/pause a real socket mid-lookup) instead of simulating one synchronously. 0 by default (no delay). */
   blockCheckDelayMs: 0,
+  /** Same idea, for the (separate, LATER) areFriends lookup inside tryMatch — lets a test create a real async window between a room being reserved and "matched" actually being sent, to exercise the final pre-commit eligibility check. */
+  friendsCheckDelayMs: 0,
 }
 
 function pairKey(a: string, b: string): string {
@@ -38,6 +40,7 @@ export function resetDbMockState() {
   dbMockState.removeBlockResult = true
   dbMockState.friendsSnapshotShouldThrow = false
   dbMockState.blockCheckDelayMs = 0
+  dbMockState.friendsCheckDelayMs = 0
 }
 
 mock.module("../../lib/db.ts", {
@@ -63,7 +66,10 @@ mock.module("../../lib/db.ts", {
       if (dbMockState.blockCheckDelayMs > 0) await new Promise((r) => setTimeout(r, dbMockState.blockCheckDelayMs))
       return dbMockState.blockedPairs.has(pairKey(a, b))
     },
-    areFriends: async (a: string, b: string) => dbMockState.areFriendsImpl(a, b),
+    areFriends: async (a: string, b: string) => {
+      if (dbMockState.friendsCheckDelayMs > 0) await new Promise((r) => setTimeout(r, dbMockState.friendsCheckDelayMs))
+      return dbMockState.areFriendsImpl(a, b)
+    },
     fileReport: async () => "report-id",
     sendFriendRequest: async () => ({ status: "sent", requestId: "req-id" }),
     respondToFriendRequest: async () => ({ status: "not_found" }),

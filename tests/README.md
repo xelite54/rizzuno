@@ -32,19 +32,31 @@ are validated by actually running them.
   offer/answer/ICE signals that arrive before `useWebRTC` has subscribed
   yet, and its buffered-signal cap).
 - **`matchmaker.test.mts`** — `server/matchmaker.ts`'s reserve → commit /
-  abort state machine directly, with `lib/db.ts`'s `isBlockedEitherWay`
-  mocked (`node:test`'s `mock.module`, `--experimental-test-module-mocks`)
-  so nothing needs a live Postgres. Each test builds its own `Matchmaker`
+  abort state machine directly, against a lightweight in-memory
+  `CheckLive`/`FakeConnection` registry (not real sockets — see
+  `ws-server.test.mts` for that) that drives the exact same
+  open/seeking/`searchGeneration`/room contract `server/ws-server.ts`'s real
+  `makeCheckLive` implements. `lib/db.ts`'s `isBlockedEitherWay` is mocked
+  (`node:test`'s `mock.module`, `--experimental-test-module-mocks`) so
+  nothing needs a live Postgres. Each test builds its own `Matchmaker`
   instance (the class is exported specifically for this) so one test's
-  leftover, never-matched queue entries can never leak into another.
+  leftover, never-matched queue entries can never leak into another. Covers:
+  a stale (pre-leave/pre-rejoin) `searchGeneration` snapshot never being
+  used to commit a match, a paused/closed initiator or candidate aborting
+  the attempt cleanly, and the recent-partner cooldown being recorded only
+  on `commitMatch`, never on a bare reservation or `deleteReservation`.
 - **`ws-server.test.mts`** — full integration tests: a real HTTP server +
   the real `server/ws-server.ts` WebSocket server, real `ws` client
   connections, real signed tickets (`lib/realtimeTicket.ts`'s actual
   `mintTicket`/`verifyTicket`, unmocked), and a mocked `lib/db.ts`
   (`helpers/dbMock.mts`) that can simulate failures (a thrown
-  `areFriends`/`addBlock`/friends-snapshot query) and artificial delays (to
-  create a genuine async race window for disconnect/pause-during-lookup
-  scenarios) on demand.
+  `areFriends`/`addBlock`/friends-snapshot query) and artificial delays —
+  `blockCheckDelayMs` (the block-check inside `reserveMatch`) and
+  `friendsCheckDelayMs` (the Friends lookup between reservation and
+  "matched" actually being sent) — to create genuine async race windows for
+  pause/camera-off/disconnect-during-lookup and socket-closes-right-before-
+  delivery scenarios, exercised through the real client-facing protocol
+  (send "leave"/"leave"+"find"/close the socket) rather than simulated.
 
 ## What's intentionally NOT covered here
 

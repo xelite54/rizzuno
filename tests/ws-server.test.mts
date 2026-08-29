@@ -392,3 +392,182 @@ test("pausing (leave) during an in-flight block-lookup means the pauser is never
     dbMockState.blockCheckDelayMs = 0
   }
 })
+
+// Test 2 (of the new set) — camera-off sends the exact same "leave"
+// message pause does (see hooks/useMatchmaking.ts's leaveQueueOnly), so
+// this exercises the identical server-side code path as the pause test
+// above — kept as its own named test since the requirement calls it out
+// separately, and to guard against the two ever being implemented
+// differently on the client side in the future.
+test("camera-off (also sends 'leave') during a delayed DB block check means the account is never subsequently matched", async () => {
+  resetDbMockState()
+  dbMockState.blockCheckDelayMs = 150
+  const server = await startTestServer()
+  try {
+    const cameraOffUser = await connectAndHello(server.url, uid("f"), { gender: "female" })
+    cameraOffUser.send({ type: "find" })
+    await cameraOffUser.waitForType("queued")
+
+    const initiator = await connectAndHello(server.url, uid("m"), { gender: "male" })
+    initiator.send({ type: "find" })
+    await new Promise((r) => setTimeout(r, 40))
+    // What MatchStage's camera-off effect actually sends server-side.
+    cameraOffUser.send({ type: "leave" })
+
+    await new Promise((r) => setTimeout(r, 200))
+    await assert.rejects(cameraOffUser.waitForType("matched", 100), "camera turned off mid-lookup — must not have been matched")
+    cameraOffUser.close()
+    initiator.close()
+  } finally {
+    await server.close()
+    dbMockState.blockCheckDelayMs = 0
+  }
+})
+
+// Test 3 (of the new set) — the INITIATOR disconnecting mid-lookup (the
+// candidate-disconnects version already exists above under "candidate
+// disconnecting mid block-lookup...").
+test("initiator disconnecting during its own delayed DB block check aborts cleanly — no ghost room, candidate stays queued", async () => {
+  resetDbMockState()
+  dbMockState.blockCheckDelayMs = 150
+  const server = await startTestServer()
+  try {
+    const candidate = await connectAndHello(server.url, uid("f"), { gender: "female" })
+    candidate.send({ type: "find" })
+    await candidate.waitForType("queued")
+
+    const initiator = await connectAndHello(server.url, uid("m"), { gender: "male" })
+    initiator.send({ type: "find" }) // starts the delayed block check
+    await new Promise((r) => setTimeout(r, 40))
+    initiator.close() // the INITIATOR vanishes mid-lookup this time
+
+    await new Promise((r) => setTimeout(r, 200))
+    // The candidate must never have been pulled into a ghost match, and
+    // must still be available to the next real comer.
+    await assert.rejects(candidate.waitForType("matched", 100))
+    const nextComer = await connectAndHello(server.url, uid("m"), { gender: "male" })
+    nextComer.send({ type: "find" })
+    const matched = await nextComer.waitForType("matched")
+    assert.ok(matched.roomId, "candidate is still queued and matchable after the initiator vanished")
+    candidate.close()
+    nextComer.close()
+  } finally {
+    await server.close()
+    dbMockState.blockCheckDelayMs = 0
+  }
+})
+
+// Test 4 (of the new set) — stale searchGeneration cannot commit: the
+// candidate leaves and immediately re-finds (a brand new search generation)
+// WHILE the initiator's block-check against the OLD snapshot is still
+// pending.
+test("a candidate that leaves and re-finds mid-lookup (new searchGeneration) is never matched using the stale snapshot", async () => {
+  resetDbMockState()
+  dbMockState.blockCheckDelayMs = 150
+  const server = await startTestServer()
+  try {
+    const flakyCandidateId = uid("f")
+    const flakyCandidate = await connectAndHello(server.url, flakyCandidateId, { gender: "female" })
+    flakyCandidate.send({ type: "find" })
+    await flakyCandidate.waitForType("queued")
+
+    const initiator = await connectAndHello(server.url, uid("m"), { gender: "male" })
+    initiator.send({ type: "find" }) // block-check against flakyCandidate's CURRENT (generation 1) snapshot begins
+    await new Promise((r) => setTimeout(r, 40))
+
+    // Leave, then immediately re-find — a brand new searchGeneration,
+    // still well before the delayed block-check resolves.
+    flakyCandidate.send({ type: "leave" })
+    flakyCandidate.send({ type: "find" })
+    await flakyCandidate.waitForType("queued")
+
+    // The initiator's ORIGINAL "find" only ever scanned the queue as it
+    // stood at that instant — the stale (pre-leave) flakyCandidate entry
+    // was the only candidate in that snapshot. Once that's proven stale
+    // (generation mismatch), there's nothing else in THIS attempt's scan to
+    // fall back to, so it correctly ends up queued itself — never matched
+    // against the ghost entry. (Both are now legitimately waiting; nothing
+    // in this exact interleaving is what makes them find each other — a
+    // fresh scan does, exercised next.)
+    await initiator.waitForType("queued", 1000)
+    await assert.rejects(initiator.waitForType("matched", 100), "must never match the stale snapshot")
+
+    // A fresh find now scans the queue as it CURRENTLY stands — both
+    // correctly present — and matches them for real.
+    initiator.send({ type: "find" })
+    const matched = await initiator.waitForType("matched", 1000)
+    assert.ok(matched.roomId)
+    flakyCandidate.close()
+    initiator.close()
+  } finally {
+    await server.close()
+    dbMockState.blockCheckDelayMs = 0
+  }
+})
+
+// Test 5 — a socket closes in the gap between a room being reserved and
+// "matched" actually being dispatched (the Friends lookup, artificially
+// delayed here to create a real window for it).
+test("a socket closing right before 'matched' would be sent rolls back the room and requeues the survivor", async () => {
+  resetDbMockState()
+  dbMockState.friendsCheckDelayMs = 150
+  const server = await startTestServer()
+  try {
+    const doomed = await connectAndHello(server.url, uid("f"), { gender: "female" })
+    doomed.send({ type: "find" })
+    await doomed.waitForType("queued")
+
+    const survivor = await connectAndHello(server.url, uid("m"), { gender: "male" })
+    survivor.send({ type: "find" }) // reserves against `doomed`, then starts the delayed Friends lookup
+
+    // Close the doomed side WHILE that lookup is still pending — well
+    // after the room was reserved, well before "matched" would be sent.
+    await new Promise((r) => setTimeout(r, 40))
+    doomed.close()
+
+    // The survivor must never receive a ghost "matched" for a partner
+    // that's already gone — it should end up requeued instead.
+    await assert.rejects(survivor.waitForType("matched", 400), "must not be matched against a socket that already closed")
+    await survivor.waitForType("queued", 400)
+    survivor.close()
+  } finally {
+    await server.close()
+    dbMockState.friendsCheckDelayMs = 0
+  }
+})
+
+// Test 6 — the other half of test 5's guarantee: no recent-partner cooldown
+// from a match that was reserved but never actually delivered.
+test("a match that fails right before delivery records NO recent-partner cooldown — the survivor can match the same partner again", async () => {
+  resetDbMockState()
+  dbMockState.friendsCheckDelayMs = 150
+  const server = await startTestServer()
+  try {
+    const flakyId = uid("f")
+    const survivorId = uid("m")
+    const flaky = await connectAndHello(server.url, flakyId, { gender: "female" })
+    flaky.send({ type: "find" })
+    await flaky.waitForType("queued")
+
+    const survivor = await connectAndHello(server.url, survivorId, { gender: "male" })
+    survivor.send({ type: "find" })
+    await new Promise((r) => setTimeout(r, 40))
+    flaky.close()
+    await survivor.waitForType("queued", 400)
+
+    // `flaky` reconnects (a fresh socket/ConnectionState — same account) and
+    // finds again — if a cooldown had wrongly been recorded for this pair
+    // despite the failed delivery, they'd never be offered to each other
+    // again. They must be able to match immediately.
+    dbMockState.friendsCheckDelayMs = 0 // no need to re-delay this second attempt
+    const flakyAgain = await connectAndHello(server.url, flakyId, { gender: "female" })
+    flakyAgain.send({ type: "find" })
+    const matched = await survivor.waitForType("matched", 400)
+    assert.ok(matched.roomId, "no cooldown was recorded from the failed delivery — they matched immediately")
+    flakyAgain.close()
+    survivor.close()
+  } finally {
+    await server.close()
+    dbMockState.friendsCheckDelayMs = 0
+  }
+})

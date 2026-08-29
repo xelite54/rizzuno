@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { WebSocketServer, WebSocket } from "ws"
 import type { RawData } from "ws"
 import { matchmaker } from "./matchmaker"
+import type { QueuedClient } from "./matchmaker"
 import { MAX_CHAT_IMAGE_LENGTH, isValidGender } from "../lib/signaling/protocol"
 import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from "../lib/signaling/protocol"
 import { verifyTicket } from "../lib/realtimeTicket"
@@ -37,8 +38,35 @@ type ConnectionState = {
   gender?: Gender
   profilePhoto?: string | null
   roomId: string | null
-  /** Whether this connection currently sits in the real matchmaker queue (server/matchmaker.ts's `waiting`) — distinct from `roomId` (null while queued too) and from the client's own `wantsMatching` intent, which this server has no visibility into. Used so a gender change mid-search (see "profile-update") knows whether to re-evaluate the queue, without guessing intent. */
-  queued: boolean
+  /**
+   * Authoritative server-side matching INTENT — true exactly when this
+   * account currently wants to be actively found a match (has sent "find"/
+   * "skip" and nothing has cancelled that since). This is what
+   * `connections.has(userId)` alone used to stand in for, insufficiently:
+   * an account stays present in `connections` for as long as its socket is
+   * open, which says nothing about whether it's still SEEKING right now —
+   * it could have explicitly paused, turned its camera off (which sends the
+   * same "leave" — see hooks/useMatchmaking.ts's `leaveQueueOnly`), or be
+   * sitting mid-call already. Set true the instant "find"/"skip" is
+   * RECEIVED (synchronously, before any async processing — see the
+   * "message" handler below) and false the instant "leave" is received or
+   * the socket closes — never delayed behind an in-flight async match
+   * attempt for this same connection.
+   */
+  seeking: boolean
+  /**
+   * Increments on every event that changes this account's search
+   * intent — "find"/"skip" (a new search begins) and "leave"/pause/
+   * camera-off/disconnect (the current one ends) — always synchronously,
+   * at the moment that message is RECEIVED, never queued behind
+   * server/matchmaker.ts's async block-check for an EARLIER, still-in-
+   * flight "find" from this same connection. A match attempt captures this
+   * value the instant it starts and compares against the LIVE value after
+   * every async boundary it crosses; any mismatch means this specific
+   * attempt has been superseded and must not be allowed to commit — see
+   * `makeCheckLive` below and server/matchmaker.ts's `CheckLive`.
+   */
+  searchGeneration: number
   /** The last "profile-update" revision this connection actually applied. Starts at 0 — the "hello" snapshot itself counts as revision 0 — so the first real profile-update only needs revision 1. A message whose revision isn't strictly greater than this is stale (arrived out of order relative to one already applied) and is dropped. */
   profileRevision: number
 }
@@ -89,6 +117,48 @@ function roomPartner(state: ConnectionState): ConnectionState | undefined {
   if (!room) return undefined
   const partnerId = room.a === state.userId ? room.b : room.a
   return connections.get(partnerId)
+}
+
+/**
+ * Builds this connection's authoritative eligibility check — passed into
+ * server/matchmaker.ts's `reserveMatch` and reused again for the final
+ * pre-commit check (see `tryMatch`). Freshly looks up `userId` in
+ * `connections` every time (never trusts a snapshot) and verifies ALL of:
+ * still registered, on an OPEN socket, still `seeking`, on the exact
+ * `searchGeneration` being asked about, and not already in a room.
+ *
+ * `expectedInitiatorState` is the ONE case this file actually has a
+ * captured object reference for (the connection that called "find" in the
+ * first place) — when checking that specific userId, this also verifies
+ * `connections.get(userId) === expectedInitiatorState` by reference, not
+ * just by matching fields, which catches a same-socket account-switch or a
+ * same-account-different-socket supersede that a fields-only check could in
+ * principle miss for a single tick. Every OTHER account this checks (a
+ * candidate server/matchmaker.ts is considering) never had a captured
+ * reference to compare against in the first place — generation matching is
+ * what proves those are still current instead.
+ */
+function makeCheckLive(expectedInitiatorState: ConnectionState) {
+  return function checkLive(userId: string, expectedGeneration: number): { live: boolean; gender?: Gender } {
+    const s = connections.get(userId)
+    if (!s) return { live: false }
+    if (userId === expectedInitiatorState.userId && s !== expectedInitiatorState) return { live: false }
+    if (s.ws.readyState !== WebSocket.OPEN) return { live: false }
+    if (!s.seeking) return { live: false }
+    if (s.searchGeneration !== expectedGeneration) return { live: false }
+    if (s.roomId) return { live: false }
+    return { live: true, gender: s.gender }
+  }
+}
+
+function toQueuedClient(state: ConnectionState): QueuedClient {
+  return {
+    userId: state.userId,
+    gender: state.gender,
+    enqueuedAt: Date.now(),
+    debugId: state.displayId,
+    searchGeneration: state.searchGeneration,
+  }
 }
 
 /** The full current friends/requests/blocks picture for this account — sent right after "ready" (best-effort, never a prerequisite for it — see the "hello" handler), and re-sent to whoever's affected (if they're online) after any friends-related action, so every open tab converges on the same state without diffing granular events itself. */
@@ -164,61 +234,43 @@ function broadcastOnlineCount() {
 }
 
 /**
- * Two-phase match attempt (see server/matchmaker.ts's own doc comment for
- * why): reserve, verify both ConnectionStates are still actually live here
- * (matchmaker.ts has no visibility into WebSocket connections itself, only
- * `isLive` callbacks this file supplies), then commit — or roll back and
- * requeue whoever's still around.
+ * Two-phase match attempt. `expectedGeneration` is captured by the CALLER
+ * at the exact moment the triggering message was received (synchronously,
+ * before this async function ever starts) — see the "message" handler's
+ * pre-mutation block for "find"/"skip", and the "profile-update"/"unblock"
+ * re-evaluation call sites, which just read the current value since they
+ * aren't starting a NEW search intent.
+ *
+ * Two async boundaries get crossed here — server/matchmaker.ts's own block
+ * check inside `reserveMatch`, and the Friends lookup right after — and
+ * EVERY condition in `makeCheckLive` is re-verified, for BOTH accounts,
+ * after each one. The recent-partner cooldown is recorded (`commitMatch`)
+ * only once "matched" has actually been dispatched to two confirmed-OPEN
+ * sockets — never before.
  */
-async function tryMatch(state: ConnectionState) {
-  const room = await matchmaker.reserveMatch(
-    { userId: state.userId, gender: state.gender, enqueuedAt: Date.now(), debugId: state.displayId },
-    (userId) => connections.has(userId)
-  )
+async function tryMatch(state: ConnectionState, expectedGeneration: number) {
+  const checkLive = makeCheckLive(state)
+  const room = await matchmaker.reserveMatch(toQueuedClient(state), checkLive)
   if (!room) {
-    state.queued = true
-    console.log("ws-server: queue entered", { displayId: state.displayId, queueSize: matchmaker.queueSize })
-    send(state.ws, { type: "queued" })
-    return
-  }
-
-  // `room.a` is always the account that just called tryMatch (`state`
-  // itself) — reserveMatch() constructs it that way. So if `aState` is
-  // missing, `state`'s own connection vanished in the last synchronous
-  // tick since reserveMatch's own liveness check (essentially impossible,
-  // but checked anyway); if `bState` is missing, the candidate's socket
-  // closed in that same narrow window. Either way, nothing survives to
-  // commit — only `aState`, if it's still there, has anything left to
-  // requeue for.
-  const aState = connections.get(room.a)
-  const bState = connections.get(room.b)
-  if (!aState || !bState) {
-    console.warn("ws-server: pair rollback — a connection vanished before commit", {
-      roomId: room.id,
-      hasA: Boolean(aState),
-      hasB: Boolean(bState),
-    })
-    matchmaker.rollbackMatch(
-      room.id,
-      aState ? { userId: room.a, gender: aState.gender, enqueuedAt: Date.now(), debugId: aState.displayId } : null
-    )
-    if (aState) {
-      aState.queued = true
-      send(aState.ws, { type: "queued" })
+    // Only acknowledge "queued" if THIS specific find/skip is still the
+    // account's current one — a stale (superseded) attempt resolving late
+    // must not resurrect a "queued" ack after the guest has since paused,
+    // left, or started an entirely different search.
+    if (state.searchGeneration === expectedGeneration && state.seeking && !state.roomId) {
+      console.log("ws-server: queue entered", { displayId: state.displayId, queueSize: matchmaker.queueSize })
+      send(state.ws, { type: "queued" })
+    } else {
+      console.log("ws-server: find superseded before queueing — dropping the stale 'queued' ack", {
+        displayId: state.displayId,
+      })
     }
     return
   }
 
-  matchmaker.commitMatch(room.id)
-  aState.roomId = room.id
-  bState.roomId = room.id
-  aState.queued = false
-  bState.queued = false
-
-  // A Friends-DB failure must never cancel a valid core match — the room is
-  // already committed above; `alreadyFriends` is optional metadata from
-  // here on, not a precondition for either side actually being told they
-  // matched.
+  // A Friends-DB failure must never cancel a valid core match — computed
+  // before the final check below specifically so that check (and the
+  // commit that follows it) is the very LAST thing that happens, with no
+  // further async gap after it.
   let alreadyFriends = false
   try {
     alreadyFriends = await areFriends(room.a, room.b)
@@ -229,10 +281,57 @@ async function tryMatch(state: ConnectionState) {
     })
   }
 
+  // FINAL verification — fully synchronous from here through the sends
+  // below, so nothing can go stale in the gap between checking and
+  // dispatching. Re-checks everything `reserveMatch` already checked once
+  // (that check happened before the Friends-lookup await above, which is
+  // itself a real async boundary either side could have gone stale across).
+  const aCheck = checkLive(room.a, room.aGeneration)
+  const bCheck = checkLive(room.b, room.bGeneration)
+  const pairStillOpposite = Boolean(aCheck.gender && bCheck.gender && aCheck.gender !== bCheck.gender)
+
+  if (!aCheck.live || !bCheck.live || !pairStillOpposite) {
+    console.warn("ws-server: pair rollback — no longer eligible right before commit", {
+      roomId: room.id,
+      aLive: aCheck.live,
+      bLive: bCheck.live,
+      pairStillOpposite,
+    })
+    matchmaker.deleteReservation(room.id)
+    // Requeue whichever side(s) are STILL individually eligible — even if
+    // the PAIR is no longer valid together (e.g. a gender change mid-
+    // lookup made them no longer opposite), each side that's still
+    // genuinely seeking deserves a fresh chance at a different partner
+    // rather than being silently dropped from the queue.
+    const aState = connections.get(room.a)
+    const bState = connections.get(room.b)
+    if (aCheck.live && aState) {
+      matchmaker.requeue(toQueuedClient(aState))
+      send(aState.ws, { type: "queued" })
+    }
+    if (bCheck.live && bState) {
+      matchmaker.requeue(toQueuedClient(bState))
+      send(bState.ws, { type: "queued" })
+    }
+    return
+  }
+
+  const aState = connections.get(room.a)!
+  const bState = connections.get(room.b)!
+  aState.roomId = room.id
+  bState.roomId = room.id
+  aState.seeking = false
+  bState.seeking = false
+
   send(aState.ws, { type: "matched", roomId: room.id, initiator: true, peer: toPublicIdentity(bState), alreadyFriends })
   console.log("ws-server: matched sent to A", { roomId: room.id, displayId: aState.displayId })
   send(bState.ws, { type: "matched", roomId: room.id, initiator: false, peer: toPublicIdentity(aState), alreadyFriends })
   console.log("ws-server: matched sent to B", { roomId: room.id, displayId: bState.displayId })
+
+  // Recorded ONLY now — after both "matched" sends, both to sockets this
+  // function itself just confirmed were OPEN with no async gap in between
+  // (see the class doc comment on why that ordering is the entire point).
+  matchmaker.commitMatch(room.id)
 }
 
 function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean) {
@@ -270,7 +369,8 @@ function cleanUpAccount(oldState: ConnectionState) {
   }
   leaveCurrentRoom(oldState, true)
   matchmaker.removeFromQueue(oldState.userId)
-  oldState.queued = false
+  oldState.seeking = false
+  oldState.searchGeneration += 1
   connections.delete(oldState.userId)
   if (connectionsByDisplayId.get(oldState.displayId) === oldState.userId) {
     connectionsByDisplayId.delete(oldState.displayId)
@@ -319,6 +419,22 @@ export function createRizzunoWebSocketServer() {
     // same connection (spec: "race conditions when rapidly pressing skip").
     // Chaining onto this promise serializes them without blocking the
     // event loop for anyone else.
+    //
+    // IMPORTANT EXCEPTION — "find"/"skip"/"leave" each ALSO get a small,
+    // synchronous mutation applied immediately below, OUTSIDE this chain,
+    // at the moment the message is received. That's deliberate: this
+    // serialization means a "leave" sent right after a "find" would
+    // otherwise sit BEHIND that find's entire async match attempt (its DB
+    // block-check, its Friends lookup) before ever taking effect — long
+    // enough for the OLD find to commit a real match the guest had already
+    // tried to cancel. `seeking`/`searchGeneration` are updated the instant
+    // the message arrives specifically so an in-flight match attempt's own
+    // post-await checks (see `makeCheckLive`) see the truth immediately,
+    // regardless of how long its OWN processing takes to reach the front of
+    // this queue. Everything else about handling that message (e.g.
+    // "leave"'s `leaveCurrentRoom`/partner notification) still goes through
+    // the normal serialized chain below — only the eligibility-critical
+    // fields jump ahead.
     let processingChain: Promise<void> = Promise.resolve()
 
     ws.on("message", (raw: RawData) => {
@@ -336,6 +452,21 @@ export function createRizzunoWebSocketServer() {
         return
       }
 
+      // See the IMPORTANT note above `processingChain` — this is that
+      // immediate, synchronous mutation, and it happens before this
+      // message even joins the serialized chain.
+      let capturedGeneration: number | undefined
+      if (state) {
+        if (message.type === "find" || message.type === "skip") {
+          state.seeking = true
+          state.searchGeneration += 1
+          capturedGeneration = state.searchGeneration
+        } else if (message.type === "leave") {
+          state.seeking = false
+          state.searchGeneration += 1
+        }
+      }
+
       // Everything below trusts the parsed message's declared shape (it's
       // just TypeScript types at runtime — nothing actually validates a
       // real client sent well-formed fields). A malformed message that
@@ -344,7 +475,7 @@ export function createRizzunoWebSocketServer() {
       // user, not just this one. One bad frame must only ever cost this
       // one connection.
       processingChain = processingChain
-        .then(() => handleParsedMessage(message))
+        .then(() => handleParsedMessage(message, capturedGeneration))
         .catch((err: unknown) => {
           // A handler threw — e.g. a database round trip (isBlockedEitherWay,
           // sendFriendRequest, ...) failed. This used to be swallowed
@@ -382,7 +513,7 @@ export function createRizzunoWebSocketServer() {
           }
         })
 
-      async function handleParsedMessage(message: ClientMessage) {
+      async function handleParsedMessage(message: ClientMessage, capturedGeneration: number | undefined) {
       if (message.type === "hello") {
         console.log("ws-server: hello received")
         if (typeof message.ticket !== "string" || typeof message.handle !== "string") {
@@ -472,7 +603,8 @@ export function createRizzunoWebSocketServer() {
           gender,
           profilePhoto: message.profilePhoto,
           roomId: existing?.roomId ?? null,
-          queued: false,
+          seeking: false,
+          searchGeneration: existing?.searchGeneration ?? 0,
           profileRevision: 0,
         }
         connections.set(userId, state)
@@ -533,13 +665,20 @@ export function createRizzunoWebSocketServer() {
         case "skip": {
           console.log("ws-server: find received", { displayId: state.displayId, type: message.type })
           leaveCurrentRoom(state, true)
-          await tryMatch(state)
+          // capturedGeneration was set synchronously at message-receipt
+          // time, above — always defined here (state existed then too,
+          // since it still exists now and nothing removes it except a
+          // socket close, which would have prevented this handler from
+          // running at all).
+          await tryMatch(state, capturedGeneration!)
           break
         }
         case "leave": {
           leaveCurrentRoom(state, true)
           matchmaker.removeFromQueue(state.userId)
-          state.queued = false
+          // seeking/searchGeneration were already invalidated synchronously
+          // at message-receipt time, above — nothing left to do for them
+          // here.
           console.log("ws-server: queue removed (explicit leave)", { displayId: state.displayId })
           break
         }
@@ -654,14 +793,17 @@ export function createRizzunoWebSocketServer() {
           if (ok) {
             await trySendFriendsSnapshot(state)
             await refreshSnapshotIfOnline(message.targetUserId)
-            // Already actively searching (server-authoritative — see
-            // `queued`) with no active room: whoever was just unblocked is
-            // a candidate again, so give this one queue entry a fresh
-            // evaluation now rather than leaving it stuck against a
-            // now-stale candidate pool until the next explicit find/skip.
-            if (state.queued && !state.roomId) {
+            // Already actively seeking (server-authoritative) with no
+            // active room: whoever was just unblocked is a candidate
+            // again, so give this one queue entry a fresh evaluation now
+            // rather than leaving it stuck against a now-stale candidate
+            // pool until the next explicit find/skip. Not a NEW search
+            // intent (seeking/searchGeneration are untouched) — just a
+            // re-scan within the currently-active one, so its current
+            // generation is captured and reused as-is.
+            if (state.seeking && !state.roomId) {
               console.log("ws-server: unblock — re-evaluating queue", { displayId: state.displayId })
-              await tryMatch(state)
+              await tryMatch(state, state.searchGeneration)
             }
           }
           break
@@ -701,17 +843,18 @@ export function createRizzunoWebSocketServer() {
             if (partner) {
               send(partner.ws, { type: "peer-updated", roomId: state.roomId, peer: toPublicIdentity(state) })
             }
-          } else if (state.queued && genderChanged) {
+          } else if (state.seeking && genderChanged) {
             // SEARCHING: the queued snapshot's gender is now stale —
             // re-evaluate with the new one immediately (this removes the
             // old queue entry and re-inserts with the updated gender as
             // part of the same reserveMatch() call — see
             // server/matchmaker.ts) rather than leaving a stale entry
-            // sitting in the queue until the next explicit find/skip.
+            // sitting in the queue until the next explicit find/skip. Not
+            // a new search intent, so the current generation is reused.
             console.log("ws-server: gender changed while queued — re-evaluating queue", { displayId: state.displayId })
-            await tryMatch(state)
+            await tryMatch(state, state.searchGeneration)
           }
-          // PAUSED (no room, not queued): identity is already updated
+          // PAUSED (no room, not seeking): identity is already updated
           // above; correctly stays outside the queue either way.
           break
         }
