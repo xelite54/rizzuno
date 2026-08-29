@@ -5,7 +5,6 @@ import { motion, useMotionValue, useTransform, animate, AnimatePresence, useRedu
 import { VideoTile } from "./VideoTile"
 import { PersonBadge } from "./PersonBadge"
 import { StatusPill } from "./StatusPill"
-import { PausedNotice } from "./PausedNotice"
 import { MicOffIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import type { FriendState } from "./FriendButton"
@@ -213,16 +212,17 @@ export function SwipeStage({
               transition={{ duration: DURATION_BASE, ease: EASE_OUT }}
               className="absolute inset-0 flex items-center justify-center"
             >
-              {matchState === "paused" && onResume ? (
-                <PausedNotice onlineCount={onlineCount} />
-              ) : (
-                <StatusPill
-                  state={matchState}
-                  cameraOff={cameraOff}
-                  onPauseMatching={onPauseMatching}
-                  onlineCount={onlineCount}
-                />
-              )}
+              {/* StatusPill is the one authoritative status display — it
+                  decides on its own (from `state`/`cameraOff` alone) whether
+                  that means the compact pill or the full paused-branded
+                  screen; nothing here branches between two components for
+                  the same state. */}
+              <StatusPill
+                state={matchState}
+                cameraOff={cameraOff}
+                onPauseMatching={onPauseMatching}
+                onlineCount={onlineCount}
+              />
             </motion.div>
           )}
         </AnimatePresence>

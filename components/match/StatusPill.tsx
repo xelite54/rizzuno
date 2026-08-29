@@ -1,6 +1,7 @@
 "use client"
 
 import { SearchingMark } from "./SearchingMark"
+import { PausedNotice } from "./PausedNotice"
 import type { MatchState } from "@/hooks/useMatchmaking"
 
 type StatusPillProps = {
@@ -36,9 +37,9 @@ function describeState(state: MatchState, cameraOff: boolean): string {
     case "peer-left":
       return "They left — finding someone new…"
     case "paused":
-      // Only reached when paused *and* the camera's off — see SwipeStage,
-      // which shows PausedNotice instead whenever a real resume is
-      // possible (`onResume` is only passed down while the camera is on).
+      // The camera-on case never reaches this label at all — see below,
+      // where "paused" branches to the full PausedNotice treatment before
+      // any of this pill markup is even considered.
       return cameraOff ? "Turn on your camera to resume matching" : ""
     case "active":
       return ""
@@ -46,6 +47,17 @@ function describeState(state: MatchState, cameraOff: boolean): string {
 }
 
 export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCount = null }: StatusPillProps) {
+  // "Paused" has two genuinely different presentations depending on why —
+  // camera-off is a small blocker explained inline like every other pill
+  // state below, but a deliberate pause with the camera still on gets the
+  // full branded PausedNotice treatment instead (there's no peer, and empty
+  // video reads as broken rather than restful — see PausedNotice's own
+  // comment). This is still the one place that decision gets made — nothing
+  // above this component chooses between the two.
+  if (state === "paused" && !cameraOff) {
+    return <PausedNotice onlineCount={onlineCount} />
+  }
+
   const label = describeState(state, cameraOff)
   if (!label) return null
 

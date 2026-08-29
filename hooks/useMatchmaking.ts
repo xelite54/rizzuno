@@ -42,7 +42,7 @@ export type AccountRestriction =
    * they're verified (the realtime server). Surfaced instead of retrying
    * forever in a silent, tight loop that would otherwise just exhaust the
    * ticket endpoint's own rate limit and then go quiet with nothing
-   * visible to the person staring at "Getting ready…".
+   * visible to the person staring at "Finding someone…".
    */
   | { reason: "connection_failed" }
 

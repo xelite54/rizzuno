@@ -30,7 +30,11 @@ export function SelfPanel({ stream, status, cameraEnabled }: SelfPanelProps) {
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/15">
                 <CameraOffIcon className="h-6 w-6 text-danger" />
               </div>
-              <p className="text-sm text-muted">Camera is off — turn it back on to start matching</p>
+              {/* The "why"/"what to do about it" for matching itself is owned
+                  by StatusPill, which is on screen at the same time on the
+                  main panel — this stays factual so the two don't say
+                  overlapping things about matching. */}
+              <p className="text-sm text-muted">Camera is off</p>
             </>
           ) : (
             <p className="text-sm text-muted">Turning on your camera…</p>
