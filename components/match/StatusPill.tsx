@@ -23,8 +23,12 @@ function describeState(state: MatchState, cameraOff: boolean): string {
     case "idle":
       // Matching starts on its own the instant a live camera track exists
       // (see MatchStage's auto-start effect) — there's never a real action
-      // to prompt for here, only a reason it hasn't started yet.
-      return cameraOff ? "Turn on your camera to start matching" : "Getting ready…"
+      // to prompt for here, only a reason it hasn't started yet. Same copy
+      // as "searching" on purpose — the gap between "camera's on" and the
+      // server actually confirming "queued" is real but brief, and showing
+      // a separate "Getting ready…" for it read as a distinct, stalled
+      // step rather than the same wait just starting.
+      return cameraOff ? "Turn on your camera to start matching" : "Finding someone…"
     case "searching":
       return "Finding someone…"
     case "connecting":
@@ -45,10 +49,12 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   const label = describeState(state, cameraOff)
   if (!label) return null
 
-  // Only the states where a guest is actually trying to get into a call —
-  // "paused" is a deliberate stop, not a wait, so it doesn't get this even
-  // though it can still render a label (the cameraOff-while-paused case).
-  const waitingForMatch = state === "idle" || state === "searching" || state === "connecting" || state === "peer-left"
+  // Not shown during "idle"/"searching" (both now read "Finding someone…")
+  // — just the label on its own there. Still shown for "connecting" (a
+  // real match was found, WebRTC is negotiating) and "peer-left" (about to
+  // search again) — "paused" never gets here at all (a deliberate stop, not
+  // a wait, so it doesn't get a label to attach this to in the first place).
+  const waitingForMatch = state === "connecting" || state === "peer-left"
   const onlineCountLabel = waitingForMatch && onlineCount !== null ? describeOnlineCount(onlineCount) : null
 
   return (
