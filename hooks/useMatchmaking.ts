@@ -30,12 +30,38 @@ export type AccountRestriction =
   | { reason: "suspended"; until?: number }
   | { reason: "account_deleted" }
   | { reason: "acceptance_required" }
+  /**
+   * The server has rejected several consecutive "hello" attempts as
+   * `invalid_ticket` in a row — a real, if rare, production fingerprint:
+   * an EXPIRED ticket (the normal case "invalid_ticket" exists for) is a
+   * one-off that a single immediate retry with a fresh ticket clears
+   * right up. A ticket that's rejected every single time, repeatedly, is
+   * a sign the signature verification itself can never succeed — the
+   * single most likely cause being REALTIME_TICKET_SECRET not matching
+   * between wherever tickets are minted (the Next.js app) and wherever
+   * they're verified (the realtime server). Surfaced instead of retrying
+   * forever in a silent, tight loop that would otherwise just exhaust the
+   * ticket endpoint's own rate limit and then go quiet with nothing
+   * visible to the person staring at "Getting ready…".
+   */
+  | { reason: "connection_failed" }
 
 /** Per-displayId outcome of a friend request sent *this session* — not persisted client-side (there's nothing to persist: the server's friends-snapshot is the actual source of truth for confirmed friends/pending state; this is only for "I just clicked Add on this specific match/history row, what happened"). */
 export type FriendRequestOutcome = "requested" | "friends" | "failed"
 
 const STUCK_CONNECTION_GRACE_MS = 6000
 const MAX_HISTORY = 30
+// How many "invalid_ticket" rejections in a row (with no successful "ready"
+// in between) before giving up on the tight immediate-retry loop and
+// surfacing AccountRestriction's "connection_failed" instead — see its own
+// doc comment for what a streak this long actually indicates.
+const CONSECUTIVE_INVALID_TICKET_LIMIT = 3
+// Backoff between retries once that limit is hit — long enough to stop
+// hammering /api/realtime/ticket (which rate-limits at 30/60s per account;
+// a tight retry loop would exhaust that on its own within a few seconds),
+// short enough that a since-fixed misconfiguration recovers within a
+// reasonable wait rather than requiring a manual reload.
+const CONNECTION_FAILED_RETRY_MS = 15_000
 
 export function useMatchmaking(
   /**
@@ -428,6 +454,21 @@ export function useMatchmaking(
   const profileRevisionRef = useRef(0)
   const lastSentProfileRef = useRef<{ username?: string; gender?: Gender; profilePhoto?: string | null } | null>(null)
 
+  // How many "invalid_ticket" rejections have landed in a row, with nothing
+  // successful in between — see AccountRestriction's "connection_failed"
+  // for what this protects against. Reset to 0 on a successful "ready".
+  const invalidTicketStreakRef = useRef(0)
+
+  // Always holds the latest `announce`, kept in sync just below its own
+  // definition — used for announce()'s two internal delayed-retry calls
+  // (rate-limited ticket fetch; too many invalid_ticket rejections in a
+  // row) so they don't reference `announce` from inside its own body. A
+  // function calling itself by name inside its own closure works fine at
+  // runtime (the delayed callback only ever runs long after the `const`
+  // assignment completes) but not everything is happy analyzing that
+  // shape statically — routing through a ref sidesteps it cleanly.
+  const announceRef = useRef<() => void>(() => {})
+
   // Mints a fresh, short-lived realtime ticket from the authenticated
   // session (see app/api/realtime/ticket) and announces this connection to
   // the server with it — never a bare self-declared id (spec: "never trust
@@ -452,6 +493,21 @@ export function useMatchmaking(
         else if (body.error === "suspended") setRestriction({ reason: "suspended", until: body.until })
         else if (body.error === "account_deleted") setRestriction({ reason: "account_deleted" })
         else if (body.error === "acceptance_required") setRestriction({ reason: "acceptance_required" })
+        else if (body.error === "rate_limited") {
+          // Previously fell through to the bare `return` below with nothing
+          // scheduled to ever retry it — the socket's own reconnect only
+          // fires this again on an actual transport disconnect, which
+          // might not happen for a long time (or at all) while the
+          // transport itself stays perfectly open. That left a guest
+          // permanently stuck with no ticket, no hello, no "ready", and no
+          // visible explanation. A short, one-shot delayed retry (this
+          // limit is generous — 30/60s — so a single rate-limit hit is
+          // almost always transient, not a sign of anything actually
+          // wrong) fixes that without needing a restriction screen for
+          // what's normally a non-issue.
+          console.warn("matchmaking: ticket endpoint rate-limited — retrying shortly")
+          setTimeout(() => announceRef.current(), 5000)
+        }
         return
       }
       const { ticket } = (await res.json()) as { ticket: string }
@@ -476,6 +532,10 @@ export function useMatchmaking(
       console.warn("matchmaking: ticket fetch threw (network hiccup) — will retry on next reconnect")
     }
   }, [myHandle, send])
+
+  useEffect(() => {
+    announceRef.current = announce
+  }, [announce])
 
   useEffect(() => {
     // Reacting to an external system (the socket just (re)connected) by
@@ -517,6 +577,9 @@ export function useMatchmaking(
           // safe to send "find" and expect anything other than silence.
           console.log("matchmaking: realtime ready (hello accepted)")
           setRealtimeReady(true)
+          // A real "ready" proves the ticket round trip genuinely works —
+          // whatever invalid_ticket streak was building (if any) is over.
+          invalidTicketStreakRef.current = 0
           break
         case "queued":
           console.log("matchmaking: queued")
@@ -592,8 +655,31 @@ export function useMatchmaking(
         case "rejected":
           console.warn("matchmaking: hello rejected", { reason: message.reason })
           if (message.reason === "invalid_ticket") {
-            // Ticket expired/invalid — mint a fresh one and try again right away.
-            announce()
+            invalidTicketStreakRef.current += 1
+            const streak = invalidTicketStreakRef.current
+            if (streak < CONSECUTIVE_INVALID_TICKET_LIMIT) {
+              // A single expired/invalid ticket is routine (2-minute TTL) —
+              // mint a fresh one and try again right away.
+              announce()
+            } else {
+              // This many in a row, with no successful "ready" in between,
+              // stops looking like an expired ticket and starts looking
+              // like every ticket is failing verification outright — see
+              // AccountRestriction's "connection_failed" doc comment (the
+              // leading suspect being REALTIME_TICKET_SECRET not matching
+              // between wherever tickets are minted and wherever they're
+              // verified). Surfaced explicitly instead of retrying forever
+              // in a loop that would otherwise just exhaust the ticket
+              // endpoint's own rate limit and then go silent.
+              console.error("matchmaking: hello rejected as invalid_ticket repeatedly — backing off and surfacing this", {
+                consecutiveRejections: streak,
+              })
+              setRestriction({ reason: "connection_failed" })
+              setTimeout(() => {
+                invalidTicketStreakRef.current = 0
+                announce()
+              }, CONNECTION_FAILED_RETRY_MS)
+            }
           } else {
             setRestriction({ reason: message.reason })
           }
@@ -777,6 +863,7 @@ export function useMatchmaking(
     console.log("matchmaking: realtime disabled — full teardown")
     wantsMatchingRef.current = false
     resumedForCurrentReadyRef.current = false
+    invalidTicketStreakRef.current = 0
     profileRevisionRef.current = 0
     lastSentProfileRef.current = null
     signalBacklog.current.clearAll()

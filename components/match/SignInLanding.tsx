@@ -14,9 +14,11 @@ type SignInLandingProps = {
  * Shown on the match side before the guest signs in — nothing about the app
  * works yet until they do. This is also, functionally, Rizzuno's public
  * homepage: signed-out visitors (including a Google OAuth reviewer) land
- * here without needing to authenticate first, so it carries the app name,
- * a plain-language description of what Rizzuno actually does, and visible
- * links to every legal page — not just the sign-in button.
+ * here without needing to authenticate first, so it still carries the app
+ * name and visible links to every legal page, not just the sign-in button —
+ * the plain-language description that used to sit here was removed on
+ * request; if Google's branding review starts flagging the homepage again
+ * for lacking a description of what the app does, that's why.
  */
 export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
   return (
@@ -30,11 +32,6 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
         <br />
         new.
       </h1>
-      <p className="mt-4 max-w-sm text-[14px] leading-relaxed text-muted">
-        Rizzuno is an adults-only live video chat service that randomly connects you one-on-one with another
-        user. Talk over live video and audio, exchange messages, and leave or report a conversation at any time.
-      </p>
-
       <button
         type="button"
         onClick={onSignIn}

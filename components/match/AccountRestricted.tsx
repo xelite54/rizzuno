@@ -33,6 +33,11 @@ function describe(restriction: AccountRestriction): { title: string; body: strin
         title: "Terms have changed",
         body: "Please sign out and back in to review the updated Terms and Privacy Policy.",
       }
+    case "connection_failed":
+      return {
+        title: "Can't connect right now",
+        body: "Rizzuno couldn't set up a live connection after several tries. This isn't something wrong with your account — it's a server-side issue. It'll keep retrying on its own; try again in a minute if this doesn't clear up.",
+      }
   }
 }
 
