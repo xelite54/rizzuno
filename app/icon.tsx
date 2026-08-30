@@ -1,9 +1,9 @@
 import { ImageResponse } from "next/og"
 
-// Rizzuno's mark — two solid, UNO-proportioned (3.5" x 2.25") cards, no
-// symbol on either one (see components/match/BrandMark.tsx for the same
-// shape, animated, used in the UI itself; static here since ImageResponse
-// can't render motion/react).
+// Rizzuno's mark — two transparent, UNO-proportioned (3.5" x 2.25") card
+// outlines, no symbol on either one (see components/match/BrandMark.tsx for
+// the same shape, animated, used in the UI itself; static here since
+// ImageResponse can't render motion/react).
 export const size = { width: 64, height: 64 }
 export const contentType = "image/png"
 
@@ -30,7 +30,6 @@ export default function Icon() {
               height: CARD_HEIGHT,
               borderRadius: CARD_RADIUS,
               border: "5px solid #f04472",
-              background: "#17101d",
               display: "flex",
             }}
           />
@@ -40,7 +39,6 @@ export default function Icon() {
               height: CARD_HEIGHT,
               borderRadius: CARD_RADIUS,
               border: "5px solid #9b5de5",
-              background: "#17101d",
               marginLeft: -CARD_WIDTH / 2,
               display: "flex",
             }}

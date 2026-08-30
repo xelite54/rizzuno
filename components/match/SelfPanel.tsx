@@ -1,7 +1,7 @@
 "use client"
 
 import { VideoTile } from "./VideoTile"
-import { CameraOffIcon } from "@/components/icons"
+import { BrandMark } from "./BrandMark"
 import type { MediaPermissionState } from "@/hooks/useLocalMedia"
 
 type SelfPanelProps = {
@@ -27,13 +27,13 @@ export function SelfPanel({ stream, status, cameraEnabled }: SelfPanelProps) {
             <p className="text-sm text-muted">No camera detected on this device. A camera is required to match.</p>
           ) : status === "granted" && !cameraEnabled ? (
             <>
-              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-danger/15">
-                <CameraOffIcon className="h-6 w-6 text-danger" />
-              </div>
-              {/* The "why"/"what to do about it" for matching itself is owned
-                  by StatusPill, which is on screen at the same time on the
-                  main panel — this stays factual so the two don't say
+              {/* The same mark the login page uses, not a warning icon —
+                  matching is just waiting on the camera, not broken. The
+                  "why"/"what to do about it" for matching itself is owned by
+                  StatusPill, which is on screen at the same time on the main
+                  panel — this stays factual so the two don't say
                   overlapping things about matching. */}
+              <BrandMark size={32} />
               <p className="text-sm text-muted">Camera is off</p>
             </>
           ) : (
