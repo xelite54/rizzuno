@@ -1,8 +1,9 @@
 import { ImageResponse } from "next/og"
 
-// Rizzuno's mark, laid sideways as a figure eight / infinity symbol — two
-// rings in the app's accent colors, transparent everywhere else (see
-// components/match/BrandMark.tsx for the same shape used in the UI itself).
+// Rizzuno's mark — a single bordered card outline with a second, inset
+// frame line, no symbol drawn on it (see components/match/BrandMark.tsx for
+// the same shape used in the UI itself; static here since ImageResponse
+// can't render motion/react's animated version).
 export const size = { width: 64, height: 64 }
 export const contentType = "image/png"
 
@@ -18,15 +19,23 @@ export default function Icon() {
           justifyContent: "center",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ width: 30, height: 30, borderRadius: "50%", border: "6px solid #f04472" }} />
+        <div
+          style={{
+            position: "relative",
+            width: 34,
+            height: 47,
+            borderRadius: 8,
+            border: "5px solid #f04472",
+            display: "flex",
+          }}
+        >
           <div
             style={{
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
-              border: "6px solid #9b5de5",
-              marginLeft: -13,
+              position: "absolute",
+              inset: 6,
+              borderRadius: 5,
+              border: "3px solid #9b5de5",
+              display: "flex",
             }}
           />
         </div>
