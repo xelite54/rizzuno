@@ -1,10 +1,15 @@
 import { ImageResponse } from "next/og"
 
-// Rizzuno's mark — two overlapping card outlines, no symbol on either one
-// (see components/match/BrandMark.tsx for the same shape, animated, used in
-// the UI itself; static here since ImageResponse can't render motion/react).
+// Rizzuno's mark — two solid, UNO-proportioned (3.5" x 2.25") cards, no
+// symbol on either one (see components/match/BrandMark.tsx for the same
+// shape, animated, used in the UI itself; static here since ImageResponse
+// can't render motion/react).
 export const size = { width: 64, height: 64 }
 export const contentType = "image/png"
+
+const CARD_HEIGHT = 40
+const CARD_WIDTH = Math.round(CARD_HEIGHT * (2.25 / 3.5))
+const CARD_RADIUS = 2
 
 export default function Icon() {
   return new ImageResponse(
@@ -19,14 +24,24 @@ export default function Icon() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ width: 26, height: 36, borderRadius: 7, border: "5px solid #f04472", display: "flex" }} />
           <div
             style={{
-              width: 26,
-              height: 36,
-              borderRadius: 7,
+              width: CARD_WIDTH,
+              height: CARD_HEIGHT,
+              borderRadius: CARD_RADIUS,
+              border: "5px solid #f04472",
+              background: "#17101d",
+              display: "flex",
+            }}
+          />
+          <div
+            style={{
+              width: CARD_WIDTH,
+              height: CARD_HEIGHT,
+              borderRadius: CARD_RADIUS,
               border: "5px solid #9b5de5",
-              marginLeft: -14,
+              background: "#17101d",
+              marginLeft: -CARD_WIDTH / 2,
               display: "flex",
             }}
           />
