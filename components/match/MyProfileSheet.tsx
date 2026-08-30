@@ -374,30 +374,33 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  {/* Edit profile stays exactly centered on the row
-                      regardless of Settings sitting next to it — Settings is
-                      positioned independently off to the right, not grouped
-                      with it, so adding/removing it never re-centers the
-                      pair as a unit. */}
-                  <div className="relative mt-4 flex w-full items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={startEditing}
-                      className="rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
-                    >
-                      Edit profile
-                    </button>
-                    {/* Icon only, no background/border of its own — History,
-                        Blocked users, Download my data, changing gender, and
-                        Sign out all live behind it now. */}
-                    <button
-                      type="button"
-                      onClick={() => setView("settings")}
-                      aria-label="Settings"
-                      className="absolute right-4 flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                    >
-                      <SettingsIcon className="h-4 w-4" />
-                    </button>
+                  {/* Edit profile still sits exactly on the row's true
+                      center — the outer row centers this inner wrapper, and
+                      since Settings is positioned off *that* wrapper (not
+                      the row), it doesn't add to the wrapper's own width and
+                      pull the center off. Settings then lands immediately
+                      next to Edit profile, not out at the row's edge. */}
+                  <div className="mt-4 flex w-full items-center justify-center">
+                    <div className="relative inline-flex">
+                      <button
+                        type="button"
+                        onClick={startEditing}
+                        className="rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
+                      >
+                        Edit profile
+                      </button>
+                      {/* Icon only, no background/border of its own —
+                          History, Blocked users, Download my data, changing
+                          gender, and Sign out all live behind it now. */}
+                      <button
+                        type="button"
+                        onClick={() => setView("settings")}
+                        aria-label="Settings"
+                        className="absolute left-full ml-2 flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                      >
+                        <SettingsIcon className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -408,11 +411,10 @@ export function MyProfileSheet({
                       <span className="font-normal text-muted">· {posts.length}/{MAX_POSTS}</span>
                     )}
                   </p>
-                  {/* Two across, not three — larger tiles read as a curated
-                      gallery rather than a dense thumbnail wall. The add
-                      tile always leads, with your most recent post right
-                      after it. */}
-                  <div className="grid grid-cols-2 gap-3">
+                  {/* Three across — the add tile always leads, with your
+                      most recent post right after it, so that post lands in
+                      the middle of the row rather than off to a side. */}
+                  <div className="grid grid-cols-3 gap-3">
                     <button
                       type="button"
                       onClick={() => postInputRef.current?.click()}
@@ -420,7 +422,7 @@ export function MyProfileSheet({
                       aria-label={posts.length >= MAX_POSTS ? `Limit of ${MAX_POSTS} posts reached` : "Add a post"}
                       className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border text-muted transition hover:border-foreground/25 hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-muted"
                     >
-                      <PlusIcon className="h-8 w-8" />
+                      <PlusIcon className="h-7 w-7" />
                     </button>
                     {posts.map((post) => (
                       <button
