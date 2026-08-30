@@ -374,7 +374,12 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  <div className="mt-4 flex items-center gap-2">
+                  {/* Edit profile stays exactly centered on the row
+                      regardless of Settings sitting next to it — Settings is
+                      positioned independently off to the right, not grouped
+                      with it, so adding/removing it never re-centers the
+                      pair as a unit. */}
+                  <div className="relative mt-4 flex w-full items-center justify-center">
                     <button
                       type="button"
                       onClick={startEditing}
@@ -389,28 +394,33 @@ export function MyProfileSheet({
                       type="button"
                       onClick={() => setView("settings")}
                       aria-label="Settings"
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                      className="absolute right-4 flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                     >
                       <SettingsIcon className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
 
-                <div className="mt-8">
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Posts {posts.length > 0 && <span className="normal-case">· {posts.length}/{MAX_POSTS}</span>}
+                <div className="mt-8 border-t border-border pt-5">
+                  <p className="mb-3 text-[13px] font-semibold text-foreground">
+                    Posts{" "}
+                    {posts.length > 0 && (
+                      <span className="font-normal text-muted">· {posts.length}/{MAX_POSTS}</span>
+                    )}
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {/* The add tile always leads, with your most recent post right after it — three
-                        across means that post lands in the middle of the row, not off to a side. */}
+                  {/* Two across, not three — larger tiles read as a curated
+                      gallery rather than a dense thumbnail wall. The add
+                      tile always leads, with your most recent post right
+                      after it. */}
+                  <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
                       onClick={() => postInputRef.current?.click()}
                       disabled={posts.length >= MAX_POSTS}
                       aria-label={posts.length >= MAX_POSTS ? `Limit of ${MAX_POSTS} posts reached` : "Add a post"}
-                      className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted"
+                      className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border text-muted transition hover:border-foreground/25 hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-muted"
                     >
-                      <PlusIcon className="h-7 w-7" />
+                      <PlusIcon className="h-8 w-8" />
                     </button>
                     {posts.map((post) => (
                       <button
@@ -422,10 +432,14 @@ export function MyProfileSheet({
                           setView("viewPost")
                         }}
                         aria-label="View post"
-                        className="relative aspect-square overflow-hidden rounded-xl bg-surface-2"
+                        className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-surface-2 shadow-sm transition hover:border-foreground/20"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL post image, not a static asset */}
-                        <img src={post.dataUrl} alt="Post" className="h-full w-full object-cover" />
+                        <img
+                          src={post.dataUrl}
+                          alt="Post"
+                          className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+                        />
                       </button>
                     ))}
                   </div>
