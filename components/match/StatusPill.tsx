@@ -1,6 +1,6 @@
 "use client"
 
-import { SearchingMark } from "./SearchingMark"
+import { BrandMark } from "./BrandMark"
 import { PausedNotice } from "./PausedNotice"
 import type { MatchState } from "@/hooks/useMatchmaking"
 
@@ -72,7 +72,10 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   return (
     <div className="flex flex-col items-center gap-3">
       <div className="flex items-center gap-3 rounded-full bg-black/60 py-3 pl-3 pr-5">
-        <SearchingMark />
+        {/* The same mark the login page uses — not a separate
+            reimplementation of it, just this component at a size that
+            fits next to the pill's own text. */}
+        <BrandMark size={26} />
         <span className="text-[14px] font-semibold tracking-tight text-foreground">{label}</span>
         {onlineCountLabel && (
           <>
