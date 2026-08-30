@@ -11,19 +11,25 @@ import type { DemoFriend, PendingRequest } from "@/hooks/useFriends"
 type MessageContent = { kind: "text"; text: string } | { kind: "image"; dataUrl: string }
 type FriendMessage = { id: string; from: "me" | "them"; content: MessageContent; ts: number }
 
-type DirectoryPerson = { id: string; displayName: string; username: string }
+// A real account found by username search — see app/api/friends/search.
+// Deliberately just a username, not an id: search results never carry the
+// target's real account id to the client (see lib/db.ts's
+// searchUsersByUsername doc comment) — acting on one (add friend, block)
+// goes through app/api/friends/request|block, addressed by this same
+// username, which resolve it back to a real id server-side only.
+type SearchResultPerson = { username: string }
 
-// No real user-search backend exists yet — empty rather than fabricated
-// results, so searching honestly shows "No one found" for everyone until
-// there's a real directory to query.
-const DIRECTORY: DirectoryPerson[] = []
+// How long to wait after the last keystroke before actually querying —
+// long enough that fast typing doesn't fire a request per character, short
+// enough that results still feel like they're updating "while typing" per
+// the search UX this replaces.
+const SEARCH_DEBOUNCE_MS = 350
 
 type FriendsPanelProps = {
   open: boolean
   onClose: () => void
   friends: DemoFriend[]
   requests: PendingRequest[]
-  blockedIds: string[]
   onAcceptRequest: (id: string) => void
   onDeclineRequest: (id: string) => void
   onRemoveFriend: (id: string) => void
@@ -39,7 +45,6 @@ export function FriendsPanel({
   onClose,
   friends,
   requests,
-  blockedIds,
   onAcceptRequest,
   onDeclineRequest,
   onRemoveFriend,
@@ -62,12 +67,18 @@ export function FriendsPanel({
   // Per-row "•••" menu on a friend in the list (View profile / Unfriend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
 
-  // Username search: a local directory to search, who's been sent a request,
-  // and which searched person's full profile is currently open.
+  // Username search: debounced against the real account search backend
+  // (see app/api/friends/search) — searchResults/searchLoading/searchErrored
+  // together drive the panel's four search states (idle/loading/results/
+  // no-results), plus who's been sent a request and which searched
+  // person's full profile is currently open.
   const [searchActive, setSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
-  const [sentRequestIds, setSentRequestIds] = useState<string[]>([])
-  const [viewingSearchResultId, setViewingSearchResultId] = useState<string | null>(null)
+  const [searchResults, setSearchResults] = useState<SearchResultPerson[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchErrored, setSearchErrored] = useState(false)
+  const [sentUsernames, setSentUsernames] = useState<string[]>([])
+  const [viewingSearchResultUsername, setViewingSearchResultUsername] = useState<string | null>(null)
   const [searchResultBlockConfirm, setSearchResultBlockConfirm] = useState(false)
 
   // The requester's full-screen profile is portaled to <body> so it isn't
@@ -102,11 +113,56 @@ export function FriendsPanel({
       setRowMenuConfirm(null)
       setSearchActive(false)
       setSearchQuery("")
-      setViewingSearchResultId(null)
+      setSearchResults([])
+      setSearchLoading(false)
+      setSearchErrored(false)
+      setViewingSearchResultUsername(null)
       setSearchResultBlockConfirm(false)
     }, 250)
     return () => clearTimeout(timer)
   }, [open])
+
+  // Debounced search: waits SEARCH_DEBOUNCE_MS after the last keystroke
+  // before actually querying, and cancels/ignores anything still in flight
+  // for a query that's no longer current — the effect cleanup (clearing the
+  // timer, aborting the fetch) runs before every re-run and on unmount, so
+  // a slow earlier response can never land after a newer one already did.
+  useEffect(() => {
+    if (!searchActive) return
+    const trimmed = searchQuery.trim()
+    if (!trimmed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clearing stale results for an emptied query, not mirroring existing state
+      setSearchResults([])
+      setSearchLoading(false)
+      setSearchErrored(false)
+      return
+    }
+
+    setSearchLoading(true)
+    setSearchErrored(false)
+    const controller = new AbortController()
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/friends/search?q=${encodeURIComponent(trimmed)}`, {
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error(`search failed: ${res.status}`)
+        const data: { results?: SearchResultPerson[] } = await res.json()
+        setSearchResults(Array.isArray(data.results) ? data.results : [])
+        setSearchLoading(false)
+      } catch (err) {
+        if ((err as { name?: string }).name === "AbortError") return
+        setSearchResults([])
+        setSearchErrored(true)
+        setSearchLoading(false)
+      }
+    }, SEARCH_DEBOUNCE_MS)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [searchQuery, searchActive])
 
   const active = friends.find((friend) => friend.id === activeId) ?? null
   const activeMessages = active ? (messages[active.id] ?? []) : []
@@ -144,9 +200,28 @@ export function FriendsPanel({
     setView("list")
     setActiveId(null)
     setViewingFriendId(null)
-    setViewingSearchResultId(null)
+    setViewingSearchResultUsername(null)
     setFriendActionConfirm(null)
     setRowMenuConfirm(null)
+  }
+
+  // Search results never carry a real account id client-side (see
+  // SearchResultPerson's own comment) — blocking one goes through
+  // POST /api/friends/block instead of the onBlockPerson prop (which needs
+  // a real id the way friends/requesters already have one), addressed by
+  // username, resolved server-side only. Fire-and-forget, same as
+  // onBlockPerson's own WS send above — the UI updates immediately rather
+  // than waiting on the response.
+  function handleBlockSearchResult(username: string) {
+    fetch("/api/friends/block", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    }).catch(() => {})
+    setView("list")
+    setViewingSearchResultUsername(null)
+    setSearchResultBlockConfirm(false)
+    setSearchResults((prev) => prev.filter((person) => person.username !== username))
   }
 
   function handleAcceptRequest(id: string) {
@@ -162,20 +237,33 @@ export function FriendsPanel({
   const viewingRequester = requests.find((request) => request.id === viewingRequesterId) ?? null
   const viewingFriend = friends.find((friend) => friend.id === viewingFriendId) ?? null
 
-  const trimmedQuery = searchQuery.trim().toLowerCase()
-  // Blocked people never show up in search, whichever side did the blocking.
-  const searchableDirectory = DIRECTORY.filter((person) => !blockedIds.includes(person.id))
-  const searchResults = trimmedQuery
-    ? searchableDirectory.filter(
-        (person) =>
-          person.username.toLowerCase().includes(trimmedQuery) ||
-          person.displayName.toLowerCase().includes(trimmedQuery)
-      )
-    : []
-  const viewingSearchResult = searchableDirectory.find((person) => person.id === viewingSearchResultId) ?? null
+  const trimmedQuery = searchQuery.trim()
+  // searchResults already comes back case-insensitive/partial-matched and
+  // blocked-account-filtered from app/api/friends/search (see the debounced
+  // effect above) — nothing further to derive here. Stable while a result's
+  // profile is open, since the search input (the only thing that could
+  // change it) is unreachable behind that full-screen view.
+  const viewingSearchResult = searchResults.find((person) => person.username === viewingSearchResultUsername) ?? null
 
-  function sendFriendRequest(id: string) {
-    setSentRequestIds((prev) => (prev.includes(id) ? prev : [...prev, id]))
+  // Optimistic — marks "Requested" immediately, the same instant feedback
+  // the old local-only stub had — but rolls back if the real request
+  // (POST /api/friends/request, resolved server-side from username to a
+  // real id — see that route's own comment) actually failed, so a rate
+  // limit or a since-deleted account doesn't silently claim success.
+  function sendFriendRequest(username: string) {
+    if (sentUsernames.includes(username)) return
+    setSentUsernames((prev) => [...prev, username])
+    fetch("/api/friends/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    })
+      .then((res) => {
+        if (!res.ok) setSentUsernames((prev) => prev.filter((u) => u !== username))
+      })
+      .catch(() => {
+        setSentUsernames((prev) => prev.filter((u) => u !== username))
+      })
   }
 
   return (
@@ -269,43 +357,47 @@ export function FriendsPanel({
 
                 {searchActive && trimmedQuery && (
                   <div className="absolute inset-x-3 top-[68px] z-10 max-h-80 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-xl">
-                    {searchResults.length === 0 ? (
+                    {searchLoading ? (
+                      <p className="px-3 py-4 text-center text-[13px] text-muted">Searching…</p>
+                    ) : searchErrored ? (
+                      <p className="px-3 py-4 text-center text-[13px] text-muted">Couldn&apos;t search — try again</p>
+                    ) : searchResults.length === 0 ? (
                       <p className="px-3 py-4 text-center text-[13px] text-muted">No one found</p>
                     ) : (
                       searchResults.map((person) => {
-                        const requested = sentRequestIds.includes(person.id)
+                        const requested = sentUsernames.includes(person.username)
                         return (
                           <div
-                            key={person.id}
+                            key={person.username}
                             role="button"
                             tabIndex={0}
                             onClick={() => {
                               setSearchResultBlockConfirm(false)
-                              setViewingSearchResultId(person.id)
+                              setViewingSearchResultUsername(person.username)
                             }}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault()
                                 setSearchResultBlockConfirm(false)
-                                setViewingSearchResultId(person.id)
+                                setViewingSearchResultUsername(person.username)
                               }
                             }}
-                            aria-label={`View ${person.displayName}'s profile`}
+                            aria-label={`View @${person.username}'s profile`}
                             className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 transition hover:bg-surface-2"
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
-                              {person.displayName.charAt(0)}
+                              {person.username.charAt(0).toUpperCase()}
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[13px] font-medium text-foreground">
-                                {person.displayName}
+                                @{person.username}
                               </span>
                             </span>
                             <button
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation()
-                                sendFriendRequest(person.id)
+                                sendFriendRequest(person.username)
                               }}
                               disabled={requested}
                               className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
@@ -319,7 +411,7 @@ export function FriendsPanel({
                   </div>
                 )}
 
-                {friends.length === 0 ? (
+                {searchActive && trimmedQuery ? null : friends.length === 0 ? (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
                     <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-2">
                       <UsersIcon className="h-6 w-6 text-muted" />
@@ -796,7 +888,7 @@ export function FriendsPanel({
             <motion.div
               role="dialog"
               aria-modal="true"
-              aria-label={`${viewingSearchResult.displayName}'s profile`}
+              aria-label={`@${viewingSearchResult.username}'s profile`}
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
@@ -807,7 +899,7 @@ export function FriendsPanel({
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
                 <button
                   type="button"
-                  onClick={() => setViewingSearchResultId(null)}
+                  onClick={() => setViewingSearchResultUsername(null)}
                   aria-label="Close"
                   className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                 >
@@ -817,15 +909,15 @@ export function FriendsPanel({
 
               <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
                 <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                  {viewingSearchResult.displayName.charAt(0)}
+                  {viewingSearchResult.username.charAt(0).toUpperCase()}
                 </span>
-                <p className="mt-4 text-[18px] font-semibold text-foreground">{viewingSearchResult.displayName}</p>
+                <p className="mt-4 text-[18px] font-semibold text-foreground">@{viewingSearchResult.username}</p>
 
                 <div className="mt-6 w-full max-w-xs">
                   {searchResultBlockConfirm ? (
                     <>
                       <p className="mb-3 text-[13px] leading-relaxed text-muted">
-                        Block {viewingSearchResult.displayName}? They won&apos;t be able to contact you, and won&apos;t
+                        Block @{viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
                         show up in search.
                       </p>
                       <div className="flex gap-2">
@@ -838,7 +930,7 @@ export function FriendsPanel({
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleBlockPerson(viewingSearchResult.id, viewingSearchResult.displayName)}
+                          onClick={() => handleBlockSearchResult(viewingSearchResult.username)}
                           className="flex-1 rounded-lg bg-danger px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
                         >
                           Block
@@ -849,11 +941,11 @@ export function FriendsPanel({
                     <>
                       <button
                         type="button"
-                        onClick={() => sendFriendRequest(viewingSearchResult.id)}
-                        disabled={sentRequestIds.includes(viewingSearchResult.id)}
+                        onClick={() => sendFriendRequest(viewingSearchResult.username)}
+                        disabled={sentUsernames.includes(viewingSearchResult.username)}
                         className="w-full rounded-lg bg-accent px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                       >
-                        {sentRequestIds.includes(viewingSearchResult.id) ? "Requested" : "Add friend"}
+                        {sentUsernames.includes(viewingSearchResult.username) ? "Requested" : "Add friend"}
                       </button>
                       <button
                         type="button"

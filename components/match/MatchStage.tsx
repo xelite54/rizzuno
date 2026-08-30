@@ -433,7 +433,6 @@ export function MatchStage() {
     id: b.userId,
     displayName: b.username ?? "Someone",
   }))
-  const blockedIds = rawBlockedUsers.map((b) => b.userId)
 
   const [unreadMessages, setUnreadMessages] = useState(0)
   const friendsNotifications = requests.length + unreadMessages
@@ -626,7 +625,6 @@ export function MatchStage() {
             onClose={() => setFriendsOpen(false)}
             friends={friends}
             requests={requests}
-            blockedIds={blockedIds}
             onAcceptRequest={(id) => respondToFriendRequest(id, true)}
             onDeclineRequest={(id) => respondToFriendRequest(id, false)}
             onRemoveFriend={unfriend}

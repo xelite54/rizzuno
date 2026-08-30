@@ -697,6 +697,60 @@ export async function getUsername(userId: string): Promise<string | null> {
   return rows[0]?.username ?? null
 }
 
+/** Reverse of getUsername() — resolves a username back to the real account id, server-side only. Used by the friend-request/block-by-username routes (see app/api/friends/) to act on a search result without ever handing the client that id, the same rule lib/signaling/protocol.ts's "friend-request"/"friend-block" already document for displayId-resolved actions. */
+export async function getUserIdByUsername(username: string): Promise<string | null> {
+  const { rows } = await q<{ id: string }>(`SELECT id FROM users WHERE username = $1`, [username.trim().toLowerCase()])
+  return rows[0]?.id ?? null
+}
+
+/** Escapes a user-supplied fragment for safe use inside a `LIKE`/`ILIKE` pattern — Postgres's default LIKE escape character is already backslash, so prefixing the three special characters with one is all this needs (no separate ESCAPE clause required). Without this, someone searching for e.g. `50%` or `a_b` would have `%`/`_` act as wildcards instead of literal characters. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`)
+}
+
+export type UserSearchResult = { username: string }
+
+/**
+ * Real account search by username — case-insensitive, partial-match (see
+ * app/api/friends/search, which trims/lowercases the query before this).
+ * Excludes the caller themselves, anyone banned or deleted, and anyone
+ * blocked in either direction — but deliberately NOT existing friends: this
+ * is a general "find anyone by username" search, not a friends-only filter.
+ *
+ * Returns only the username, never the account id — the same "a client
+ * never learns an arbitrary real id" rule this app already enforces for
+ * displayId-resolved friend actions (see lib/signaling/protocol.ts's
+ * "friend-request"/"friend-block" doc comments). A search result is acted
+ * on by username; see sendFriendRequest()/addBlock() callers in
+ * app/api/friends/, which resolve it back to a real id server-side only.
+ */
+export async function searchUsersByUsername(
+  query: string,
+  excludeUserId: string,
+  limit = 20
+): Promise<UserSearchResult[]> {
+  const trimmed = query.trim()
+  if (!trimmed) return []
+  const { rows } = await q<{ username: string }>(
+    `SELECT u.username
+       FROM users u
+      WHERE u.username IS NOT NULL
+        AND u.username ILIKE '%' || $1 || '%'
+        AND u.id <> $2
+        AND u.banned_at IS NULL
+        AND u.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = u.id)
+              OR (b.blocker_id = u.id AND b.blocked_id = $2)
+        )
+      ORDER BY u.username ASC
+      LIMIT $3`,
+    [escapeLikePattern(trimmed.toLowerCase()), excludeUserId, limit]
+  )
+  return rows.map((r) => ({ username: r.username }))
+}
+
 export async function exportUserData(userId: string) {
   const [status, username, acceptance, blocked, reportsFiled] = await Promise.all([
     getUserStatus(userId),
