@@ -8,11 +8,13 @@
  * they're online, and durably either way (it's still there next time they
  * connect).
  *
+ * Username search is also real as of 2026-08-30 — see
+ * lib/db.ts's searchUsersByUsername() and app/api/friends/search|request|
+ * block, which replaced FriendsPanel.tsx's old hardcoded-empty `DIRECTORY`.
+ *
  * Friend-to-friend chat/messaging (the "message" view inside
- * FriendsPanel.tsx) and the username-search directory (FriendsPanel.tsx's
- * `DIRECTORY`, still hardcoded empty) are both still exactly as fake as
- * before — out of scope of the request/friendship work above, not
- * accidentally left behind. Don't infer from this flag being `true` that
- * those work too.
+ * FriendsPanel.tsx) is still exactly as fake as before — out of scope of
+ * the work above, not accidentally left behind. Don't infer from this flag
+ * being `true` that it works too.
  */
 export const FRIENDS_ENABLED = true

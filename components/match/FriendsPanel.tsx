@@ -17,7 +17,10 @@ type FriendMessage = { id: string; from: "me" | "them"; content: MessageContent;
 // searchUsersByUsername doc comment) — acting on one (add friend, block)
 // goes through app/api/friends/request|block, addressed by this same
 // username, which resolve it back to a real id server-side only.
-type SearchResultPerson = { username: string }
+// alreadyRequested/alreadyFriends are real database state (see
+// searchUsersByUsername's own doc comment) — checked so the row's own
+// button reflects reality after a refresh, not just this session's clicks.
+type SearchResultPerson = { username: string; alreadyRequested: boolean; alreadyFriends: boolean }
 
 // How long to wait after the last keystroke before actually querying —
 // long enough that fast typing doesn't fire a request per character, short
@@ -365,7 +368,7 @@ export function FriendsPanel({
                       <p className="px-3 py-4 text-center text-[13px] text-muted">No one found</p>
                     ) : (
                       searchResults.map((person) => {
-                        const requested = sentUsernames.includes(person.username)
+                        const requested = person.alreadyRequested || sentUsernames.includes(person.username)
                         return (
                           <div
                             key={person.username}
@@ -399,10 +402,10 @@ export function FriendsPanel({
                                 event.stopPropagation()
                                 sendFriendRequest(person.username)
                               }}
-                              disabled={requested}
+                              disabled={requested || person.alreadyFriends}
                               className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
                             >
-                              {requested ? "Requested" : "Add"}
+                              {person.alreadyFriends ? "Friend" : requested ? "Requested" : "Add"}
                             </button>
                           </div>
                         )
@@ -942,10 +945,18 @@ export function FriendsPanel({
                       <button
                         type="button"
                         onClick={() => sendFriendRequest(viewingSearchResult.username)}
-                        disabled={sentUsernames.includes(viewingSearchResult.username)}
+                        disabled={
+                          viewingSearchResult.alreadyFriends ||
+                          viewingSearchResult.alreadyRequested ||
+                          sentUsernames.includes(viewingSearchResult.username)
+                        }
                         className="w-full rounded-lg bg-accent px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                       >
-                        {sentUsernames.includes(viewingSearchResult.username) ? "Requested" : "Add friend"}
+                        {viewingSearchResult.alreadyFriends
+                          ? "Friend"
+                          : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
+                            ? "Requested"
+                            : "Add friend"}
                       </button>
                       <button
                         type="button"

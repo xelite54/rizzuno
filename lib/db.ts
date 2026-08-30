@@ -708,7 +708,7 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`)
 }
 
-export type UserSearchResult = { username: string }
+export type UserSearchResult = { username: string; alreadyRequested: boolean; alreadyFriends: boolean }
 
 /**
  * Real account search by username — case-insensitive, partial-match (see
@@ -723,6 +723,13 @@ export type UserSearchResult = { username: string }
  * "friend-request"/"friend-block" doc comments). A search result is acted
  * on by username; see sendFriendRequest()/addBlock() callers in
  * app/api/friends/, which resolve it back to a real id server-side only.
+ *
+ * `alreadyRequested`/`alreadyFriends` are real database state, not a guess —
+ * FriendsPanel.tsx's own "have I already added this search result" flag
+ * used to be session-local React state only, which meant a page refresh
+ * (or reopening the panel) forgot it even though the underlying request had
+ * genuinely persisted. Checking it here means the UI reflects what's
+ * actually true again after either.
  */
 export async function searchUsersByUsername(
   query: string,
@@ -731,8 +738,16 @@ export async function searchUsersByUsername(
 ): Promise<UserSearchResult[]> {
   const trimmed = query.trim()
   if (!trimmed) return []
-  const { rows } = await q<{ username: string }>(
-    `SELECT u.username
+  const { rows } = await q<{ username: string; already_requested: boolean; already_friends: boolean }>(
+    `SELECT u.username,
+            EXISTS (
+              SELECT 1 FROM friend_requests fr
+               WHERE fr.sender_id = $2 AND fr.recipient_id = u.id AND fr.status = 'pending'
+            ) AS already_requested,
+            EXISTS (
+              SELECT 1 FROM friendships f
+               WHERE f.user_a_id = LEAST($2, u.id) AND f.user_b_id = GREATEST($2, u.id)
+            ) AS already_friends
        FROM users u
       WHERE u.username IS NOT NULL
         AND u.username ILIKE '%' || $1 || '%'
@@ -748,7 +763,7 @@ export async function searchUsersByUsername(
       LIMIT $3`,
     [escapeLikePattern(trimmed.toLowerCase()), excludeUserId, limit]
   )
-  return rows.map((r) => ({ username: r.username }))
+  return rows.map((r) => ({ username: r.username, alreadyRequested: r.already_requested, alreadyFriends: r.already_friends }))
 }
 
 export async function exportUserData(userId: string) {
