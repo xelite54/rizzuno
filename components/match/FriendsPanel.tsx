@@ -823,11 +823,19 @@ export function FriendsPanel({
               </div>
 
               <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
-                <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                  {viewingFriend.displayName.charAt(0)}
+                <span className="relative flex h-24 w-24 shrink-0">
+                  <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
+                    {viewingFriend.displayName.charAt(0)}
+                  </span>
+                  {/* Presence dot, not a text label — shown only when
+                      actually online, the same convention Instagram/etc.
+                      use on a profile photo (silence means not online,
+                      rather than a separate "Offline" state to announce). */}
+                  {viewingFriend.online && (
+                    <span className="absolute bottom-0.5 left-0.5 h-4 w-4 rounded-full border-2 border-surface bg-online" />
+                  )}
                 </span>
                 <p className="mt-4 text-[18px] font-semibold text-foreground">{viewingFriend.displayName}</p>
-                <p className="mt-2 text-[12px] text-muted">{viewingFriend.online ? "Online now" : "Offline"}</p>
 
                 <div className="mt-8 w-full max-w-xs border-t border-border pt-4">
                   {friendActionConfirm ? (
