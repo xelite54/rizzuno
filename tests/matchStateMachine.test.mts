@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { nextMatchState, shouldRetryStalledQueuePending } from "../lib/matchStateMachine"
+import { nextMatchState, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "../lib/matchStateMachine"
 import type { MatchState, MatchStateEvent } from "../lib/matchStateMachine"
 
 const ALL_EVENTS: MatchStateEvent[] = [
@@ -13,6 +13,18 @@ const ALL_EVENTS: MatchStateEvent[] = [
   { type: "paused" },
   { type: "left-queue" },
   { type: "reset-idle" },
+  { type: "queue-pending-exhausted" },
+]
+
+const ALL_STATES: MatchState[] = [
+  "idle",
+  "queue-pending",
+  "searching",
+  "connecting",
+  "active",
+  "peer-left",
+  "paused",
+  "error",
 ]
 
 // Root-cause coverage: sending "find"/"skip"/block's resume must land on
@@ -44,8 +56,7 @@ test("queued-received from searching stays searching (a second ack for the same 
 // stays true even if a new event is ever added later without updating this
 // test by hand.
 test("no event other than queued-received can ever produce searching, from any starting state", () => {
-  const states: MatchState[] = ["idle", "queue-pending", "searching", "connecting", "active", "peer-left", "paused"]
-  for (const state of states) {
+  for (const state of ALL_STATES) {
     for (const event of ALL_EVENTS) {
       if (event.type === "queued-received") continue
       const next = nextMatchState(state, event)
@@ -67,8 +78,7 @@ test("matched-received works without ever having seen queued — queue-pending g
 })
 
 test("matched-received wins from every state, not just queue-pending/searching", () => {
-  const states: MatchState[] = ["idle", "queue-pending", "searching", "connecting", "active", "peer-left", "paused"]
-  for (const state of states) {
+  for (const state of ALL_STATES) {
     assert.equal(nextMatchState(state, { type: "matched-received" }), "connecting")
   }
 })
@@ -104,12 +114,72 @@ test("a find that's sent and never acknowledged at all stays on queue-pending, n
   // definition none arrives for a dropped find.
 })
 
-test("shouldRetryStalledQueuePending: only true when actually queue-pending, still wanted, and realtime ready", () => {
-  assert.equal(shouldRetryStalledQueuePending("queue-pending", true, true), true)
-  assert.equal(shouldRetryStalledQueuePending("searching", true, true), false, "already confirmed — nothing to retry")
-  assert.equal(shouldRetryStalledQueuePending("queue-pending", false, true), false, "guest no longer wants matching")
-  assert.equal(shouldRetryStalledQueuePending("queue-pending", true, false), false, "not even connected — must not fire behind a dead socket")
-  assert.equal(shouldRetryStalledQueuePending("paused", false, false), false)
+// Root-cause coverage for THIS task: at most ONE automatic retry per
+// matchmaking attempt — never an indefinite "find" every ack-timeout
+// window. MAX_AUTOMATIC_QUEUE_PENDING_RETRIES is 1, so retryCount 0 (the
+// original send has gone unanswered) is still within budget; retryCount 1
+// (the one retry has ALSO gone unanswered) is not.
+test("decideQueuePendingTimeout: retries once (retryCount 0), then gives up (retryCount at the max) — never a third time", () => {
+  assert.equal(MAX_AUTOMATIC_QUEUE_PENDING_RETRIES, 1, "this suite assumes exactly one automatic retry — update it if that ever changes")
+  assert.equal(decideQueuePendingTimeout(0, true, true), "retry", "the original send timed out — one retry is still owed")
+  assert.equal(decideQueuePendingTimeout(1, true, true), "give-up", "the one retry ALSO timed out — budget spent, must not retry a second time")
+  assert.equal(decideQueuePendingTimeout(2, true, true), "give-up", "well past the budget — still give-up, never retry")
+})
+
+test("decideQueuePendingTimeout: do-nothing (neither retries nor surfaces an error) when the guest already backed out or disconnected", () => {
+  assert.equal(decideQueuePendingTimeout(0, false, true), "do-nothing", "guest no longer wants matching (paused)")
+  assert.equal(decideQueuePendingTimeout(0, true, false), "do-nothing", "not realtime-ready — must not fire behind a dead socket")
+  assert.equal(decideQueuePendingTimeout(1, false, false), "do-nothing", "budget-exhausted but ALSO already backed out — no spurious error either")
+})
+
+// The full sequence a real stalled attempt goes through, composed exactly
+// the way useMatchmaking.ts's ack-timeout effect uses these two functions
+// together — proving the retry is strictly bounded end-to-end, not just
+// that the two pieces are individually correct in isolation.
+test("end-to-end: a matchmaking attempt that never gets acknowledged retries exactly once, then surfaces error — never a third find", () => {
+  let state: MatchState = nextMatchState("idle", { type: "find-sent" }) // the original "find"
+  assert.equal(state, "queue-pending")
+  let retryCount = 0
+  const sentFinds: number[] = [1] // the original send counts as attempt #1
+
+  function fireAckTimeout() {
+    const decision = decideQueuePendingTimeout(retryCount, /* wantsMatching */ true, /* realtimeReady */ true)
+    if (decision === "retry") {
+      retryCount += 1
+      state = nextMatchState(state, { type: "find-sent" }) // sendFind() — queue-pending again
+      sentFinds.push(sentFinds.length + 1)
+    } else if (decision === "give-up") {
+      state = nextMatchState(state, { type: "queue-pending-exhausted" })
+    }
+    // "do-nothing" — nothing to do, matching the hook's own early return.
+  }
+
+  fireAckTimeout() // attempt #1 (the original find) times out
+  assert.equal(retryCount, 1)
+  assert.equal(state, "queue-pending", "the one retry was sent — still waiting on it")
+  assert.equal(sentFinds.length, 2, "exactly one retry find was sent")
+
+  fireAckTimeout() // attempt #2 (the one retry) ALSO times out
+  assert.equal(state, "error", "budget exhausted — surfaces error instead of retrying")
+  assert.equal(sentFinds.length, 2, "still exactly two finds total (original + one retry) — no third")
+
+  // Even if the timeout mechanism were somehow invoked again (it shouldn't
+  // be — the real effect stops scheduling once state leaves "queue-pending"
+  // — but proving the DECISION function itself stays bounded regardless):
+  fireAckTimeout()
+  assert.equal(sentFinds.length, 2, "decideQueuePendingTimeout keeps saying give-up — retryCount never resets on its own")
+})
+
+test("a genuinely new find-sent (not the ack-timeout's own retry) is how 'error' recovers — and a fresh attempt gets its own full budget", () => {
+  const errorState = nextMatchState(nextMatchState("idle", { type: "find-sent" }), { type: "queue-pending-exhausted" })
+  assert.equal(errorState, "error")
+  // The retry button (StatusPill's "Try again", wired to findMatch()) —
+  // useMatchmaking.ts's findMatch() resets queuePendingRetryCountRef to 0
+  // before sending, so this next decideQueuePendingTimeout call starts
+  // fresh at retryCount 0, not still exhausted from the previous attempt.
+  const afterRetryClick = nextMatchState(errorState, { type: "find-sent" })
+  assert.equal(afterRetryClick, "queue-pending")
+  assert.equal(decideQueuePendingTimeout(0, true, true), "retry", "a fresh attempt is owed its own full retry budget")
 })
 
 // Root-cause coverage: skip()/block() must show the exact same

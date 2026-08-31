@@ -17,10 +17,14 @@
  * confirmed.
  */
 
-export type MatchState = "idle" | "queue-pending" | "searching" | "connecting" | "active" | "peer-left" | "paused"
+// "error" — added specifically so a matchmaking attempt that never gets
+// confirmed, even after one retry, has somewhere honest to land instead of
+// retrying forever (see decideQueuePendingTimeout below). StatusPill is
+// still the one place this ever renders — no separate error surface.
+export type MatchState = "idle" | "queue-pending" | "searching" | "connecting" | "active" | "peer-left" | "paused" | "error"
 
 export type MatchStateEvent =
-  /** findMatch() sent "find". */
+  /** findMatch() sent "find" — a genuinely new/resumed search, never the ack-timeout's own internal retry (see MAX_AUTOMATIC_QUEUE_PENDING_RETRIES/decideQueuePendingTimeout — that retry re-enters "queue-pending" too, but must NOT reset the retry budget the way a real find-sent does; see useMatchmaking.ts's sendFind() vs findMatch()). */
   | { type: "find-sent" }
   /** skip() sent "skip". */
   | { type: "skip-sent" }
@@ -28,7 +32,7 @@ export type MatchStateEvent =
   | { type: "block-sent" }
   /** The server's "queued" message — the ONLY event that may produce "searching". */
   | { type: "queued-received" }
-  /** The server's "matched" message — always wins outright, from any state (including "queue-pending", when the server pairs you before a "queued" ack would even be worth sending). */
+  /** The server's "matched" message — always wins outright, from any state (including "queue-pending"/"error", when the server pairs you before/despite a "queued" ack). */
   | { type: "matched-received" }
   /** The server's "peer-left" message. */
   | { type: "peer-left-received" }
@@ -38,20 +42,27 @@ export type MatchStateEvent =
   | { type: "left-queue" }
   /** Full teardown (realtime disabled) or any other hard reset back to a clean slate. */
   | { type: "reset-idle" }
+  /** decideQueuePendingTimeout() returned "give-up" — the automatic retry budget is spent and neither "queued" nor "matched" ever arrived. */
+  | { type: "queue-pending-exhausted" }
 
 export function nextMatchState(current: MatchState, event: MatchStateEvent): MatchState {
   switch (event.type) {
     case "find-sent":
     case "skip-sent":
     case "block-sent":
+      // Unconditional, including from "error" — this is exactly how a
+      // guest (or the bounded automatic retry itself) leaves "error"
+      // behind: by starting a fresh attempt, not by some separate
+      // "dismiss the error" action.
       return "queue-pending"
     case "queued-received":
       // Only promotes an attempt that's actually still current — "idle"/
-      // "paused" (the guest backed out before this in-flight ack arrived),
-      // "peer-left" (already retrying its own way), "connecting"/"active"
-      // (a match has since superseded this search entirely) all leave the
-      // state exactly as it was; accepting the ack anyway would resurrect
-      // "Finding someone…" over a search the guest already moved on from.
+      // "paused"/"error" (the guest backed out, or the attempt already
+      // gave up, before this in-flight ack arrived), "peer-left" (already
+      // retrying its own way), "connecting"/"active" (a match has since
+      // superseded this search entirely) all leave the state exactly as it
+      // was; accepting the ack anyway would resurrect "Finding someone…"
+      // over a search the guest already moved on from.
       return current === "queue-pending" || current === "searching" ? "searching" : current
     case "matched-received":
       return "connecting"
@@ -63,19 +74,39 @@ export function nextMatchState(current: MatchState, event: MatchStateEvent): Mat
       return current === "searching" || current === "queue-pending" ? "idle" : current
     case "reset-idle":
       return "idle"
+    case "queue-pending-exhausted":
+      return "error"
   }
 }
 
+/** How many times decideQueuePendingTimeout() below allows an unconfirmed "queue-pending" to be automatically retried (via a fresh "find") before giving up — "at most ONE automatic retry per matchmaking attempt". Exported so useMatchmaking.ts's own timer loop and this module's tests both use the exact same number, never two that could quietly drift apart. */
+export const MAX_AUTOMATIC_QUEUE_PENDING_RETRIES = 1
+
+export type QueuePendingTimeoutDecision = "retry" | "give-up" | "do-nothing"
+
 /**
- * Whether a "queue-pending" that's gone unconfirmed for the ack-timeout
- * window (see useMatchmaking.ts's QUEUE_PENDING_ACK_TIMEOUT_MS, which owns
- * the actual timer) is worth one fresh retry. Pure so the DECISION is
- * testable without real timers; the hook still owns firing it.
+ * What to do when a "queue-pending" has gone unconfirmed for the
+ * ack-timeout window (useMatchmaking.ts's QUEUE_PENDING_ACK_TIMEOUT_MS,
+ * which owns the actual timer) — pure so the DECISION is testable without
+ * real timers; the hook still owns firing it and the retry-count ref this
+ * reads.
+ *
+ * - "do-nothing": the guest already backed out (paused) or the connection
+ *   already dropped in the meantime — never surface an error, and never
+ *   retry, for an attempt that isn't even current anymore.
+ * - "retry": still under the automatic-retry budget — send one more fresh
+ *   "find" (see useMatchmaking.ts's sendFind(), NOT findMatch() — this
+ *   retry must not reset the very counter it's consuming).
+ * - "give-up": the budget (MAX_AUTOMATIC_QUEUE_PENDING_RETRIES) is spent —
+ *   stop retrying automatically and surface a real error instead
+ *   (nextMatchState's "queue-pending-exhausted" event) rather than sending
+ *   "find" every QUEUE_PENDING_ACK_TIMEOUT_MS indefinitely.
  */
-export function shouldRetryStalledQueuePending(
-  state: MatchState,
+export function decideQueuePendingTimeout(
+  retryCount: number,
   wantsMatching: boolean,
   realtimeReady: boolean
-): boolean {
-  return state === "queue-pending" && wantsMatching && realtimeReady
+): QueuePendingTimeoutDecision {
+  if (!wantsMatching || !realtimeReady) return "do-nothing"
+  return retryCount < MAX_AUTOMATIC_QUEUE_PENDING_RETRIES ? "retry" : "give-up"
 }

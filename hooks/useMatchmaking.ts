@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useSignalingSocket } from "./useSignalingSocket"
 import { useWebRTC } from "./useWebRTC"
 import { SignalBacklog } from "@/lib/signalBacklog"
-import { nextMatchState, shouldRetryStalledQueuePending } from "@/lib/matchStateMachine"
+import { nextMatchState, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "@/lib/matchStateMachine"
 import type { MatchState, MatchStateEvent } from "@/lib/matchStateMachine"
 import type {
   ChatContent,
@@ -135,6 +135,17 @@ export function useMatchmaking(
   // state *value* didn't change (React effects don't re-run for a
   // dependency that re-renders with the same value).
   const [queuePendingAttempt, setQueuePendingAttempt] = useState(0)
+  // How many automatic retries the current matchmaking attempt has already
+  // used, out of MAX_AUTOMATIC_QUEUE_PENDING_RETRIES — a ref, not state:
+  // nothing ever renders off this directly, only the ack-timeout effect's
+  // own setTimeout callback reads/writes it. Reset to 0 on every genuinely
+  // new/resumed attempt (findMatch()/skip()/block()), on real progress
+  // ("queued"/"matched" received), on pauseMatching(), and on
+  // disconnect/reconnect — see each of those call sites. Deliberately NOT
+  // reset by the ack-timeout's own internal retry (sendFind(), never
+  // findMatch()) — that retry is what's consuming this budget, not
+  // starting a fresh one.
+  const queuePendingRetryCountRef = useRef(0)
   const [roomId, setRoomId] = useState<string | null>(null)
   const [initiator, setInitiator] = useState(false)
   const [peer, setPeer] = useState<PeerProfile | null>(null)
@@ -221,6 +232,13 @@ export function useMatchmaking(
     if (connected) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRealtimeReady(false)
+    // A real disconnect — whatever automatic-retry budget was in progress
+    // belonged to a connection that's now gone; the reconnect-resume
+    // effect's own fresh "find" (via findMatch()) would reset this anyway,
+    // but clearing it right at the disconnect itself means it's never
+    // stale even in the gap before that fires. Unconditional (not gated on
+    // `roomId`) — this applies whether or not there was an active room.
+    queuePendingRetryCountRef.current = 0
     if (!roomId) return
     console.log("matchmaking: transport dropped mid-room — treating the room as lost, not assuming it survived")
     recordHistory(peerRef.current)
@@ -323,12 +341,24 @@ export function useMatchmaking(
     setQueuePendingAttempt((n) => n + 1)
   }, [])
 
-  const findMatch = useCallback(() => {
-    console.log("matchmaking: sending find")
+  // The actual "find" send + queue-pending entry, shared by findMatch()
+  // below and the ack-timeout effect's own bounded retry — deliberately
+  // does NOT touch queuePendingRetryCountRef itself. findMatch() (a
+  // genuinely new/resumed attempt) resets that counter before calling
+  // this; the ack-timeout's retry calls this directly, bypassing the
+  // reset, because that retry is what's spending the budget, not
+  // refilling it.
+  const sendFind = useCallback(() => {
     wantsMatchingRef.current = true
     enterQueuePending({ type: "find-sent" })
     send({ type: "find" })
   }, [send, enterQueuePending])
+
+  const findMatch = useCallback(() => {
+    console.log("matchmaking: sending find")
+    queuePendingRetryCountRef.current = 0
+    sendFind()
+  }, [sendFind])
 
   // Leaves the real server-side queue WITHOUT touching `wantsMatching` or
   // showing "paused" — used when something external and temporary makes
@@ -346,6 +376,11 @@ export function useMatchmaking(
     console.log("matchmaking: leaving queue only (not a pause — wantsMatching stays true)")
     send({ type: "leave" })
     setServerState((prev) => nextMatchState(prev, { type: "left-queue" }))
+    // The attempt this budget belonged to is over — whatever comes next
+    // (camera back on) is findMatch()'s own fresh attempt anyway, which
+    // resets this itself, but clearing it here too means nothing stale
+    // lingers while no attempt is even in flight.
+    queuePendingRetryCountRef.current = 0
   }, [send])
 
   const skip = useCallback(() => {
@@ -355,6 +390,9 @@ export function useMatchmaking(
     setMessages([])
     setPeerMicEnabled(true)
     setPeerTyping(false)
+    // A genuinely new search — gets its own fresh retry budget, not
+    // whatever was left over from a previous, unrelated attempt.
+    queuePendingRetryCountRef.current = 0
     enterQueuePending({ type: "skip-sent" })
     send({ type: "skip" })
   }, [send, recordHistory, enterQueuePending])
@@ -405,6 +443,8 @@ export function useMatchmaking(
     send({ type: "block", roomId })
     setRoomId(null)
     setPeer(null)
+    // A genuinely new (about to be) search — its own fresh retry budget.
+    queuePendingRetryCountRef.current = 0
     enterQueuePending({ type: "block-sent" })
   }, [roomId, send, recordHistory, enterQueuePending])
 
@@ -476,6 +516,10 @@ export function useMatchmaking(
     // regardless of what was in flight.
     setServerState((prev) => nextMatchState(prev, { type: "paused" }))
     send({ type: "leave" })
+    // Whatever attempt was in flight is over — resuming later is
+    // findMatch()'s own fresh attempt regardless, but clear it here too so
+    // nothing stale survives a pause.
+    queuePendingRetryCountRef.current = 0
   }, [send, recordHistory])
 
   // Refs mirroring the latest profile field values — read at call time
@@ -634,6 +678,12 @@ export function useMatchmaking(
           // A real "ready" proves the ticket round trip genuinely works —
           // whatever invalid_ticket streak was building (if any) is over.
           invalidTicketStreakRef.current = 0
+          // A fresh connection/reconnect — whatever automatic-retry budget
+          // a PREVIOUS connection's attempt had used is irrelevant now; the
+          // reconnect-resume effect below sends its own fresh "find" (which
+          // resets this anyway via findMatch()), but clearing it here too
+          // means it's never stale even in the gap before that fires.
+          queuePendingRetryCountRef.current = 0
           break
         case "queued":
           console.log("matchmaking: queued")
@@ -641,8 +691,12 @@ export function useMatchmaking(
           // doc comment for exactly which prior states accept it (only an
           // attempt that's still genuinely current) and which don't (the
           // guest already backed out — accepting it anyway would resurrect
-          // "Finding someone…" over a search they already cancelled).
+          // "Finding someone…" over a search they already cancelled). Real
+          // progress — this attempt is confirmed, so its retry budget is
+          // spent for nothing; a FUTURE stall (e.g. after a later skip)
+          // deserves its own fresh one.
           setServerState((prev) => nextMatchState(prev, { type: "queued-received" }))
+          queuePendingRetryCountRef.current = 0
           break
         case "matched":
           console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator })
@@ -658,6 +712,8 @@ export function useMatchmaking(
           // "queued" ack would even be worth sending (see
           // lib/matchStateMachine.ts's own doc comment on this exact case).
           setServerState((prev) => nextMatchState(prev, { type: "matched-received" }))
+          // Real progress — same reasoning as "queued" above.
+          queuePendingRetryCountRef.current = 0
           // If this match happens to already be a friend (matching doesn't
           // exclude friends — only recent-partners and blocks), reflect
           // that immediately instead of showing "Add" for someone you're
@@ -910,16 +966,17 @@ export function useMatchmaking(
   // "skip"/block-resume was actually SENT, but neither "queued" nor
   // "matched" has confirmed it yet. If neither ever arrives (a dropped
   // frame, a silent server-side failure that doesn't even send "error", a
-  // network blip that doesn't trip the socket's own reconnect), the guest
-  // would otherwise sit on "Getting ready…" — or, before this state even
-  // existed, a false "Finding someone…" — forever, with nothing left to
-  // retry it. `queuePendingAttempt` (not `serverState` alone) is the
-  // dependency specifically so a SECOND entry into "queue-pending" (e.g.
-  // this very timeout firing and calling findMatch() again) restarts the
-  // window even though `serverState` itself didn't change value — see its
-  // own doc comment. Only retries if still actually wanted: a pause or a
-  // real disconnect in the meantime means findMatch() must NOT fire behind
-  // the guest's back.
+  // network blip that doesn't trip the socket's own reconnect), this is
+  // what recovers — but only up to MAX_AUTOMATIC_QUEUE_PENDING_RETRIES (1):
+  // one automatic retry per attempt, never an indefinite "find" every
+  // QUEUE_PENDING_ACK_TIMEOUT_MS forever. Once that budget is spent, this
+  // gives up and surfaces "error" instead — see decideQueuePendingTimeout's
+  // own doc comment for the three-way decision this reads.
+  //
+  // `queuePendingAttempt` (not `serverState` alone) is the dependency
+  // specifically so a SECOND entry into "queue-pending" (this very timeout
+  // retrying via sendFind()) restarts the window even though `serverState`
+  // itself didn't change value — see that state's own doc comment.
   useEffect(() => {
     if (serverState !== "queue-pending") return
     const timer = setTimeout(() => {
@@ -929,13 +986,32 @@ export function useMatchmaking(
       // whose cleanup cancels this exact timer first. So if this callback
       // ever actually runs, `serverState` was still "queue-pending" and
       // `realtimeReady` was still whatever's closed over, right up to now.
-      if (shouldRetryStalledQueuePending(serverState, wantsMatchingRef.current, realtimeReady)) {
-        console.warn(`matchmaking: queue-pending ack timeout — no queued/matched within ${QUEUE_PENDING_ACK_TIMEOUT_MS}ms, retrying find`)
-        findMatch()
+      const decision = decideQueuePendingTimeout(queuePendingRetryCountRef.current, wantsMatchingRef.current, realtimeReady)
+      if (decision === "do-nothing") return
+      if (decision === "retry") {
+        queuePendingRetryCountRef.current += 1
+        console.warn(
+          `matchmaking: queue-pending ack timeout — no queued/matched within ${QUEUE_PENDING_ACK_TIMEOUT_MS}ms, retrying find (${queuePendingRetryCountRef.current}/${MAX_AUTOMATIC_QUEUE_PENDING_RETRIES})`
+        )
+        // sendFind(), never findMatch() — this retry is what's SPENDING
+        // the budget just incremented above; findMatch() would reset it
+        // right back to 0 and this timeout would then retry forever,
+        // exactly the bug this whole mechanism exists to prevent.
+        sendFind()
+        return
       }
+      // "give-up" — the budget is spent and neither "queued" nor "matched"
+      // ever arrived across MAX_AUTOMATIC_QUEUE_PENDING_RETRIES retries.
+      // Stop retrying automatically; a real, visible error (StatusPill's
+      // "error" state) is what recovers from here, via an explicit,
+      // guest-initiated findMatch() (which resets this counter itself).
+      console.error(
+        `matchmaking: queue-pending ack timeout — automatic retry budget (${MAX_AUTOMATIC_QUEUE_PENDING_RETRIES}) exhausted, giving up and surfacing an error instead of retrying forever`
+      )
+      setServerState((prev) => nextMatchState(prev, { type: "queue-pending-exhausted" }))
     }, QUEUE_PENDING_ACK_TIMEOUT_MS)
     return () => clearTimeout(timer)
-  }, [serverState, queuePendingAttempt, realtimeReady, findMatch])
+  }, [serverState, queuePendingAttempt, realtimeReady, sendFind])
 
   // Track how long a connection has been stuck in "failed" (a ref, not state).
   useEffect(() => {

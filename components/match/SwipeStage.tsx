@@ -222,6 +222,7 @@ export function SwipeStage({
                 cameraOff={cameraOff}
                 onPauseMatching={onPauseMatching}
                 onlineCount={onlineCount}
+                onResume={onResume}
               />
             </motion.div>
           )}

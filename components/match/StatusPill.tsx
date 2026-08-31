@@ -11,6 +11,8 @@ type StatusPillProps = {
   onPauseMatching?: () => void
   /** How many accounts currently have a live connection — `null` until the server's first "online-count" arrives. Shown alongside the waiting-state label so "Finding someone…" isn't just a spinner with no sense of whether anyone else is even around. */
   onlineCount?: number | null
+  /** Starts a fresh search — the same callback SwipeStage already threads through for the "paused" swipe-to-resume gesture, reused here for "error"'s own retry button. A real findMatch() call, not a generic "try again" no-op: it resets the ack-timeout's retry budget itself (see useMatchmaking.ts), so this is a genuinely new attempt, not a continuation of the exhausted one. */
+  onResume?: () => void
 }
 
 function describeOnlineCount(count: number): string {
@@ -50,10 +52,15 @@ function describeState(state: MatchState, cameraOff: boolean): string {
       return cameraOff ? "Turn on your camera to resume matching" : ""
     case "active":
       return ""
+    case "error":
+      // Reached only after the ack-timeout's own one automatic retry ALSO
+      // went unanswered (see useMatchmaking.ts's decideQueuePendingTimeout)
+      // — a real, honest dead end, not another silent retry.
+      return "Couldn't find a match right now"
   }
 }
 
-export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCount = null }: StatusPillProps) {
+export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCount = null, onResume }: StatusPillProps) {
   // "Paused" has two genuinely different presentations depending on why —
   // camera-off is a small blocker explained inline like every other pill
   // state below, but a deliberate pause with the camera still on gets the
@@ -103,6 +110,18 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
           className="text-[13px] font-medium text-muted transition hover:text-foreground hover:underline underline-offset-2"
         >
           Pause matching
+        </button>
+      )}
+      {/* "error" only ever reaches here after the automatic retry budget is
+          spent — the only way out from here is a genuinely new attempt,
+          never another silent auto-retry. */}
+      {state === "error" && onResume && (
+        <button
+          type="button"
+          onClick={onResume}
+          className="text-[13px] font-medium text-muted transition hover:text-foreground hover:underline underline-offset-2"
+        >
+          Try again
         </button>
       )}
     </div>
