@@ -182,6 +182,28 @@ async function sendFriendsSnapshot(state: ConnectionState) {
     listPendingRequestsSent(state.userId),
     listBlockedByUserWithUsernames(state.userId),
   ])
+
+  // Temporary diagnostic for the blank-friend-username investigation — safe
+  // to leave in (or remove once confirmed fixed): counts only, never a real
+  // account id or username itself. `missingUsernames` should always be 0 —
+  // onboarding requires a username before matching (and therefore friending)
+  // ever works; a nonzero count here means an upstream write actually left
+  // a friend's `users.username` NULL despite that, worth chasing from here
+  // rather than guessing client-side.
+  const missingUsernames = friends.filter((f) => !f.username).length
+  console.log("ws-server: friends snapshot", {
+    displayId: state.displayId,
+    friendCount: friends.length,
+    usernames: friends.map((f) => Boolean(f.username)),
+    missingUsernames,
+  })
+  if (missingUsernames > 0) {
+    console.warn("ws-server: confirmed friend(s) with no username in the snapshot — upstream data issue, not a display bug", {
+      displayId: state.displayId,
+      missingUsernames,
+    })
+  }
+
   send(state.ws, {
     type: "friends-snapshot",
     friends: friends.map((f) => ({

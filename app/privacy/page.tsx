@@ -133,47 +133,52 @@ export default function PrivacyPolicyPage() {
                 formed. Sending or accepting a friend request is a deliberate action you take, not something that
                 happens automatically.
               </li>
+              <li>
+                Your <strong className="text-foreground">profile photo</strong> and <strong className="text-foreground">bio</strong>,
+                once you&apos;ve set one — see Section 4 for why these moved server-side alongside username.
+              </li>
+              <li>
+                Any <strong className="text-foreground">posts</strong> you&apos;ve added (each one&apos;s image and
+                when it was added) — up to the most recent 20; adding a 21st removes the oldest automatically.
+              </li>
             </ul>
             <p className="mt-2 text-muted">
-              None of the rest of your profile content (gender, bio, photo, posts) is written to this database —
-              see Section 4.
+              Your <strong className="text-foreground">gender</strong> is the one remaining piece of profile content
+              not written to this database — see Section 4.
             </p>
           </section>
 
           <section id="profile-info">
             <h2 className="text-[16px] font-semibold">4. Profile information: what&apos;s stored, and where</h2>
             <p className="mt-2 text-muted">
-              Your <strong className="text-foreground">username</strong> is the one piece of profile information
-              Rizzuno&apos;s database (Section 3) does persist, and it&apos;s deliberately minimal: just the
-              username string itself, tied to your account ID, with nothing else about you attached to it there.
-              It&apos;s stored specifically so it can be permanently unique — no two accounts can hold the same
-              username — which requires the server to actually keep a record of who has claimed what.
-              Choosing a username for the first time, or changing it later from My Profile, sends it to Rizzuno&apos;s
-              server to be checked and claimed; it isn&apos;t just written straight to your browser the way the
-              rest of your profile is.
+              Your <strong className="text-foreground">username</strong>,{" "}
+              <strong className="text-foreground">profile photo</strong>, <strong className="text-foreground">bio</strong>, and any{" "}
+              <strong className="text-foreground">posts</strong> you add are all stored server-side, in Rizzuno&apos;s database
+              (Section 3), tied to your account ID. Your browser also keeps a local copy of these in its own storage, as a
+              cache for instant loading — but the database copy is the authoritative one: it&apos;s what actually loads when
+              you sign in on a new device or a browser with no local cache, and it&apos;s what a friend actually sees when they open
+              your profile from their own Friends list, since another account&apos;s browser has no access to your
+              browser&apos;s local storage at all. Editing any of these fields from My Profile sends the change to
+              Rizzuno&apos;s server to be saved, the same
+              way choosing or changing your username already does.
             </p>
             <p className="mt-2 text-muted">
-              Your gender, bio, profile photo, and any posts you add are all set and stored{" "}
-              <strong className="text-foreground">persistently</strong> only in your own browser&apos;s local
-              storage, keyed to your account ID — Rizzuno&apos;s database never persists these four fields. This
-              means this data does not sync across devices or browsers, and clearing your browser&apos;s site data
-              for Rizzuno removes it entirely.
+              Your <strong className="text-foreground">gender</strong> works differently: it is set and stored{" "}
+              <strong className="text-foreground">persistently</strong> only in your own browser&apos;s local storage,
+              keyed to your account ID — Rizzuno&apos;s database never persists it. This means your gender selection does
+              not sync across devices or browsers, and clearing your browser&apos;s site data for Rizzuno removes it
+              entirely, the same as it always has.
             </p>
             <p className="mt-2 text-muted">
-              Two of those fields are also handled differently while you&apos;re actively using Rizzuno: your{" "}
-              <strong className="text-foreground">gender</strong> and <strong className="text-foreground">profile photo</strong> are
-              transmitted to and processed <strong className="text-foreground">temporarily</strong> by
-              Rizzuno&apos;s realtime service — your gender is used there to pair you with an opposite-selected-
-              gender match, and both are passed along live so the person you&apos;re currently matched with can see
-              them. Your username is passed along live to a current match the same way, in addition to being
-              stored in the database as described above. This realtime processing happens in-memory on the
-              realtime server for the duration of your connection; it is discarded once you disconnect, separately
-              from whatever is or isn&apos;t written to the database.
-            </p>
-            <p className="mt-2 text-muted">
-              Your <strong className="text-foreground">bio</strong> and any <strong className="text-foreground">posts</strong>{" "}
-              you&apos;ve added are never transmitted to Rizzuno&apos;s servers at all, in any form — they exist
-              only in your browser.
+              Your <strong className="text-foreground">gender</strong> and <strong className="text-foreground">profile photo</strong>{" "}
+              are also handled differently while you&apos;re actively using Rizzuno: both are transmitted to and processed{" "}
+              <strong className="text-foreground">temporarily</strong> by Rizzuno&apos;s realtime service — your gender is
+              used there to pair you with an opposite-selected-gender match, and both are passed along live so the person
+              you&apos;re currently matched with can see them, in addition to your profile photo being stored in the
+              database as described above. Your username is passed along live to a current match the same way, in
+              addition to being stored in the database. This realtime processing happens in-memory on the realtime server
+              for the duration of your connection; it is discarded once you disconnect, separately from whatever is or
+              isn&apos;t written to the database.
             </p>
           </section>
 
@@ -280,15 +285,14 @@ export default function PrivacyPolicyPage() {
               security, and none of them are used for advertising, cross-site tracking, or analytics.
             </p>
             <p className="mt-2 text-muted">
-              Your browser&apos;s local storage is also used, entirely on your own device: to save a local copy of
-              your profile (username, gender, bio, photo, posts) keyed to your account ID as described in Section
-              4, and to cache a cosmetic fallback display name shown before you&apos;ve chosen a username. Rizzuno
-              does not currently use browser session storage. Most of this local-storage data (gender, bio, photo,
-              posts) is never sent to Rizzuno&apos;s server automatically — it stays in your browser unless a match
-              receives your live profile fields (Section 4), or unless you delete it yourself (e.g. by clearing
-              site data). Your username is the exception: it&apos;s deliberately sent to the server whenever you
-              set or change it, specifically so it can be claimed and kept unique (Section 4) — that&apos;s a
-              direct result of your own action, not automatic background syncing.
+              Your browser&apos;s local storage is also used, entirely on your own device: to keep a local cache of
+              your profile (username, gender, bio, photo, posts) keyed to your account ID, and to cache a cosmetic
+              fallback display name shown before you&apos;ve chosen a username. Rizzuno does not currently use
+              browser session storage. Your username, profile photo, bio, and posts are deliberately sent to
+              Rizzuno&apos;s server whenever you set or change them — the local copy is a cache for instant loading,
+              not the authoritative one (Section 4). Your gender is the exception: it stays local-storage-only and
+              is never sent to Rizzuno&apos;s server to be persisted — it&apos;s only sent live, temporarily, while
+              you&apos;re actually searching for or in a match (Section 4).
             </p>
           </section>
 
@@ -351,6 +355,14 @@ export default function PrivacyPolicyPage() {
                 claimed it later stops using Rizzuno; no feature currently releases a username automatically.
               </li>
               <li>
+                <strong className="text-foreground">Profile photo &amp; bio</strong> — kept until you change or clear them from My Profile; each edit
+                simply overwrites what was there before.
+              </li>
+              <li>
+                <strong className="text-foreground">Posts</strong> — kept until you delete them yourself, or until the count exceeds 20, at which point
+                the oldest is removed automatically to make room for a new one.
+              </li>
+              <li>
                 <strong className="text-foreground">Friend requests</strong> — kept indefinitely regardless of outcome (pending, accepted, or declined); no
                 feature currently deletes the record of a request once made.
               </li>
@@ -388,13 +400,13 @@ export default function PrivacyPolicyPage() {
               applicable law actually requires one.
             </p>
             <p className="mt-2 text-muted">
-              Your gender, bio, profile photo, and posts are stored only in your own browser (see Section 4) — you
-              can remove them yourself at any time by editing or clearing your profile in the app, or by clearing
-              Rizzuno&apos;s site data in that browser. Because this data was never sent to Rizzuno&apos;s server,
-              Rizzuno has no way to remotely clear it from a browser or device other than the one you&apos;re
-              using. Your username is different, because it&apos;s stored server-side (Section 4): a deletion
-              request that includes releasing your claimed username is something Rizzuno can act on directly,
-              through the contact process above.
+              Your username, profile photo, bio, and posts are stored server-side (Section 4): you can remove or
+              change them yourself at any time from My Profile, and a deletion request that includes them —
+              including releasing your claimed username — is something Rizzuno can act on directly, through the
+              contact process above. Your gender is different: it stays only in your own browser (Section 4), so
+              you remove it yourself by editing your profile or clearing Rizzuno&apos;s site data in that browser —
+              Rizzuno has no way to remotely clear it from a device other than the one you&apos;re using, because it
+              was never sent to Rizzuno&apos;s server to begin with.
             </p>
           </section>
 
@@ -403,16 +415,16 @@ export default function PrivacyPolicyPage() {
             <p className="mt-2 text-muted">
               My Profile → Privacy &amp; data → Download my data provides a copy of the server-side account
               information currently available through Rizzuno&apos;s self-service export: your account status,
-              your claimed username, legal-acceptance history, accounts you have blocked, and reports you have
-              filed.
+              your claimed username, profile photo, bio, and posts, legal-acceptance history, accounts you have
+              blocked, and reports you have filed.
             </p>
             <p className="mt-2 text-muted">
               This self-service export is not a complete copy of every record involving your account. It does not
               currently include, for example, reports in which your account was the one reported, or the contents
               of moderation actions taken against it — those exist in Rizzuno&apos;s database (see Section 3) but
-              aren&apos;t part of this particular export today. It also does not include the rest of your profile
-              content (gender, bio, photo, posts), because that isn&apos;t stored on the server at all — it&apos;s
-              already visible in the browser that holds it.
+              aren&apos;t part of this particular export today. It also does not include your gender, because that
+              isn&apos;t stored on the server at all (Section 4) — it&apos;s already visible in the browser that
+              holds it.
             </p>
           </section>
 
@@ -476,7 +488,11 @@ export default function PrivacyPolicyPage() {
                 exist.
               </li>
               <li><strong className="text-foreground">Report</strong> — sent to human moderation for review; never shown to the reported user.</li>
-              <li><strong className="text-foreground">Edit or clear your local profile</strong> — directly, any time, from My Profile.</li>
+              <li>
+                <strong className="text-foreground">Edit or clear your profile</strong> — profile photo, bio, and posts, directly, any time, from
+                My Profile; changes save to Rizzuno&apos;s server (Section 4). Gender is edited the same way but stays
+                local-storage-only.
+              </li>
               <li>
                 <strong className="text-foreground">Change your username</strong> — from My Profile → Edit profile, any time, subject to it not
                 already being claimed by another account (see Section 4).

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
 import { getOrCreateHandle } from "@/lib/guest"
 import type { Gender } from "@/lib/signaling/protocol"
@@ -16,20 +16,30 @@ type StoredProfile = {
   posts: Post[]
 }
 
+type ServerProfile = { username: string | null; profilePhoto: string | null; bio: string; posts: Post[] }
+
 const STORAGE_PREFIX = "rizzuno:profile:"
 
 /**
- * Profile photo, username, bio, and posts persist in this browser's
- * localStorage, keyed by the *authenticated account's* stable id (Google's
- * `sub`, from the Auth.js session) rather than a random per-tab guest id —
- * so the same profile is there across tabs, reloads, and sign-out/sign-in
- * with the same Google account, not just for the lifetime of one tab.
+ * Username, profile photo, bio, and posts are all server-authoritative now
+ * (migration 0005_profile_fields; see app/api/profile/me, app/api/profile/
+ * posts) — this used to be entirely client-side localStorage, which meant
+ * another account could never see a friend's actual photo/bio/posts on
+ * their profile (only whatever happened to be sitting in the VIEWING
+ * account's own browser). `gender` is deliberately NOT part of this move —
+ * it stays exactly what it always was: client state, sent live over the
+ * realtime connection for matching (see hooks/useMatchmaking.ts's "hello"/
+ * "profile-update"), never persisted to Postgres.
  *
- * Still entirely client-side: nothing here is ever sent to or stored on
- * Rizzuno's server (see lib/db.ts, which deliberately holds no profile
- * content). That's a real limitation (no cross-device sync) but an honest
- * one — the legal fact sheet should say "client-side only," not "synced,"
- * unless this actually changes.
+ * localStorage is still used, but only as a same-browser CACHE now, for an
+ * instant paint before the server round trip resolves — never the
+ * authoritative copy. Every load re-fetches the server and lets it win,
+ * except for a one-time backfill: if the server comes back with a
+ * completely empty profile (photo/bio/posts) but this browser's cache
+ * already had real content — the account existed before this migration —
+ * that cached content is pushed to the server once so it becomes durable
+ * and visible to other accounts going forward, instead of silently
+ * vanishing the next time this hook loads.
  */
 export function useMyProfile() {
   const { data: session, status: sessionStatus } = useSession()
@@ -74,43 +84,80 @@ export function useMyProfile() {
     let cancelled = false
 
     async function load() {
-      let localUsername = ""
+      // 1) Instant paint from this browser's own cache — best-effort, may
+      // be stale or simply absent (a new device, or storage that got
+      // cleared). Server data (below) supersedes this the moment it
+      // arrives; this is purely to avoid a blank flash until then.
+      let cachedGender: Gender | null = null
+      let cachedHadContent = false
+      let cachedPhoto: string | null = null
+      let cachedBio = ""
+      let cachedPosts: Post[] = []
       try {
         const raw = window.localStorage.getItem(STORAGE_PREFIX + userId)
         if (raw) {
           const stored = JSON.parse(raw) as Partial<StoredProfile>
           if (cancelled) return
-          setProfilePhoto(stored.profilePhoto ?? null)
-          localUsername = stored.username ?? ""
-          setUsername(localUsername)
-          setGender(stored.gender ?? null)
-          setBio(stored.bio ?? "")
-          setPosts(stored.posts ?? [])
+          cachedPhoto = stored.profilePhoto ?? null
+          cachedBio = stored.bio ?? ""
+          cachedPosts = stored.posts ?? []
+          cachedGender = stored.gender ?? null
+          cachedHadContent = Boolean(cachedPhoto) || cachedBio.length > 0 || cachedPosts.length > 0
+          setProfilePhoto(cachedPhoto)
+          if (stored.username) setUsername(stored.username)
+          setGender(cachedGender)
+          setBio(cachedBio)
+          setPosts(cachedPosts)
         }
       } catch {
         // Corrupt or unavailable storage — start fresh rather than crash.
       }
 
-      // The server is the actual source of truth for username uniqueness
-      // (see lib/db.ts's claimUsername/app/api/profile/username) — this
-      // browser's own localStorage is just a client-side cache of it. If
-      // this browser has never saved one locally (a new device, or storage
-      // that got cleared) but the account already permanently claimed one
-      // server-side, restore that instead of showing ChooseUsername again
-      // for an account that isn't actually new. Best-effort: a failed fetch
-      // just leaves whatever localStorage already provided (usually
-      // nothing, in this branch) — never blocks hydration on it.
-      if (!localUsername) {
-        try {
-          const res = await fetch("/api/profile/username")
-          if (!cancelled && res.ok) {
-            const data: { username: string | null } = await res.json()
-            if (data.username) setUsername(data.username)
+      // 2) The server is now the actual source of truth for username/
+      // profilePhoto/bio/posts (see this hook's own doc comment) — always
+      // fetch and let it win, not just when the cache was empty, so a
+      // change made from another device is picked up here too.
+      try {
+        const res = await fetch("/api/profile/me")
+        if (!cancelled && res.ok) {
+          const data: ServerProfile = await res.json()
+          if (data.username) setUsername(data.username)
+          setProfilePhoto(data.profilePhoto)
+          setBio(data.bio)
+          setPosts(data.posts)
+
+          // One-time backfill: the server has nothing, but this browser's
+          // cache did — a pre-migration account. Push the cached content
+          // up so it's durable and actually visible to other accounts
+          // (e.g. on a friend's profile) from now on, instead of quietly
+          // disappearing the next time this loads.
+          const serverEmpty = !data.profilePhoto && !data.bio && data.posts.length === 0
+          if (serverEmpty && cachedHadContent) {
+            console.log("profile: backfilling pre-migration local profile content to the server")
+            if (cachedPhoto || cachedBio) {
+              fetch("/api/profile/me", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ profilePhoto: cachedPhoto, bio: cachedBio }),
+              }).catch(() => {
+                // Best-effort — the next save from the editor will retry
+                // implicitly by persisting whatever's currently in state.
+              })
+            }
+            // Oldest first, so the final server-side order (each insert is
+            // newest-first) ends up matching what was already cached.
+            for (const post of [...cachedPosts].reverse()) {
+              fetch("/api/profile/posts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ dataUrl: post.dataUrl }),
+              }).catch(() => {})
+            }
           }
-        } catch {
-          // Network hiccup — ChooseUsername (or a retry) covers this case;
-          // not worth blocking the rest of hydration on it.
         }
+      } catch {
+        // Network hiccup — keep whatever the cache provided; the save
+        // effects below will retry persisting on the next real edit.
       }
 
       if (cancelled) return
@@ -124,9 +171,11 @@ export function useMyProfile() {
     }
   }, [userId, sessionStatus])
 
-  // Saves on every change, but only once the load above has actually run —
-  // otherwise the very first render (before restoring) would overwrite a
-  // real saved profile with blanks.
+  // Caches locally on every change, but only once the load above has
+  // actually run — otherwise the very first render (before restoring)
+  // would overwrite a real saved profile with blanks. Purely a same-
+  // browser instant-paint cache now (see this hook's own doc comment) —
+  // the effect below is what actually persists photo/bio server-side.
   useEffect(() => {
     if (!userId || !hydrated) return
     const stored: StoredProfile = { profilePhoto, username, gender, bio, posts }
@@ -137,9 +186,62 @@ export function useMyProfile() {
     }
   }, [userId, hydrated, profilePhoto, username, gender, bio, posts])
 
+  // Persists profilePhoto/bio to the server whenever either actually
+  // changes post-hydration — this is what makes MyProfileSheet.tsx's
+  // existing `setProfilePhoto(editPhotoDraft)` / `setBio(editBioDraft)`
+  // calls (unchanged call sites) actually reach Postgres instead of only
+  // ever writing to this browser's own localStorage. Skips firing for the
+  // very first post-hydration render (nothing actually changed — it's the
+  // freshly loaded value) via `initializedRef`, so hydrating a profile
+  // never immediately re-PUTs the exact same value straight back.
+  const lastSyncedRef = useRef<{ profilePhoto: string | null; bio: string } | null>(null)
+  useEffect(() => {
+    if (!userId || !hydrated) return
+    if (lastSyncedRef.current === null) {
+      lastSyncedRef.current = { profilePhoto, bio }
+      return
+    }
+    if (lastSyncedRef.current.profilePhoto === profilePhoto && lastSyncedRef.current.bio === bio) return
+    lastSyncedRef.current = { profilePhoto, bio }
+    fetch("/api/profile/me", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profilePhoto, bio }),
+    }).catch(() => {
+      // Best-effort — a network hiccup here just means this particular
+      // edit doesn't reach the server; the cache above still has it
+      // locally, and the next real edit's PUT carries the current value
+      // again regardless.
+    })
+  }, [userId, hydrated, profilePhoto, bio])
+
+  // Adds a post — persists server-side FIRST (so the id is the database's
+  // own, not a client-generated one nothing server-side recognizes), then
+  // reflects it locally. Throws on failure so MyProfileSheet.tsx's caller
+  // can decide how to handle it rather than silently pretending it saved.
+  const addPost = useCallback(
+    async (dataUrl: string) => {
+      const res = await fetch("/api/profile/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataUrl }),
+      })
+      if (!res.ok) throw new Error(`failed to add post: ${res.status}`)
+      const { post }: { post: Post } = await res.json()
+      setPosts((prev) => [post, ...prev])
+    },
+    []
+  )
+
+  const removePost = useCallback(async (postId: string) => {
+    const res = await fetch(`/api/profile/posts/${encodeURIComponent(postId)}`, { method: "DELETE" })
+    if (!res.ok) throw new Error(`failed to remove post: ${res.status}`)
+    setPosts((prev) => prev.filter((post) => post.id !== postId))
+  }, [])
+
   return {
     handle,
-    /** Whether this account's profile has actually finished loading (from localStorage, plus a best-effort canonical-username restore from the server) — false for the brief gap while `userId` is known but its data hasn't loaded yet, and while nothing is loaded at all (signed out). MatchStage waits for this before treating onboarding/realtime as ready to evaluate, so it never judges "has a username" from fields that are still mid-reset to blank. */
+    /** Whether this account's profile has actually finished loading (localStorage cache, then the server round trip — see this hook's own doc comment) — false for the brief gap while `userId` is known but its data hasn't loaded yet, and while nothing is loaded at all (signed out). MatchStage waits for this before treating onboarding/realtime as ready to evaluate, so it never judges "has a username" from fields that are still mid-reset to blank. */
     profileHydrated: hydrated,
     profilePhoto,
     setProfilePhoto,
@@ -150,6 +252,7 @@ export function useMyProfile() {
     bio,
     setBio,
     posts,
-    setPosts,
+    addPost,
+    removePost,
   }
 }

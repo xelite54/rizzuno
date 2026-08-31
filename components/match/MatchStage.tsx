@@ -695,7 +695,8 @@ export function MatchStage() {
         bio={myProfile.bio}
         setBio={myProfile.setBio}
         posts={myProfile.posts}
-        setPosts={myProfile.setPosts}
+        onAddPost={myProfile.addPost}
+        onRemovePost={myProfile.removePost}
       />
     </div>
   )

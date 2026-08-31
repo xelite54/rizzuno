@@ -111,6 +111,25 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // record is asked again. None of these bumps touch or remove any prior
   // acceptance row (see lib/db.ts's recordAcceptance/hasAcceptedCurrent) —
   // this list only changes what counts as "current" going forward.
-  { document: "terms", version: "2026-08-25b" },
-  { document: "privacy", version: "2026-08-25b" },
+  // Bumped 2026-08-31: profile photo, bio, and posts move server-side
+  // (migration 0005_profile_fields; lib/db.ts's getPublicProfile/
+  // updateOwnProfile/addPost/removePost/getFriendshipOtherUser; app/api/
+  // profile/me, app/api/profile/posts, app/api/friends/profile/
+  // [friendshipId]) — the same narrow, deliberate exception migration
+  // 0003_users_username already made for username, now extended to these
+  // three fields specifically so a friend's profile can actually show
+  // their real photo/bio/posts, not just whatever happens to be sitting in
+  // the VIEWING account's own browser. Gender is NOT part of this move —
+  // it stays exactly what it always was: browser-local storage, sent live
+  // over the realtime connection for matching, never persisted to
+  // Postgres. Terms §9 and Privacy §3/§4/§9/§12/§13/§14/§18 updated to
+  // describe photo/bio/posts as server-stored (browser storage is now a
+  // cache, not the authoritative copy) and gender as the one remaining
+  // browser-only field. Material change, so every account with a prior
+  // acceptance record is asked again. None of these bumps touch or remove
+  // any prior acceptance row (see lib/db.ts's recordAcceptance/
+  // hasAcceptedCurrent) — this list only changes what counts as "current"
+  // going forward.
+  { document: "terms", version: "2026-08-31" },
+  { document: "privacy", version: "2026-08-31" },
 ]

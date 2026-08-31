@@ -691,7 +691,7 @@ export async function resolveReport(
   }
 }
 
-/** The only profile field the database actually holds (see migration 0003 and claimUsername()) — kept separate from getUserStatus() so that hot enforcement path's query/shape stays exactly what it's always been for its many other callers (ticket minting, WS "hello", legal/accept). */
+/** Username alone (see migration 0003 and claimUsername()) — kept separate from getUserStatus() so that hot enforcement path's query/shape stays exactly what it's always been for its many other callers (ticket minting, WS "hello", legal/accept). Profile photo/bio/posts also live server-side now (migration 0005) — see getPublicProfile() below for the combined shape. */
 export async function getUsername(userId: string): Promise<string | null> {
   const { rows } = await q<{ username: string | null }>(`SELECT username FROM users WHERE id = $1`, [userId])
   return rows[0]?.username ?? null
@@ -701,6 +701,101 @@ export async function getUsername(userId: string): Promise<string | null> {
 export async function getUserIdByUsername(username: string): Promise<string | null> {
   const { rows } = await q<{ id: string }>(`SELECT id FROM users WHERE username = $1`, [username.trim().toLowerCase()])
   return rows[0]?.id ?? null
+}
+
+export type Post = { id: string; dataUrl: string }
+
+/** Everything a viewer is allowed to see about an account's profile — username plus the fields migration 0005 moved server-side (profilePhoto/bio/posts). Used both by GET /api/profile/me (an account's own) and GET /api/friends/profile/[friendshipId] (a friend's, only after that route verifies the friendship server-side) — deliberately the ONLY four fields either endpoint ever returns; no id, no email, no moderation/legal data. */
+export type PublicProfile = { username: string | null; profilePhoto: string | null; bio: string; posts: Post[] }
+
+// Re-enforced here, not just trusted from the client — the same posture
+// claimUsername()'s UNIQUE-index/regex re-check already takes for username.
+const MAX_BIO_LENGTH = 200 // matches MyProfileSheet.tsx's own client-side cap
+const MAX_POSTS_PER_USER = 20 // matches MyProfileSheet.tsx's own MAX_POSTS
+
+export async function getPublicProfile(userId: string): Promise<PublicProfile> {
+  const [{ rows: userRows }, posts] = await Promise.all([
+    q<{ username: string | null; profile_photo: string | null; bio: string | null }>(
+      `SELECT username, profile_photo, bio FROM users WHERE id = $1`,
+      [userId]
+    ),
+    listPosts(userId),
+  ])
+  const row = userRows[0]
+  return {
+    username: row?.username ?? null,
+    profilePhoto: row?.profile_photo ?? null,
+    bio: row?.bio ?? "",
+    posts,
+  }
+}
+
+/**
+ * Updates the caller's own profilePhoto and/or bio — only the fields
+ * actually present in `updates` are touched (checked via `!== undefined`,
+ * not truthiness), so saving a new photo alone can never accidentally
+ * blank out the bio, and vice versa. `profilePhoto: null` explicitly
+ * clears it (removing a photo is a real, distinct action from "didn't
+ * send one this time"); `bio` has no null case — an empty string already
+ * means "no bio", matching what MyProfileSheet.tsx's editor already sends.
+ */
+export async function updateOwnProfile(userId: string, updates: { profilePhoto?: string | null; bio?: string }): Promise<void> {
+  await ensureUser(userId)
+  if (updates.profilePhoto !== undefined) {
+    await q(`UPDATE users SET profile_photo = $1 WHERE id = $2`, [updates.profilePhoto, userId])
+  }
+  if (updates.bio !== undefined) {
+    await q(`UPDATE users SET bio = $1 WHERE id = $2`, [updates.bio.slice(0, MAX_BIO_LENGTH), userId])
+  }
+}
+
+export async function listPosts(userId: string): Promise<Post[]> {
+  const { rows } = await q<{ id: string; data_url: string }>(
+    `SELECT id, data_url FROM user_posts WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`,
+    [userId, MAX_POSTS_PER_USER]
+  )
+  return rows.map((r) => ({ id: r.id, dataUrl: r.data_url }))
+}
+
+/** Adds one post, then trims back down to MAX_POSTS_PER_USER (oldest first) — mirrors MyProfileSheet.tsx's own client-side `.slice(0, MAX_POSTS)`, re-enforced here rather than trusted, so the cap holds even against a client that skips it. */
+export async function addPost(userId: string, dataUrl: string): Promise<Post> {
+  await ensureUser(userId)
+  const id = randomUUID()
+  await q(`INSERT INTO user_posts (id, user_id, data_url, created_at) VALUES ($1, $2, $3, $4)`, [id, userId, dataUrl, now()])
+  await q(
+    `DELETE FROM user_posts WHERE user_id = $1 AND id NOT IN (
+       SELECT id FROM user_posts WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
+     )`,
+    [userId, MAX_POSTS_PER_USER]
+  )
+  return { id, dataUrl }
+}
+
+/** Deletes a post — only the row's own owner can remove it (enforced in the WHERE clause itself, not trusted from the client). Returns whether a row actually existed to remove. */
+export async function removePost(userId: string, postId: string): Promise<boolean> {
+  const { rows } = await q(`DELETE FROM user_posts WHERE id = $1 AND user_id = $2 RETURNING id`, [postId, userId])
+  return rows.length > 0
+}
+
+/**
+ * Resolves a friendship id to "the OTHER account in it" — but only if
+ * `userId` is actually a party to that friendship; returns null otherwise,
+ * without distinguishing "this friendship doesn't exist" from "it exists
+ * but isn't yours" (the same don't-even-confirm-existence posture blocks
+ * already take). This is the ONE authoritative check GET
+ * /api/friends/profile/[friendshipId] relies on before handing back
+ * anyone's profile — the client only ever supplies a friendshipId it was
+ * already told about (its own friends-snapshot), never a raw account id,
+ * and this is what stands between that and an arbitrary-profile leak.
+ */
+export async function getFriendshipOtherUser(userId: string, friendshipId: string): Promise<string | null> {
+  const { rows } = await q<{ user_a_id: string; user_b_id: string }>(
+    `SELECT user_a_id, user_b_id FROM friendships WHERE id = $1 AND (user_a_id = $2 OR user_b_id = $2)`,
+    [friendshipId, userId]
+  )
+  const row = rows[0]
+  if (!row) return null
+  return row.user_a_id === userId ? row.user_b_id : row.user_a_id
 }
 
 /** Escapes a user-supplied fragment for safe use inside a `LIKE`/`ILIKE` pattern — Postgres's default LIKE escape character is already backslash, so prefixing the three special characters with one is all this needs (no separate ESCAPE clause required). Without this, someone searching for e.g. `50%` or `a_b` would have `%`/`_` act as wildcards instead of literal characters. */
@@ -767,9 +862,9 @@ export async function searchUsersByUsername(
 }
 
 export async function exportUserData(userId: string) {
-  const [status, username, acceptance, blocked, reportsFiled] = await Promise.all([
+  const [status, profile, acceptance, blocked, reportsFiled] = await Promise.all([
     getUserStatus(userId),
-    getUsername(userId),
+    getPublicProfile(userId),
     getAcceptanceHistory(userId),
     listBlockedByUser(userId),
     q<{ category: string; status: string; created_at: string }>(
@@ -780,7 +875,14 @@ export async function exportUserData(userId: string) {
   return {
     accountId: userId,
     accountStatus: status,
-    username,
+    // Profile photo/bio/posts are now server-stored too (migration 0005) —
+    // included here for the same reason username already was: this export
+    // is meant to be everything the server actually holds about the
+    // account, and these are no longer browser-only.
+    username: profile.username,
+    profilePhoto: profile.profilePhoto,
+    bio: profile.bio,
+    posts: profile.posts,
     legalAcceptanceHistory: acceptance,
     usersYouBlocked: blocked,
     reportsYouFiled: reportsFiled,

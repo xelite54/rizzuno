@@ -202,11 +202,12 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               Your username is claimed through Rizzuno&apos;s server and kept permanently unique — no two accounts
               can hold the same one, checked and enforced when you first choose it and again if you ever change it
-              from My Profile. The rest of your profile (gender, bio, photo, and any posts) is stored persistently
-              only in your own browser. Your gender and profile photo, like your username, are also sent to
-              Rizzuno&apos;s realtime service while you&apos;re using it, so a current match can see them; your
-              bio and posts are never sent to Rizzuno&apos;s servers at all. You&apos;re solely responsible for
-              what you put in your profile, including your username. See our{" "}
+              from My Profile. Your profile photo, bio, and any posts are stored server-side too, the same way your
+              username is — visible to friends who open your profile, not just to a current match. Your gender is
+              the exception: it&apos;s stored persistently only in your own browser, and is sent to Rizzuno&apos;s
+              realtime service (like your profile photo and username) only temporarily, while you&apos;re actively
+              using it, so a current match can see it. You&apos;re solely responsible for what you put in your
+              profile, including your username. See our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
               </Link>{" "}

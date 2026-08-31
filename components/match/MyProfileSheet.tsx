@@ -39,7 +39,9 @@ type MyProfileSheetProps = {
   bio: string
   setBio: (value: string) => void
   posts: Post[]
-  setPosts: (value: Post[] | ((prev: Post[]) => Post[])) => void
+  /** Server-persisted now (see hooks/useMyProfile.ts) — throws on failure so the caller here can leave the UI in a recoverable state instead of pretending a failed save succeeded. */
+  onAddPost: (dataUrl: string) => Promise<void>
+  onRemovePost: (postId: string) => Promise<void>
 }
 
 type View = "profile" | "edit" | "newPost" | "viewPost" | "history" | "blocked" | "settings"
@@ -68,7 +70,8 @@ export function MyProfileSheet({
   bio,
   setBio,
   posts,
-  setPosts,
+  onAddPost,
+  onRemovePost,
 }: MyProfileSheetProps) {
   const [view, setView] = useState<View>("profile")
   const [editPhotoDraft, setEditPhotoDraft] = useState<string | null>(null)
@@ -77,9 +80,12 @@ export function MyProfileSheet({
   const [savingEdit, setSavingEdit] = useState(false)
   const [editBioDraft, setEditBioDraft] = useState("")
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
+  const [sharingPost, setSharingPost] = useState(false)
+  const [shareError, setShareError] = useState<string | null>(null)
   const [viewingPost, setViewingPost] = useState<Post | null>(null)
   // Deleting a post needs a second tap to confirm before it actually happens.
   const [confirmingDeletePost, setConfirmingDeletePost] = useState(false)
+  const [deletingPost, setDeletingPost] = useState(false)
   // Same for signing out — needs a second tap too.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
@@ -101,8 +107,10 @@ export function MyProfileSheet({
   function resetToProfile() {
     setView("profile")
     setPendingPostImage(null)
+    setShareError(null)
     setViewingPost(null)
     setConfirmingDeletePost(false)
+    setDeletingPost(false)
     setConfirmingSignOut(false)
   }
 
@@ -213,16 +221,32 @@ export function MyProfileSheet({
     }
   }
 
-  function sharePost() {
-    if (!pendingPostImage) return
-    setPosts((prev) => [{ id: crypto.randomUUID(), dataUrl: pendingPostImage }, ...prev].slice(0, MAX_POSTS))
-    resetToProfile()
+  async function sharePost() {
+    if (!pendingPostImage || sharingPost) return
+    setSharingPost(true)
+    setShareError(null)
+    try {
+      await onAddPost(pendingPostImage)
+      resetToProfile()
+    } catch {
+      setShareError("Couldn't save that post — try again.")
+    } finally {
+      setSharingPost(false)
+    }
   }
 
-  function deleteViewingPost() {
-    if (!viewingPost) return
-    setPosts((prev) => prev.filter((post) => post.id !== viewingPost.id))
-    resetToProfile()
+  async function deleteViewingPost() {
+    if (!viewingPost || deletingPost) return
+    setDeletingPost(true)
+    try {
+      await onRemovePost(viewingPost.id)
+      resetToProfile()
+    } catch {
+      // The post is still there server-side — leave the confirm screen up
+      // (not resetToProfile()) so a retry is one tap away instead of
+      // silently pretending the delete went through.
+      setDeletingPost(false)
+    }
   }
 
   function handleSignOut() {
@@ -635,12 +659,14 @@ export function MyProfileSheet({
               <div className="mx-auto w-full max-w-lg px-6 py-6">
                 {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL post preview, not a static asset */}
                 <img src={pendingPostImage} alt="New post preview" className="w-full rounded-2xl border border-border object-cover" />
+                {shareError && <p className="mt-2 text-[12px] text-danger">{shareError}</p>}
                 <button
                   type="button"
                   onClick={sharePost}
-                  className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110"
+                  disabled={sharingPost}
+                  className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                 >
-                  Share
+                  {sharingPost ? "Sharing…" : "Share"}
                 </button>
               </div>
             )}
@@ -664,16 +690,18 @@ export function MyProfileSheet({
                         <button
                           type="button"
                           onClick={() => setConfirmingDeletePost(false)}
-                          className="flex-1 rounded-xl border border-border px-4 py-2.5 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+                          disabled={deletingPost}
+                          className="flex-1 rounded-xl border border-border px-4 py-2.5 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground disabled:opacity-50"
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
                           onClick={deleteViewingPost}
-                          className="flex-1 rounded-xl bg-danger px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110"
+                          disabled={deletingPost}
+                          className="flex-1 rounded-xl bg-danger px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                         >
-                          Delete
+                          {deletingPost ? "Deleting…" : "Delete"}
                         </button>
                       </div>
                     </div>

@@ -60,6 +60,19 @@ export function FriendsPanel({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [viewingRequesterId, setViewingRequesterId] = useState<string | null>(null)
   const [viewingFriendId, setViewingFriendId] = useState<string | null>(null)
+  // The friend's REAL profile (username/profilePhoto/bio/posts), fetched
+  // through GET /api/friends/profile/[friendshipId] the moment their
+  // profile screen opens — friends-snapshot (the `friends` prop) stays
+  // deliberately lightweight (id/userId/username/online/since) and never
+  // carries this itself; see that route's own doc comment for the
+  // server-side friendship-ownership check backing this fetch.
+  const [friendProfileStatus, setFriendProfileStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle")
+  const [friendProfile, setFriendProfile] = useState<{
+    username: string | null
+    profilePhoto: string | null
+    bio: string
+    posts: { id: string; dataUrl: string }[]
+  } | null>(null)
   // Unfriend/Block both need a second tap to confirm before they actually
   // happen — one for the full-screen profile, one for the row "•••" menu
   // (they're separate surfaces, so separate confirm state).
@@ -124,6 +137,51 @@ export function FriendsPanel({
     }, 250)
     return () => clearTimeout(timer)
   }, [open])
+
+  // Fetches the friend's real profile the moment their profile screen
+  // opens — cancels/ignores a stale in-flight response the same way the
+  // search debounce effect below does, so closing and reopening a
+  // different friend's profile quickly can never have an earlier fetch
+  // land after a newer one already did.
+  useEffect(() => {
+    if (!viewingFriendId) {
+      // Reacting to an external condition (no friend profile is open) by
+      // clearing what was fetched for the last one — not mirroring
+      // existing React state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFriendProfileStatus("idle")
+      setFriendProfile(null)
+      return
+    }
+    let cancelled = false
+    setFriendProfileStatus("loading")
+    setFriendProfile(null)
+    fetch(`/api/friends/profile/${encodeURIComponent(viewingFriendId)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`friend profile fetch failed: ${res.status}`)
+        return res.json()
+      })
+      .then((data: { username: string | null; profilePhoto: string | null; bio: string; posts: { id: string; dataUrl: string }[] }) => {
+        if (cancelled) return
+        if (!data.username) {
+          // Should be impossible — onboarding requires a username before
+          // matching (and therefore friending) ever works. Logged, not
+          // silently papered over with an invented name (see Part 5 of
+          // this fix) — genuinely missing is still shown as itself below,
+          // not as "Someone".
+          console.warn("friends panel: a confirmed friend's profile came back with no username")
+        }
+        setFriendProfile(data)
+        setFriendProfileStatus("loaded")
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFriendProfileStatus("error")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [viewingFriendId])
 
   // Debounced search: waits SEARCH_DEBOUNCE_MS after the last keystroke
   // before actually querying, and cancels/ignores anything still in flight
@@ -799,11 +857,18 @@ export function FriendsPanel({
         </AnimatePresence>
 
         <AnimatePresence>
-          {viewingFriend && (
+          {viewingFriend && (() => {
+            // Prefer the freshly fetched real profile the moment it's in —
+            // falls back to the lightweight snapshot's own displayName only
+            // for the (non-visible-name) aria-label/confirm-copy while that
+            // fetch is still loading, never as a permanent substitute.
+            const friendName = friendProfile?.username ?? viewingFriend.displayName
+            const loading = friendProfileStatus === "loading" || friendProfileStatus === "idle"
+            return (
             <motion.div
               role="dialog"
               aria-modal="true"
-              aria-label={`${viewingFriend.displayName}'s profile`}
+              aria-label={`${friendName}'s profile`}
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
@@ -823,27 +888,53 @@ export function FriendsPanel({
               </div>
 
               <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
-                <span className="relative flex h-24 w-24 shrink-0">
-                  <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                    {viewingFriend.displayName.charAt(0)}
-                  </span>
-                  {/* Presence dot, not a text label — shown only when
-                      actually online, the same convention Instagram/etc.
-                      use on a profile photo (silence means not online,
-                      rather than a separate "Offline" state to announce). */}
-                  {viewingFriend.online && (
-                    <span className="absolute bottom-0.5 left-0.5 h-4 w-4 rounded-full border-2 border-surface bg-online" />
-                  )}
-                </span>
-                <p className="mt-4 text-[18px] font-semibold text-foreground">{viewingFriend.displayName}</p>
+                {loading ? (
+                  <>
+                    <span className="h-24 w-24 shrink-0 animate-pulse rounded-full bg-surface-2" aria-hidden="true" />
+                    <span className="mt-4 h-5 w-32 animate-pulse rounded bg-surface-2" aria-hidden="true" />
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-24 w-24 shrink-0">
+                      {friendProfile?.profilePhoto ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- data-URL profile photo, not a static asset
+                        <img
+                          src={friendProfile.profilePhoto}
+                          alt=""
+                          className="h-24 w-24 rounded-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
+                          {friendName.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      {/* Presence dot, not a text label — shown only when
+                          actually online, the same convention Instagram/etc.
+                          use on a profile photo (silence means not online,
+                          rather than a separate "Offline" state to announce). */}
+                      {viewingFriend.online && (
+                        <span className="absolute bottom-0.5 left-0.5 h-4 w-4 rounded-full border-2 border-surface bg-online" />
+                      )}
+                    </span>
+                    <p className="mt-4 text-[18px] font-semibold text-foreground">
+                      {friendProfile?.username ? `@${friendProfile.username}` : friendName}
+                    </p>
+                    {friendProfile?.bio && (
+                      <p className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-muted">{friendProfile.bio}</p>
+                    )}
+                    {friendProfileStatus === "error" && (
+                      <p className="mt-1.5 text-[12px] text-danger">Couldn&apos;t load this profile — try again.</p>
+                    )}
+                  </>
+                )}
 
                 <div className="mt-8 w-full max-w-xs border-t border-border pt-4">
                   {friendActionConfirm ? (
                     <>
                       <p className="mb-3 text-[13px] leading-relaxed text-muted">
                         {friendActionConfirm === "unfriend"
-                          ? `Unfriend ${viewingFriend.displayName}?`
-                          : `Block ${viewingFriend.displayName}? They won't be able to contact you.`}
+                          ? `Unfriend ${friendName}?`
+                          : `Block ${friendName}? They won't be able to contact you.`}
                       </p>
                       <div className="flex gap-2">
                         <button
@@ -857,7 +948,7 @@ export function FriendsPanel({
                           type="button"
                           onClick={() =>
                             friendActionConfirm === "block"
-                              ? handleBlockPerson(viewingFriend.userId, viewingFriend.displayName)
+                              ? handleBlockPerson(viewingFriend.userId, friendName)
                               : handleRemoveFriend(viewingFriend.id)
                           }
                           className="flex-1 rounded-lg bg-danger px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
@@ -887,11 +978,29 @@ export function FriendsPanel({
                 </div>
 
                 <div className="mt-8 w-full max-w-lg">
-                  <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
+                  {loading ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {[0, 1, 2].map((i) => (
+                        <span key={i} className="aspect-square animate-pulse rounded-xl bg-surface-2" aria-hidden="true" />
+                      ))}
+                    </div>
+                  ) : friendProfile && friendProfile.posts.length > 0 ? (
+                    <div className="grid grid-cols-3 gap-3">
+                      {friendProfile.posts.map((post) => (
+                        <div key={post.id} className="aspect-square overflow-hidden rounded-xl border border-border bg-surface-2 shadow-sm">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- data-URL post image, not a static asset */}
+                          <img src={post.dataUrl} alt="Post" className="h-full w-full object-cover" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
+                  )}
                 </div>
               </div>
             </motion.div>
-          )}
+            )
+          })()}
         </AnimatePresence>
 
         <AnimatePresence>

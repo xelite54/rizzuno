@@ -160,4 +160,34 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_friendships_b ON friendships(user_b_id);
     `,
   },
+  {
+    // Profile photo, bio, and posts move from browser-only localStorage
+    // (hooks/useMyProfile.ts, entirely client-side) to server-authoritative
+    // storage — the same narrow-exception reasoning migration
+    // 0003_users_username already established for username: another
+    // account can never see a friend's photo/bio/posts if the only copy
+    // ever lived in the VIEWING account's own browser (see the friend-
+    // profile bug this fixes — a friend profile could only ever show
+    // whatever was already sitting in the CURRENT browser, never the
+    // actual friend's own content). `profile_photo`/`bio` are nullable —
+    // an account with nothing set yet has NULL, not an empty string, so
+    // "never set" and "explicitly cleared" stay distinguishable. `posts`
+    // gets its own table (one profile can have many) rather than a JSON
+    // column, so a single post can be deleted/queried without rewriting
+    // the whole array — same reasoning `friend_requests`/`friendships`
+    // already used over a single denormalized blob.
+    id: "0005_profile_fields",
+    sql: `
+      ALTER TABLE users ADD COLUMN profile_photo TEXT;
+      ALTER TABLE users ADD COLUMN bio TEXT;
+
+      CREATE TABLE IF NOT EXISTS user_posts (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        data_url TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_posts_user ON user_posts(user_id, created_at DESC);
+    `,
+  },
 ]
