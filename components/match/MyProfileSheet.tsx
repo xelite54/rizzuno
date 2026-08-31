@@ -75,7 +75,6 @@ export function MyProfileSheet({
   const [editUsernameDraft, setEditUsernameDraft] = useState("")
   const [usernameError, setUsernameError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
-  const [editGenderDraft, setEditGenderDraft] = useState<Gender | null>(null)
   const [editBioDraft, setEditBioDraft] = useState("")
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
   const [viewingPost, setViewingPost] = useState<Post | null>(null)
@@ -146,7 +145,6 @@ export function MyProfileSheet({
   function startEditing() {
     setEditPhotoDraft(profilePhoto)
     setEditUsernameDraft(username)
-    setEditGenderDraft(gender)
     setEditBioDraft(bio)
     setUsernameError(null)
     setView("edit")
@@ -199,7 +197,6 @@ export function MyProfileSheet({
 
     setProfilePhoto(editPhotoDraft)
     setUsername(trimmed || username)
-    if (editGenderDraft) setGender(editGenderDraft)
     setBio(editBioDraft.trim())
     setView("profile")
   }
@@ -495,38 +492,6 @@ export function MyProfileSheet({
                     />
                   </div>
                   {usernameError && <p className="mt-1.5 text-[12px] text-danger">{usernameError}</p>}
-                </div>
-
-                <div className="mt-6">
-                  <label className="mb-1.5 block text-[12px] font-medium text-muted">Gender</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setEditGenderDraft("male")}
-                      aria-pressed={editGenderDraft === "male"}
-                      className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
-                        editGenderDraft === "male"
-                          ? "border-accent bg-accent/10 text-foreground"
-                          : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
-                      }`}
-                    >
-                      <MaleIcon className="h-4 w-4" />
-                      Male
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditGenderDraft("female")}
-                      aria-pressed={editGenderDraft === "female"}
-                      className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
-                        editGenderDraft === "female"
-                          ? "border-accent bg-accent/10 text-foreground"
-                          : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
-                      }`}
-                    >
-                      <FemaleIcon className="h-4 w-4" />
-                      Female
-                    </button>
-                  </div>
                 </div>
 
                 <div className="mt-6">
