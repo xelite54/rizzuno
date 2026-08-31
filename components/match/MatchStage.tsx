@@ -426,22 +426,29 @@ export function MatchStage() {
   // Mapped here into the same shapes FriendsPanel.tsx and friends already
   // expected (see hooks/useFriends.ts) so those components needed close to
   // no changes for what's underneath them to stop being fake.
+  // `displayName` is just `username`, shown — not a separate identity with
+  // its own fallback. It used to fall back to the invented "Someone" while
+  // the `username` field right next to it (same source value) fell back to
+  // "" — two different fake answers for the exact same missing data.
+  // Consolidated on the one honest fallback: empty, never a fabricated
+  // name. In practice this basically never triggers — onboarding requires
+  // a username before matching works at all — see ChooseUsername.tsx.
   const friends: DemoFriend[] = rawFriends.map((f) => ({
     id: f.id,
     userId: f.userId,
-    displayName: f.username ?? "Someone",
+    displayName: f.username ?? "",
     username: f.username ?? "",
     online: f.online,
   }))
   const requests: PendingRequest[] = rawFriendRequestsReceived.map((r) => ({
     id: r.id,
     senderId: r.senderId,
-    displayName: r.username ?? "Someone",
+    displayName: r.username ?? "",
     username: r.username ?? "",
   }))
   const blockedUsers: BlockedUser[] = rawBlockedUsers.map((b) => ({
     id: b.userId,
-    displayName: b.username ?? "Someone",
+    displayName: b.username ?? "",
   }))
 
   const [unreadMessages, setUnreadMessages] = useState(0)
