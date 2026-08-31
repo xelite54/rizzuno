@@ -151,13 +151,26 @@ function makeCheckLive(expectedInitiatorState: ConnectionState) {
   }
 }
 
-function toQueuedClient(state: ConnectionState): QueuedClient {
+/**
+ * `searchGeneration` is passed in explicitly — deliberately NEVER read off
+ * `state.searchGeneration` here. This function used to read the live field
+ * directly, which meant a `tryMatch` call still sitting on the serialized
+ * `processingChain` for an OLDER "find"/"skip" (see the "message" handler's
+ * pre-mutation block) could build its queued snapshot from whatever
+ * generation the account is CURRENTLY on by the time its turn finally
+ * comes up — not the generation this specific attempt actually started
+ * under — if a later find/skip/leave had already bumped it in the
+ * meantime. Callers must pass the exact `expectedGeneration` the attempt
+ * was captured under (see `tryMatch`, which also aborts outright if that
+ * no longer matches the live value before ever reaching this function).
+ */
+function toQueuedClient(state: ConnectionState, searchGeneration: number): QueuedClient {
   return {
     userId: state.userId,
     gender: state.gender,
     enqueuedAt: Date.now(),
     debugId: state.displayId,
-    searchGeneration: state.searchGeneration,
+    searchGeneration,
   }
 }
 
@@ -241,16 +254,39 @@ function broadcastOnlineCount() {
  * re-evaluation call sites, which just read the current value since they
  * aren't starting a NEW search intent.
  *
- * Two async boundaries get crossed here — server/matchmaker.ts's own block
- * check inside `reserveMatch`, and the Friends lookup right after — and
- * EVERY condition in `makeCheckLive` is re-verified, for BOTH accounts,
- * after each one. The recent-partner cooldown is recorded (`commitMatch`)
- * only once "matched" has actually been dispatched to two confirmed-OPEN
- * sockets — never before.
+ * The FIRST thing this does is compare `expectedGeneration` against the
+ * LIVE `state.searchGeneration` and abort outright on any mismatch — before
+ * ever touching the matchmaker. This matters specifically for "find"/
+ * "skip": `expectedGeneration` was captured at raw message-RECEIPT time,
+ * but this function doesn't actually run until its turn comes up on the
+ * serialized `processingChain` (see the "message" handler), which can be
+ * arbitrarily later if other messages for this same connection are still
+ * being processed ahead of it. A LATER find/skip/leave for this same
+ * connection can (and does, via that same synchronous pre-mutation block)
+ * bump `state.searchGeneration` again in that gap — so without this check,
+ * an OLDER, already-superseded "find" could still reach `reserveMatch` and
+ * build/commit a match using whatever generation the account happens to be
+ * on by the time it finally runs, not the one it actually started under.
+ *
+ * Two more async boundaries get crossed after that — server/matchmaker.ts's
+ * own block check inside `reserveMatch`, and the Friends lookup right
+ * after — and EVERY condition in `makeCheckLive` is re-verified, for BOTH
+ * accounts, after each one. The recent-partner cooldown is recorded
+ * (`commitMatch`) only once "matched" has actually been dispatched to two
+ * confirmed-OPEN sockets — never before.
  */
 async function tryMatch(state: ConnectionState, expectedGeneration: number) {
+  if (state.searchGeneration !== expectedGeneration) {
+    console.log("ws-server: find superseded before it could even start — aborting", {
+      displayId: state.displayId,
+      expectedGeneration,
+      liveGeneration: state.searchGeneration,
+    })
+    return
+  }
+
   const checkLive = makeCheckLive(state)
-  const room = await matchmaker.reserveMatch(toQueuedClient(state), checkLive)
+  const room = await matchmaker.reserveMatch(toQueuedClient(state, expectedGeneration), checkLive)
   if (!room) {
     // Only acknowledge "queued" if THIS specific find/skip is still the
     // account's current one — a stale (superseded) attempt resolving late
@@ -305,12 +341,18 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
     // rather than being silently dropped from the queue.
     const aState = connections.get(room.a)
     const bState = connections.get(room.b)
+    // room.aGeneration/room.bGeneration, not a fresh read of
+    // aState.searchGeneration/bState.searchGeneration — aCheck/bCheck above
+    // already confirmed (via checkLive) that the live value equals this
+    // exact generation, synchronously, with no `await` since; requeuing
+    // under it is what's actually been verified, not a value that could in
+    // principle have drifted again by this point.
     if (aCheck.live && aState) {
-      matchmaker.requeue(toQueuedClient(aState))
+      matchmaker.requeue(toQueuedClient(aState, room.aGeneration))
       send(aState.ws, { type: "queued" })
     }
     if (bCheck.live && bState) {
-      matchmaker.requeue(toQueuedClient(bState))
+      matchmaker.requeue(toQueuedClient(bState, room.bGeneration))
       send(bState.ws, { type: "queued" })
     }
     return

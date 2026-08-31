@@ -23,13 +23,20 @@ function describeState(state: MatchState, cameraOff: boolean): string {
   switch (state) {
     case "idle":
       // Matching starts on its own the instant a live camera track exists
-      // (see MatchStage's auto-start effect) — there's never a real action
-      // to prompt for here, only a reason it hasn't started yet. Same copy
-      // as "searching" on purpose — the gap between "camera's on" and the
-      // server actually confirming "queued" is real but brief, and showing
-      // a separate "Getting ready…" for it read as a distinct, stalled
-      // step rather than the same wait just starting.
-      return cameraOff ? "Turn on your camera to start matching" : "Finding someone…"
+      // (see MatchStage's auto-start effect) — genuinely idle otherwise,
+      // with nothing real to claim yet. Deliberately NOT "Finding
+      // someone…" here — that label means the server has actually
+      // confirmed this account is in its queue (see "searching" below),
+      // which idle by definition hasn't asked for yet.
+      return cameraOff ? "Turn on your camera to start matching" : ""
+    case "queue-pending":
+      // "find"/"skip" was sent, but the server hasn't confirmed queue
+      // membership ("queued") or found a match yet — see useMatchmaking's
+      // own doc comment on this state. Distinct copy from "searching" on
+      // purpose: this is the one label allowed to describe an attempt
+      // that isn't confirmed yet, so "Finding someone…" itself stays an
+      // honest, server-backed claim rather than an optimistic guess.
+      return "Getting ready…"
     case "searching":
       return "Finding someone…"
     case "connecting":
@@ -61,11 +68,11 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   const label = describeState(state, cameraOff)
   if (!label) return null
 
-  // Not shown during "idle"/"searching" (both now read "Finding someone…")
-  // — just the label on its own there. Still shown for "connecting" (a
-  // real match was found, WebRTC is negotiating) and "peer-left" (about to
-  // search again) — "paused" never gets here at all (a deliberate stop, not
-  // a wait, so it doesn't get a label to attach this to in the first place).
+  // Not shown during "idle"/"queue-pending"/"searching" — just the label on
+  // its own there. Still shown for "connecting" (a real match was found,
+  // WebRTC is negotiating) and "peer-left" (about to search again) —
+  // "paused" never gets here at all (a deliberate stop, not a wait, so it
+  // doesn't get a label to attach this to in the first place).
   const waitingForMatch = state === "connecting" || state === "peer-left"
   const onlineCountLabel = waitingForMatch && onlineCount !== null ? describeOnlineCount(onlineCount) : null
 
@@ -86,8 +93,10 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
       </div>
       {/* Right away, not delayed — a delay just meant this and the "Finding
           someone…" label it sits under went out of sync with the moment
-          searching actually starts (e.g. right after an undo window ends). */}
-      {state === "searching" && onPauseMatching && (
+          searching actually starts (e.g. right after an undo window ends).
+          Shown during "queue-pending" too — wanting to stop trying is valid
+          before the server has confirmed the attempt, not just after. */}
+      {(state === "searching" || state === "queue-pending") && onPauseMatching && (
         <button
           type="button"
           onClick={onPauseMatching}

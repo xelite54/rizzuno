@@ -334,7 +334,10 @@ export function MatchStage() {
   const leftQueueForCameraOff = useRef(false)
   useEffect(() => {
     if (cameraOff) {
-      if (state === "searching" && !leftQueueForCameraOff.current) {
+      // Either stage counts — "queue-pending" (find/skip sent, not yet
+      // confirmed) is just as real a queue attempt as "searching" (confirmed
+      // via "queued") from the camera's point of view; both need leaving.
+      if ((state === "searching" || state === "queue-pending") && !leftQueueForCameraOff.current) {
         leftQueueForCameraOff.current = true
         console.log("matchmaking: camera turned off while searching — leaving the real queue")
         leaveQueueOnly()
@@ -396,18 +399,25 @@ export function MatchStage() {
   // Their name/profile/chat go away the instant you skip — but the video
   // itself keeps playing (the connection is genuinely still open during the
   // undo window) rather than cutting to a blank tile, and the stage reads as
-  // "searching" from the moment you skip, not only once the real skip()
-  // fires a few seconds later.
+  // "queue-pending" (not "searching" — nothing has actually been sent to
+  // the server yet during the undo window; the real skip() is still
+  // pending its own timer) from the moment you swipe, not only once that
+  // timer fires a few seconds later.
   //
-  // When that timer does fire, skip() clears the peer immediately but the
-  // underlying WebRTC connection can take a beat longer to actually report
-  // itself as disconnected — during that gap `state` still reads "active"
-  // with no peer to show, which would otherwise flash an empty stage between
-  // the undo window ending and "Finding someone…" reappearing. Treating
-  // "active with no peer" as "searching" too closes that gap, so the undo
-  // window and the real search join up with nothing blank in between.
+  // When that timer does fire, skip() clears the peer immediately AND sets
+  // the hook's own serverState to "queue-pending" (see useMatchmaking.ts) —
+  // but the underlying WebRTC connection can take a beat longer to actually
+  // report itself as disconnected, and `state` prefers "active" over
+  // serverState for as long as WebRTC still reports connected (see
+  // useMatchmaking.ts's `state` derivation). During that gap `state` reads
+  // "active" with no peer to show, which would otherwise flash an empty
+  // stage between the undo window ending and "Getting ready…"/"Finding
+  // someone…" reappearing. Mapping "active with no peer" to "queue-pending"
+  // too closes that gap — and is genuinely accurate here, not just a
+  // presentational patch: the real serverState already IS "queue-pending"
+  // at that exact moment, `state` just hasn't caught up to it yet.
   const displayedPeer = pendingSkip ? null : peer
-  const swipeMatchState = pendingSkip || (state === "active" && !peer) ? "searching" : state
+  const swipeMatchState = pendingSkip || (state === "active" && !peer) ? "queue-pending" : state
   const inCall = state === "active" && !pendingSkip && Boolean(peer)
 
   // Friends + friend requests — real data now (see useMatchmaking.ts, which

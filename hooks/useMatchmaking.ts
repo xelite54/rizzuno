@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useSignalingSocket } from "./useSignalingSocket"
 import { useWebRTC } from "./useWebRTC"
 import { SignalBacklog } from "@/lib/signalBacklog"
+import { nextMatchState, shouldRetryStalledQueuePending } from "@/lib/matchStateMachine"
+import type { MatchState, MatchStateEvent } from "@/lib/matchStateMachine"
 import type {
   ChatContent,
   Gender,
@@ -17,7 +19,15 @@ import type {
   BlockedUserSummary,
 } from "@/lib/signaling/protocol"
 
-export type MatchState = "idle" | "searching" | "connecting" | "active" | "peer-left" | "paused"
+// Re-exported from lib/matchStateMachine.ts, not redefined here — that file
+// is the single source of truth for both the type AND the transition rules
+// between its values (see its own doc comment for why it's a separate,
+// framework-independent module: testability without a browser/React
+// environment). Every setServerState call below that represents one of
+// these named transitions goes through nextMatchState() rather than
+// setting a literal, specifically so this hook's actual runtime behavior
+// and tests/matchStateMachine.test.mts's coverage of it can never diverge.
+export type { MatchState }
 export type ChatMessage = { id: string; from: "me" | "peer"; content: ChatContent; ts: number }
 
 // What we show about the current match — always a real match, nothing
@@ -62,6 +72,12 @@ const CONSECUTIVE_INVALID_TICKET_LIMIT = 3
 // short enough that a since-fixed misconfiguration recovers within a
 // reasonable wait rather than requiring a manual reload.
 const CONNECTION_FAILED_RETRY_MS = 15_000
+// How long "queue-pending" is allowed to sit unconfirmed before treating it
+// as a dropped/lost "find" — long enough that a normal round trip (even a
+// slow one) resolves well within it, short enough that a genuinely lost
+// message doesn't leave the guest staring at "Getting ready…" indefinitely.
+// See the ack-timeout effect below.
+const QUEUE_PENDING_ACK_TIMEOUT_MS = 5000
 
 export function useMatchmaking(
   /**
@@ -99,7 +115,7 @@ export function useMatchmaking(
   // getUserStatus(), etc). Matching on `connected` alone let the client fire
   // "find" before the server had any ConnectionState for this socket, which
   // server/ws-server.ts silently drops (`if (!state) return`) — the guest
-  // would then sit in "searching" forever with nothing left to retry it.
+  // would then sit in "queue-pending" forever with nothing left to retry it.
   // `realtimeReady` instead only ever flips true when the server's own
   // "ready" ack (sent right after "hello" is fully processed — see
   // server/ws-server.ts) comes back, and flips false again on every
@@ -112,6 +128,13 @@ export function useMatchmaking(
   // derived read of the live WebRTC connection, not a copy of it — see
   // `state` below.
   const [serverState, setServerState] = useState<MatchState>("idle")
+  // Bumped every time serverState enters "queue-pending" (from findMatch(),
+  // skip(), or block()'s eventual resume) — the ack-timeout effect further
+  // down keys off this (not just serverState itself) specifically so a
+  // second "queue-pending" entry restarts the 5s window even though the
+  // state *value* didn't change (React effects don't re-run for a
+  // dependency that re-renders with the same value).
+  const [queuePendingAttempt, setQueuePendingAttempt] = useState(0)
   const [roomId, setRoomId] = useState<string | null>(null)
   const [initiator, setInitiator] = useState(false)
   const [peer, setPeer] = useState<PeerProfile | null>(null)
@@ -187,12 +210,13 @@ export function useMatchmaking(
   //     `roomId` would also block the reconnect-resume effect below from
   //     ever re-sending "find", since it only fires when there's no room.
   //
-  // `serverState` is only forced to "searching" here if we actually had a
-  // room to lose (an idle/already-searching guest has no room, and
-  // "searching" is already the right thing to keep showing through a brief
-  // reconnect gap) and only if the guest still wants matching — if they'd
-  // paused, pauseMatching() already cleared the room itself before this
-  // could ever run.
+  // `serverState` is only forced back to "queue-pending" here if we
+  // actually had a room to lose (an idle/already-searching guest has no
+  // room to begin with) and only if the guest still wants matching — if
+  // they'd paused, pauseMatching() already cleared the room itself before
+  // this could ever run. See the "queue-pending", not "searching" comment
+  // just below for why that's the right target now, not the old
+  // "searching" this used to force.
   useEffect(() => {
     if (connected) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -205,7 +229,13 @@ export function useMatchmaking(
     setMessages([])
     setPeerMicEnabled(true)
     setPeerTyping(false)
-    if (wantsMatchingRef.current) setServerState("searching")
+    // "queue-pending", not "searching" — the transport just dropped, so
+    // there is exactly as much server confirmation of a live search right
+    // now as there is right after sending a fresh "find": none yet. Once
+    // reconnected, the reconnect-resume effect further down sends a real
+    // "find" (which re-enters "queue-pending" again anyway) and a genuine
+    // "queued" is what actually promotes this to "searching" from there.
+    if (wantsMatchingRef.current) setServerState("queue-pending")
   }, [connected, roomId, recordHistory])
 
   const failedSince = useRef<number | null>(null)
@@ -280,12 +310,25 @@ export function useMatchmaking(
   // The connection is genuinely "active" once WebRTC media is actually flowing.
   const state: MatchState = rtcStatus === "connected" ? "active" : serverState
 
+  // The one place any code path is allowed to claim "we're trying to get
+  // into the queue" — never "searching" itself; see
+  // lib/matchStateMachine.ts's own doc comment for the actual rule. Only
+  // the server's own "queued" message (see the message switch below) may
+  // promote this to "searching"; this just marks the attempt (via
+  // nextMatchState, so it's provably the same rule tests/
+  // matchStateMachine.test.mts exercises) and starts its ack-timeout window
+  // (via the attempt counter — see its own doc comment).
+  const enterQueuePending = useCallback((event: Extract<MatchStateEvent, { type: "find-sent" | "skip-sent" | "block-sent" }>) => {
+    setServerState((prev) => nextMatchState(prev, event))
+    setQueuePendingAttempt((n) => n + 1)
+  }, [])
+
   const findMatch = useCallback(() => {
     console.log("matchmaking: sending find")
     wantsMatchingRef.current = true
-    setServerState("searching")
+    enterQueuePending({ type: "find-sent" })
     send({ type: "find" })
-  }, [send])
+  }, [send, enterQueuePending])
 
   // Leaves the real server-side queue WITHOUT touching `wantsMatching` or
   // showing "paused" — used when something external and temporary makes
@@ -294,12 +337,15 @@ export function useMatchmaking(
   // the guest hasn't actually changed their mind about wanting to match.
   // `serverState` goes back to "idle" specifically so StatusPill's existing
   // camera-aware copy ("Turn on your camera to start matching") is what
-  // shows, instead of "Finding someone…" over a queue entry that doesn't
-  // actually exist server-side anymore.
+  // shows, instead of "Finding someone…"/"Getting ready…" over a queue
+  // entry that doesn't actually exist server-side anymore. Cancels either
+  // "searching" (confirmed queued) or "queue-pending" (asked, not yet
+  // confirmed) the same way — camera-off ends the attempt regardless of
+  // which stage it was at.
   const leaveQueueOnly = useCallback(() => {
     console.log("matchmaking: leaving queue only (not a pause — wantsMatching stays true)")
     send({ type: "leave" })
-    setServerState((prev) => (prev === "searching" ? "idle" : prev))
+    setServerState((prev) => nextMatchState(prev, { type: "left-queue" }))
   }, [send])
 
   const skip = useCallback(() => {
@@ -309,9 +355,9 @@ export function useMatchmaking(
     setMessages([])
     setPeerMicEnabled(true)
     setPeerTyping(false)
-    setServerState("searching")
+    enterQueuePending({ type: "skip-sent" })
     send({ type: "skip" })
-  }, [send, recordHistory])
+  }, [send, recordHistory, enterQueuePending])
 
   const sendChat = useCallback(
     (text: string) => {
@@ -350,12 +396,17 @@ export function useMatchmaking(
     // real database write (server/ws-server.ts's addBlock) still has to
     // succeed or fail, but safety doesn't wait on that: see the "blocked"
     // case in the message switch below for what happens once the server
-    // actually confirms it (including re-starting the search).
+    // actually confirms it (including re-starting the search). Optimistic
+    // "queue-pending" here (not "searching" — nothing's confirmed yet, and
+    // no "find" has even been sent server-side until the "blocked" ack
+    // itself triggers one) just so the UI shows *something* right away
+    // instead of a blank gap; the ack-timeout effect covers this exactly
+    // like any other queue-pending entry if that ack is slow or lost.
     send({ type: "block", roomId })
     setRoomId(null)
     setPeer(null)
-    setServerState("searching")
-  }, [roomId, send, recordHistory])
+    enterQueuePending({ type: "block-sent" })
+  }, [roomId, send, recordHistory, enterQueuePending])
 
   /** Reverses a block this account previously placed — see server/ws-server.ts's "unblock" handler and lib/db.ts's removeBlock(). `targetUserId` only ever comes from this account's own blocked-users snapshot. */
   const unblockUser = useCallback(
@@ -420,7 +471,10 @@ export function useMatchmaking(
     setMessages([])
     setPeerMicEnabled(true)
     setPeerTyping(false)
-    setServerState("paused")
+    // Unconditional — cancels "queue-pending" exactly the same way it
+    // cancels "searching"/"connecting"/anything else: pausing always wins,
+    // regardless of what was in flight.
+    setServerState((prev) => nextMatchState(prev, { type: "paused" }))
     send({ type: "leave" })
   }, [send, recordHistory])
 
@@ -583,7 +637,12 @@ export function useMatchmaking(
           break
         case "queued":
           console.log("matchmaking: queued")
-          setServerState((prev) => (prev === "peer-left" ? prev : "searching"))
+          // The ONLY promotion to "searching" — see nextMatchState's own
+          // doc comment for exactly which prior states accept it (only an
+          // attempt that's still genuinely current) and which don't (the
+          // guest already backed out — accepting it anyway would resurrect
+          // "Finding someone…" over a search they already cancelled).
+          setServerState((prev) => nextMatchState(prev, { type: "queued-received" }))
           break
         case "matched":
           console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator })
@@ -594,7 +653,11 @@ export function useMatchmaking(
           setPeerMicEnabled(true) // unknown until they tell us — assume on until we hear otherwise
           setPeerTyping(false)
           failedSince.current = null
-          setServerState("connecting")
+          // Wins outright regardless of prior state — including straight
+          // from "queue-pending" when the server pairs you before a
+          // "queued" ack would even be worth sending (see
+          // lib/matchStateMachine.ts's own doc comment on this exact case).
+          setServerState((prev) => nextMatchState(prev, { type: "matched-received" }))
           // If this match happens to already be a friend (matching doesn't
           // exclude friends — only recent-partners and blocks), reflect
           // that immediately instead of showing "Add" for someone you're
@@ -650,7 +713,7 @@ export function useMatchmaking(
           setPeer(null)
           setPeerMicEnabled(true)
           setPeerTyping(false)
-          setServerState("peer-left")
+          setServerState((prev) => nextMatchState(prev, { type: "peer-left-received" }))
           break
         case "rejected":
           console.warn("matchmaking: hello rejected", { reason: message.reason })
@@ -689,14 +752,17 @@ export function useMatchmaking(
           break
         case "blocked":
           console.log("matchmaking: blocked ack", { ok: message.ok })
-          if (message.ok && wantsMatchingRef.current) {
-            // The interaction already ended locally the instant block() was
-            // called — this is what actually gets a fresh search going
-            // again, mirroring skip() (which re-queues as part of handling
-            // "skip" itself, server-side) instead of leaving the guest
-            // stuck showing "searching" with nothing actually re-queued.
-            findMatch()
-          }
+          // Gated only on wantsMatching, not `ok` — the interaction already
+          // ended locally, unconditionally, the instant block() was called
+          // (see its own comment); whether the block itself persisted to
+          // the database doesn't change whether the guest still wants a
+          // fresh search, and this is what actually sends the "find" that
+          // gets one going (mirroring skip(), which re-queues as part of
+          // handling "skip" itself, server-side). Without this, a failed
+          // addBlock() (a real DB error, not the common case) used to leave
+          // the guest stuck on block()'s own optimistic queue-pending with
+          // nothing ever sent to resolve it.
+          if (wantsMatchingRef.current) findMatch()
           break
         case "unblocked":
           // The blocked-users list itself updates via the "friends-snapshot"
@@ -712,14 +778,24 @@ export function useMatchmaking(
           })
           // The "find"/"skip" we just sent failed server-side (see
           // server/ws-server.ts's catch around handleParsedMessage) — the
-          // client already optimistically flipped to "searching" and
-          // nothing else will ever arrive to move it on its own. Retry once
-          // the way "peer-left" already does, but only if still actually
-          // searching by the time this fires — the guest may have paused,
+          // client already optimistically entered "queue-pending" and
+          // nothing else will ever arrive to move it on its own (it can
+          // never reach "searching" on its own either — see
+          // lib/matchStateMachine.ts). Retry once the way "peer-left"
+          // already does, but only if still actually waiting on this
+          // attempt by the time this fires — the guest may have paused,
           // skipped, or navigated away in the meantime.
           if (message.context === "find") {
             setTimeout(() => {
-              if (serverStateRef.current === "searching") findMatch()
+              // "queue-pending", not (only) "searching" — a find that
+              // errors server-side never reaches "queued" in the first
+              // place, so it's still sitting in "queue-pending" (or, if a
+              // second find/skip already superseded it, "searching" from
+              // THAT attempt) when this fires. Retrying from "searching"
+              // too is harmless — a fresh "find" while already queued just
+              // re-queues under a new generation, same as any other.
+              const current = serverStateRef.current
+              if (current === "queue-pending" || current === "searching") findMatch()
             }, 2000)
           } else if (message.context === "hello") {
             // hello itself failed server-side before "ready" could be sent
@@ -798,8 +874,9 @@ export function useMatchmaking(
   // see the effect above), re-request a match if the guest still wants one
   // and doesn't currently have an active room. This is deliberately
   // independent of whatever `serverState`/`state` happened to be before the
-  // disconnect — a stale "searching" works exactly the same as "idle" here,
-  // which is the actual bug this fixes: MatchStage's own auto-start effect
+  // disconnect — a stale "searching"/"queue-pending" works exactly the same
+  // as "idle" here, which is the actual bug this fixes: MatchStage's own
+  // auto-start effect
   // only ever fires from `state === "idle"`, so a disconnect that happened
   // while genuinely searching (or mid-call) left nothing to ever retry it.
   useEffect(() => {
@@ -828,6 +905,37 @@ export function useMatchmaking(
     const timer = setTimeout(findMatch, 900)
     return () => clearTimeout(timer)
   }, [serverState, realtimeReady, findMatch])
+
+  // Bounded acknowledgement timeout — "queue-pending" means a "find"/
+  // "skip"/block-resume was actually SENT, but neither "queued" nor
+  // "matched" has confirmed it yet. If neither ever arrives (a dropped
+  // frame, a silent server-side failure that doesn't even send "error", a
+  // network blip that doesn't trip the socket's own reconnect), the guest
+  // would otherwise sit on "Getting ready…" — or, before this state even
+  // existed, a false "Finding someone…" — forever, with nothing left to
+  // retry it. `queuePendingAttempt` (not `serverState` alone) is the
+  // dependency specifically so a SECOND entry into "queue-pending" (e.g.
+  // this very timeout firing and calling findMatch() again) restarts the
+  // window even though `serverState` itself didn't change value — see its
+  // own doc comment. Only retries if still actually wanted: a pause or a
+  // real disconnect in the meantime means findMatch() must NOT fire behind
+  // the guest's back.
+  useEffect(() => {
+    if (serverState !== "queue-pending") return
+    const timer = setTimeout(() => {
+      // Both `serverState` and `realtimeReady` closed over here are still
+      // accurate at fire time, not stale — either one changing before this
+      // fires re-runs this effect (they're both in the dependency array),
+      // whose cleanup cancels this exact timer first. So if this callback
+      // ever actually runs, `serverState` was still "queue-pending" and
+      // `realtimeReady` was still whatever's closed over, right up to now.
+      if (shouldRetryStalledQueuePending(serverState, wantsMatchingRef.current, realtimeReady)) {
+        console.warn(`matchmaking: queue-pending ack timeout — no queued/matched within ${QUEUE_PENDING_ACK_TIMEOUT_MS}ms, retrying find`)
+        findMatch()
+      }
+    }, QUEUE_PENDING_ACK_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [serverState, queuePendingAttempt, realtimeReady, findMatch])
 
   // Track how long a connection has been stuck in "failed" (a ref, not state).
   useEffect(() => {

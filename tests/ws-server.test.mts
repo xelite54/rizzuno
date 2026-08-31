@@ -571,3 +571,75 @@ test("a match that fails right before delivery records NO recent-partner cooldow
     dbMockState.friendsCheckDelayMs = 0
   }
 })
+
+// Test 7 — the specific bug this task's client/server architecture audit
+// found: tryMatch(state, expectedGeneration) used to build its queued
+// snapshot from the LIVE state.searchGeneration, read fresh at whatever
+// moment its own turn on the serialized processingChain happened to start
+// — not from `expectedGeneration` itself, the value this specific find/skip
+// was actually captured under at message-RECEIPT time. A find/skip queued
+// behind a slow, unrelated attempt on the SAME connection could sit long
+// enough for a LATER find/leave/find burst on that same connection to bump
+// the live generation multiple times before this older one's turn ever
+// arrives — and it would silently borrow whatever generation happened to be
+// live BY THEN, rather than the one it actually started under.
+//
+// Concretely reproduced here: `initiator`'s first "find" is delayed (via
+// blockCheckDelayMs) checking a throwaway `bystander` already in queue.
+// While that's in flight, `initiator` sends find → leave → find in a burst
+// — all landing (and their synchronous seeking/searchGeneration mutations
+// applying) well before the first find's own processing chain turn is
+// reached. Traced against the OLD code: that first find would read the
+// (by-then-current) generation, find `bystander` still sitting untouched in
+// the queue, and — because that borrowed generation happens to equal
+// initiator's own live value at that instant — pass every CheckLive
+// re-verification and actually commit a real "matched" to both sides... at
+// which point the very next message in the burst (the "leave") runs next
+// on the chain and, seeing initiator now has a roomId, tears it straight
+// back down — "peer-left" is sent to `bystander` a moment after "matched"
+// was. A real bystander, matched and then instantly abandoned, entirely
+// because of a race entirely internal to someone else's own client.
+test("a find superseded before its own processing chain turn starts cannot borrow a newer generation to deliver (and then instantly retract) a match", async () => {
+  resetDbMockState()
+  dbMockState.blockCheckDelayMs = 150
+  const server = await startTestServer()
+  try {
+    const bystander = await connectAndHello(server.url, uid("f-bystander"), { gender: "female" })
+    bystander.send({ type: "find" })
+    await bystander.waitForType("queued")
+
+    const initiator = await connectAndHello(server.url, uid("m-initiator"), { gender: "male" })
+
+    // This first find's own processing won't even START until the delayed
+    // block-check against `bystander` resolves (~150ms).
+    initiator.send({ type: "find" })
+
+    // Sent immediately after — well within that window — a realistic rapid
+    // find → leave → find burst (e.g. an accidental double-tap, undone,
+    // retried) on initiator's own connection. Each one's own
+    // seeking/searchGeneration mutation applies synchronously at receipt,
+    // regardless of the first find still being mid-flight.
+    initiator.send({ type: "find" })
+    initiator.send({ type: "leave" })
+    initiator.send({ type: "find" })
+
+    // With the fix: the FIRST find aborts outright once its turn arrives
+    // (its captured generation no longer matches live) — bystander is
+    // never touched by it. The final "find" in the burst is the one that
+    // legitimately, eventually matches bystander (its own block-check also
+    // delayed) — a real, STABLE match, never preceded by one that gets
+    // immediately retracted.
+    const matched = await bystander.waitForType("matched", 800)
+    assert.ok(matched.roomId)
+    await assert.rejects(
+      bystander.waitForType("peer-left", 200),
+      "a delivered match must be stable — it must never be immediately retracted by a stale find's own trailing 'leave' from the same burst"
+    )
+
+    bystander.close()
+    initiator.close()
+  } finally {
+    await server.close()
+    dbMockState.blockCheckDelayMs = 0
+  }
+})
