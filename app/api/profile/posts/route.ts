@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { addPost, getUserStatus, describeDbError } from "@/lib/db"
-import { isRateLimited } from "@/lib/apiRateLimit"
-
-// Same reasoning as app/api/profile/me/route.ts's own copy of these.
-const MAX_PROFILE_IMAGE_LENGTH = 2_000_000
-const DATA_URL_IMAGE_PATTERN = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i
+import { moderateImage } from "@/lib/imageModeration"
 
 /**
  * Adds one post to the caller's own profile — server-persisted (migration
  * 0005's user_posts table), so a friend viewing this account's profile via
  * GET /api/friends/profile/[friendshipId] actually sees it, not just
  * whatever's sitting in the POSTER's own browser localStorage.
+ *
+ * Every image this account ever tries to post goes through
+ * moderateImage() (lib/imageModeration) BEFORE addPost() is ever called —
+ * addPost() itself has no way to run without a prior "allow", by
+ * construction: there is no code path here that reaches it otherwise.
  */
 export async function POST(request: Request) {
   let session
@@ -27,10 +28,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`profile-post:${userId}`, 20, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
-  }
-
   let body: { dataUrl?: unknown }
   try {
     body = await request.json()
@@ -38,12 +35,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 })
   }
 
-  if (
-    typeof body.dataUrl !== "string" ||
-    body.dataUrl.length > MAX_PROFILE_IMAGE_LENGTH ||
-    !DATA_URL_IMAGE_PATTERN.test(body.dataUrl)
-  ) {
-    return NextResponse.json({ error: "invalid_photo" }, { status: 400 })
+  if (typeof body.dataUrl !== "string") {
+    return NextResponse.json({ error: "invalid_request" }, { status: 400 })
   }
 
   try {
@@ -51,6 +44,20 @@ export async function POST(request: Request) {
     if (status.banned || status.deleted) {
       return NextResponse.json({ error: "account_unavailable" }, { status: 403 })
     }
+
+    const moderation = await moderateImage({ userId, dataUrl: body.dataUrl, surface: "post" })
+    if (moderation.decision !== "allow") {
+      // Generic, user-safe response either way — never a category, a
+      // score, or which provider was involved (see moderateImage's own
+      // doc comment). `unavailable` is the one thing surfaced, and only
+      // so the client can tell "not allowed" apart from "couldn't check,
+      // try again" — see components/match/MyProfileSheet.tsx.
+      return NextResponse.json(
+        { error: moderation.unavailable ? "moderation_unavailable" : "moderation_blocked" },
+        { status: moderation.unavailable ? 503 : 422 }
+      )
+    }
+
     const post = await addPost(userId, body.dataUrl)
     return NextResponse.json({ post })
   } catch (err) {

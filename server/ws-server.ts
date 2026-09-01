@@ -21,6 +21,7 @@ import {
   listBlockedByUserWithUsernames,
 } from "../lib/db"
 import { sanitizeText, containsSevereContent } from "../lib/textFilter"
+import { moderateImage } from "../lib/imageModeration"
 
 const MAX_HANDLE_LENGTH = 40
 const MAX_USERNAME_LENGTH = 24
@@ -784,13 +785,33 @@ export function createRizzunoWebSocketServer() {
             content.dataUrl.length <= MAX_CHAT_IMAGE_LENGTH &&
             DATA_URL_IMAGE_PATTERN.test(content.dataUrl)
           ) {
-            send(partner.ws, {
-              type: "chat",
-              roomId: message.roomId,
-              from: "peer",
-              content: { kind: "image", dataUrl: content.dataUrl },
-              ts: Date.now(),
+            // The same centralized pipeline every profile photo/post goes
+            // through (lib/imageModeration) — a chat image is never
+            // forwarded to the partner until it comes back "allow". This
+            // runs synchronously in the request path (upload → moderate →
+            // send), not send-first-moderate-after: nothing reaches the
+            // partner's socket unless this resolves to allow. The
+            // DATA_URL_IMAGE_PATTERN/MAX_CHAT_IMAGE_LENGTH checks above are
+            // just a cheap pre-filter — moderateImage() does its own real,
+            // decoded-byte validation regardless (see
+            // lib/imageModeration/imageValidation.ts) and is what actually
+            // decides whether this is safe to forward, not this regex.
+            const moderation = await moderateImage({
+              userId: state.userId,
+              dataUrl: content.dataUrl,
+              surface: "chat",
             })
+            if (moderation.decision === "allow") {
+              send(partner.ws, {
+                type: "chat",
+                roomId: message.roomId,
+                from: "peer",
+                content: { kind: "image", dataUrl: content.dataUrl },
+                ts: Date.now(),
+              })
+            } else {
+              send(state.ws, { type: "error", message: "Image blocked." })
+            }
           }
           break
         }

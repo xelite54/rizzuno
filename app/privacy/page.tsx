@@ -141,6 +141,12 @@ export default function PrivacyPolicyPage() {
                 Any <strong className="text-foreground">posts</strong> you&apos;ve added (each one&apos;s image and
                 when it was added) — up to the most recent 20; adding a 21st removes the oldest automatically.
               </li>
+              <li>
+                A record of each <strong className="text-foreground">automated image-safety check</strong> performed
+                on a profile photo, post, or chat image you send — a hash of the image content, which surface it was
+                for, which category (if any) it was flagged under, the decision, and when. This record does not
+                include a copy of the image itself — see Section 4.
+              </li>
             </ul>
             <p className="mt-2 text-muted">
               Your <strong className="text-foreground">gender</strong> is the one remaining piece of profile content
@@ -180,6 +186,11 @@ export default function PrivacyPolicyPage() {
               for the duration of your connection; it is discarded once you disconnect, separately from whatever is or
               isn&apos;t written to the database.
             </p>
+            <p className="mt-2 text-muted">
+              A new profile photo or post is also analyzed by the automated image-safety check described in Section
+              5 before it&apos;s saved — a submission that check doesn&apos;t pass is never saved, and an existing
+              profile photo isn&apos;t replaced by one that failed the check.
+            </p>
           </section>
 
           <section id="communications">
@@ -206,7 +217,17 @@ export default function PrivacyPolicyPage() {
               </li>
               <li>
                 <strong className="text-foreground">Chat text/images</strong> — relayed live through Rizzuno&apos;s server to your current match. Not
-                stored once relayed.
+                stored once relayed, aside from the automated-check record described below.
+              </li>
+              <li>
+                <strong className="text-foreground">Automated image-safety check</strong> — before any image (a chat
+                image, a new profile photo, or a new post) is shown to anyone else or saved, it&apos;s analyzed by an
+                automated content-safety system that checks the image is a genuine, correctly-formed file of a
+                supported type and screens it for prohibited-content categories (such as nudity, graphic violence,
+                or hate imagery). This may involve sending the image to a third-party content-moderation service to
+                perform that analysis — if Rizzuno integrates one, it will be named in Section 8, the same as any
+                other third-party integration. The image itself is not additionally retained because of this check;
+                what&apos;s kept from it is described in Section 3.
               </li>
               <li>
                 <strong className="text-foreground">Reports</strong> — if you file one, the category, any details you type, and which call it relates
@@ -247,6 +268,7 @@ export default function PrivacyPolicyPage() {
               <li><strong className="text-foreground">Friends</strong> — recording who&apos;s sent or accepted a friend request with whom, and delivering a pending request live to the other account if they&apos;re online.</li>
               <li><strong className="text-foreground">Safety &amp; abuse prevention</strong> — reviewing reports and applying warnings/suspensions/bans.</li>
               <li><strong className="text-foreground">Moderation</strong> — giving admins the information needed to review reports and act consistently.</li>
+              <li><strong className="text-foreground">Automated image-safety screening</strong> — checking a profile photo, post, or chat image against prohibited-content categories before it&apos;s shown to anyone else or saved, and recognizing repeated violations for enforcement purposes.</li>
               <li><strong className="text-foreground">Legal acceptance</strong> — keeping a factual record of what each account agreed to, and when.</li>
               <li><strong className="text-foreground">Service operation</strong> — running matchmaking and relaying live signaling/chat.</li>
               <li><strong className="text-foreground">Security</strong> — rate-limiting account-mutating requests and verifying WebSocket connections belong to the session they claim to.</li>
@@ -370,6 +392,12 @@ export default function PrivacyPolicyPage() {
                 <strong className="text-foreground">Friendships</strong> — kept until either side unfriends the other (see Section 18) — this is the one
                 relationship in this list a user can actually end themselves, rather than it being retained
                 indefinitely by default.
+              </li>
+              <li>
+                <strong className="text-foreground">Automated image-safety check records</strong> — kept indefinitely, the same as reports and
+                moderation actions above, since they serve the same enforcement/abuse-prevention purpose (recognizing
+                a pattern of repeated violations). As described in Section 3, this is a hash and decision, not a copy
+                of the image itself.
               </li>
             </ul>
             <p className="mt-2 text-muted">

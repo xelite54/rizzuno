@@ -191,9 +191,18 @@ export default function TermsOfServicePage() {
               In-call text and image chat messages are relayed live through Rizzuno&apos;s server to whoever
               you&apos;re currently matched with, and are not stored once relayed. Chat text, and the username you
               choose, pass through a basic keyword filter for the most severe content before being shown — this
-              catches obvious cases only and is not comprehensive moderation. Images sent in chat are checked only
-              for file type and size before being relayed, not for their content — nothing scans, filters, or
-              reviews what an image actually shows.
+              catches obvious cases only and is not comprehensive moderation.
+            </p>
+            <p className="mt-2 text-muted">
+              Every image you send — a chat image, a profile photo, or a post — is checked by an automated
+              content-safety system before it can be shown to anyone else. This includes verifying the file is a
+              genuine, correctly-formed image of a type Rizzuno supports, and screening for prohibited-content
+              categories such as nudity or sexual content, graphic violence, gore, hate or extremist imagery,
+              weapons, and drugs. An image that check doesn&apos;t pass is never shown to anyone else and, for a
+              profile photo, never replaces the one you already had. This automated screening is not perfect,
+              does not review live video or audio, and does not replace the human-report-based review described
+              in Section 25 for other violations — see Section 25 for what happens if this system itself is
+              unavailable, and what&apos;s retained from a check.
             </p>
           </section>
 
@@ -375,8 +384,20 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               Reports are reviewed by human moderators, not resolved automatically. Rizzuno does not monitor,
               record, or review live video or audio, and does not automatically screen calls for violations — the
-              filtering described in Section 8 covers chat text and usernames only, not images and not video/audio.
-              Moderation of what happens on a call substantially depends on it being reported.
+              keyword filtering described in Section 8 covers chat text and usernames only; the automated image
+              check described in Section 8 covers profile photos, posts, and chat images specifically, not
+              video/audio. Moderation of what happens on a call substantially depends on it being reported.
+            </p>
+            <p className="mt-2 text-muted">
+              The automated image check is a detector, not a certainty — Rizzuno&apos;s own policy decides the
+              outcome from what it reports, and treats an inconclusive or borderline result the same as a rejection
+              rather than letting it through. If the check itself is unavailable or fails for any reason (for
+              example, a timeout), the image is rejected and you can try again — it is never treated as safe by
+              default. A record of each check — a hash of the image (not a copy of the image itself), which
+              category it may have been flagged under, the decision, and when — is kept for enforcement and
+              abuse-prevention purposes, including recognizing repeated violations; see Section 26. Suspected
+              child sexual abuse material is handled outside this ordinary category system entirely and may be
+              reported to the relevant authorities as legally required.
             </p>
           </section>
 
@@ -389,6 +410,12 @@ export default function TermsOfServicePage() {
               discretion, including suspected abuse, fraud, or risk to other users — with or without a prior report.
               A ban or suspension record tied to an account is retained regardless of the account&apos;s status, and
               is not something signing out or requesting deletion of your other data can erase — see Section 28.
+            </p>
+            <p className="mt-2 text-muted">
+              Repeated violations flagged by the automated image check described in Section 25 can also result in a
+              temporary restriction on uploading new images specifically — separate from, and short of, a full
+              account suspension — at Rizzuno&apos;s discretion. A single uncertain automated result does not by
+              itself result in a ban; more severe categories can escalate faster than others.
             </p>
           </section>
 

@@ -96,10 +96,13 @@ export default function CommunityGuidelinesPage() {
           <p className="mt-2 text-muted">
             In-call chat text and the username you choose pass through a basic keyword filter for the most severe
             content before being shown. This catches obvious, blatant cases — it does not understand context,
-            doesn&apos;t catch everything, and is not a substitute for reporting. Images sent in chat are checked
-            only for file type and size, not for their content — nothing scans what&apos;s actually in an image.
-            Live video and audio are not automatically monitored, recorded, screened, or reviewed by Rizzuno;
-            moderation of what happens on a call depends on someone reporting it.
+            doesn&apos;t catch everything, and is not a substitute for reporting. Every image you send — a chat
+            image, a profile photo, or a post — is checked by an automated content-safety system before it can be
+            shown to anyone else, screening for categories like nudity, graphic violence, and other prohibited
+            content; an image that check doesn&apos;t pass is never shown to anyone else. This automated screening
+            is not perfect and is not a substitute for reporting either. Live video and audio are not automatically
+            monitored, recorded, screened, or reviewed by Rizzuno; moderation of what happens on a call depends on
+            someone reporting it.
           </p>
         </section>
 

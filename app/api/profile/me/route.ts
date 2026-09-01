@@ -2,14 +2,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getPublicProfile, updateOwnProfile, getUserStatus, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
+import { moderateImage } from "@/lib/imageModeration"
 
-// Same cap chat images already use (lib/signaling/protocol.ts's
-// MAX_CHAT_IMAGE_LENGTH) and the same data-URL shape server/ws-server.ts's
-// own DATA_URL_IMAGE_PATTERN already validates chat images against —
-// duplicated locally rather than shared, matching how ws-server.ts already
-// defines its own copy rather than importing one.
-const MAX_PROFILE_IMAGE_LENGTH = 2_000_000
-const DATA_URL_IMAGE_PATTERN = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i
 const MAX_BIO_LENGTH = 200
 
 /**
@@ -46,9 +40,21 @@ export async function GET() {
 /**
  * Updates the caller's own profilePhoto and/or bio — the fields present in
  * the request body are the only ones touched (see updateOwnProfile's own
- * doc comment). This is what makes hooks/useMyProfile.ts's editor actually
- * persist server-side instead of only ever writing to this one browser's
- * localStorage.
+ * doc comment). hooks/useMyProfile.ts always sends exactly ONE of these
+ * per request (profilePhoto via its own explicit, moderation-aware
+ * updateProfilePhoto() action; bio via its background auto-sync effect) —
+ * deliberately never bundled, so a photo rejection can never also block an
+ * unrelated bio edit sent in the same request, and vice versa.
+ *
+ * A new `profilePhoto` value goes through moderateImage() (surface:
+ * "profile_photo") BEFORE updateOwnProfile() is ever called with it — on
+ * anything but "allow", updateOwnProfile() never runs for this field at
+ * all, so the existing photo already in the database is simply never
+ * touched (see moderateImage's own doc comment on why "review" is treated
+ * as a rejection the same as "block" — there's no human-review queue for
+ * this to sit in yet). `profilePhoto: null` (explicitly removing a photo)
+ * skips moderation entirely — there's nothing to check when nothing new
+ * is being uploaded.
  */
 export async function PUT(request: Request) {
   let session
@@ -80,11 +86,20 @@ export async function PUT(request: Request) {
   if ("profilePhoto" in body) {
     if (body.profilePhoto === null) {
       updates.profilePhoto = null
-    } else if (
-      typeof body.profilePhoto === "string" &&
-      body.profilePhoto.length <= MAX_PROFILE_IMAGE_LENGTH &&
-      DATA_URL_IMAGE_PATTERN.test(body.profilePhoto)
-    ) {
+    } else if (typeof body.profilePhoto === "string") {
+      const moderation = await moderateImage({ userId, dataUrl: body.profilePhoto, surface: "profile_photo" })
+      if (moderation.decision !== "allow") {
+        // Never applied, and nothing else in this request (bio isn't sent
+        // alongside a photo update — see this function's own doc comment)
+        // gets touched either — the existing photo stays exactly as it
+        // was. Generic, user-safe response only — see moderateImage's own
+        // doc comment on why no category/score/provider detail is ever
+        // returned here.
+        return NextResponse.json(
+          { error: moderation.unavailable ? "moderation_unavailable" : "moderation_blocked" },
+          { status: moderation.unavailable ? 503 : 422 }
+        )
+      }
       updates.profilePhoto = body.profilePhoto
     } else {
       return NextResponse.json({ error: "invalid_photo" }, { status: 400 })

@@ -9,7 +9,7 @@ import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { PeerProfileSheet } from "./PeerProfileSheet"
 import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
-import type { Post, Gender } from "@/hooks/useMyProfile"
+import { ImageModerationRejectedError, type Post, type Gender } from "@/hooks/useMyProfile"
 import type { BlockedUser } from "@/hooks/useFriends"
 
 type MyProfileSheetProps = {
@@ -31,7 +31,8 @@ type MyProfileSheetProps = {
   // useMyProfile) — lifted up there because a real match's peer needs to
   // see this guest's username too, not just this sheet.
   profilePhoto: string | null
-  setProfilePhoto: (value: string | null) => void
+  /** Server-first and moderated (see hooks/useMyProfile.ts's own doc comment) — throws ImageModerationRejectedError on a moderation rejection, a plain Error on any other failure, so saveEdit() below can tell the two apart and leave the previous photo in place either way. */
+  onUpdateProfilePhoto: (value: string | null) => Promise<void>
   username: string
   setUsername: (value: string) => void
   gender: Gender | null
@@ -62,7 +63,7 @@ export function MyProfileSheet({
   open,
   onClose,
   profilePhoto,
-  setProfilePhoto,
+  onUpdateProfilePhoto,
   username,
   setUsername,
   gender,
@@ -78,6 +79,13 @@ export function MyProfileSheet({
   const [editUsernameDraft, setEditUsernameDraft] = useState("")
   const [usernameError, setUsernameError] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
+  // A new profile photo is moderated server-side (see
+  // onUpdateProfilePhoto's own doc comment) — this is its own busy/error
+  // state, separate from savingEdit (which only ever covers the username
+  // claim step), so the Save button can show "Checking image…"
+  // specifically while that's what's actually happening.
+  const [checkingPhoto, setCheckingPhoto] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
   const [editBioDraft, setEditBioDraft] = useState("")
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
   const [sharingPost, setSharingPost] = useState(false)
@@ -162,6 +170,7 @@ export function MyProfileSheet({
     setEditUsernameDraft(username)
     setEditBioDraft(bio)
     setUsernameError(null)
+    setPhotoError(null)
     setView("edit")
   }
 
@@ -171,6 +180,7 @@ export function MyProfileSheet({
     if (!file || !file.type.startsWith("image/")) return
     try {
       setEditPhotoDraft(await resizeImageToDataUrl(file, 480, 0.8))
+      setPhotoError(null)
     } catch {
       // Unsupported image — skip silently.
     }
@@ -183,9 +193,10 @@ export function MyProfileSheet({
   // your photo or bio alone never re-triggers a claim of the name you
   // already own.
   async function saveEdit() {
-    if (savingEdit) return
+    if (savingEdit || checkingPhoto) return
     const trimmed = editUsernameDraft.trim().toLowerCase()
     setUsernameError(null)
+    setPhotoError(null)
 
     if (trimmed && trimmed !== username) {
       setSavingEdit(true)
@@ -210,7 +221,32 @@ export function MyProfileSheet({
       setSavingEdit(false)
     }
 
-    setProfilePhoto(editPhotoDraft)
+    // Only touches the server (and goes through moderation — see
+    // onUpdateProfilePhoto's own doc comment) if the photo actually
+    // changed; re-saving the same photo you already have, or saving with
+    // no photo change at all, skips this entirely. On rejection, the
+    // previous photo is simply never replaced — nothing else in this form
+    // (a username claim above, or the bio save below) is undone by it, and
+    // the edit view stays open so the error is visible and a retry is one
+    // tap away.
+    if (editPhotoDraft !== profilePhoto) {
+      setCheckingPhoto(true)
+      try {
+        await onUpdateProfilePhoto(editPhotoDraft)
+      } catch (err) {
+        setCheckingPhoto(false)
+        setPhotoError(
+          err instanceof ImageModerationRejectedError
+            ? err.unavailable
+              ? "Couldn't check image — try again."
+              : "Image not allowed"
+            : "Couldn't save that photo — try again."
+        )
+        return
+      }
+      setCheckingPhoto(false)
+    }
+
     setUsername(trimmed || username)
     setBio(editBioDraft.trim())
     setView("profile")
@@ -235,8 +271,14 @@ export function MyProfileSheet({
     try {
       await onAddPost(pendingPostImage)
       resetToProfile()
-    } catch {
-      setShareError("Couldn't save that post — try again.")
+    } catch (err) {
+      setShareError(
+        err instanceof ImageModerationRejectedError
+          ? err.unavailable
+            ? "Couldn't check image — try again."
+            : "Image not allowed"
+          : "Couldn't save that post — try again."
+      )
     } finally {
       setSharingPost(false)
     }
@@ -483,6 +525,7 @@ export function MyProfileSheet({
                     onChange={handleEditPhotoPicked}
                     className="hidden"
                   />
+                  {photoError && <p className="mt-2 text-[12px] text-danger">{photoError}</p>}
                 </div>
 
                 <div className="mt-6">
@@ -517,10 +560,10 @@ export function MyProfileSheet({
                 <button
                   type="button"
                   onClick={saveEdit}
-                  disabled={savingEdit}
+                  disabled={savingEdit || checkingPhoto}
                   className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                 >
-                  {savingEdit ? "Saving…" : "Save"}
+                  {checkingPhoto ? "Checking image…" : savingEdit ? "Saving…" : "Save"}
                 </button>
               </div>
             )}
@@ -666,7 +709,7 @@ export function MyProfileSheet({
                   disabled={sharingPost}
                   className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
                 >
-                  {sharingPost ? "Sharing…" : "Share"}
+                  {sharingPost ? "Checking image…" : "Share"}
                 </button>
               </div>
             )}

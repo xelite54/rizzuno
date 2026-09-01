@@ -140,6 +140,30 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // list updated to match. Material change (a previously available
   // self-service control no longer exists), so every account with a prior
   // acceptance record is asked again.
-  { document: "terms", version: "2026-08-31" },
-  { document: "privacy", version: "2026-09-01" },
+  //
+  // Bumped 2026-09-01b (both documents): every profile photo, post, and
+  // chat image now goes through one centralized, server-side automated
+  // content-safety check (lib/imageModeration; a new moderation_events
+  // table) before it can ever be shown to anyone else or saved — this
+  // directly corrects Terms §8's prior claim that chat images were
+  // "checked only for file type and size... nothing scans, filters, or
+  // reviews what an image actually shows", which is no longer true. Terms
+  // §8 now describes the automated check (format/type validation plus
+  // screening for nudity, sexual content, graphic violence, gore, hate/
+  // extremist imagery, weapons, and drugs); §25 (Moderation) describes the
+  // fail-closed behavior (an unavailable check rejects rather than
+  // defaulting to "safe") and what's retained from a check; §26
+  // (Enforcement) adds that repeated violations can lead to a temporary
+  // image-upload restriction, separate from a full account
+  // suspension/ban. Privacy §3 adds the new moderation-check record
+  // (image hash, surface, flagged category if any, decision, when — never
+  // a copy of the image itself) to the database-contents list; §4 and §5
+  // describe when the check runs and that it may involve sending the
+  // image to a third-party content-moderation vendor (to be named in §8 if
+  // and when one is actually integrated, same as any other third party);
+  // §7 adds it as a purpose of processing; §12 adds its retention entry.
+  // Material change to how content is handled before publication, so
+  // every account with a prior acceptance record is asked again.
+  { document: "terms", version: "2026-09-01" },
+  { document: "privacy", version: "2026-09-01b" },
 ]

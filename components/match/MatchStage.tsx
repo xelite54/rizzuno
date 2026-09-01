@@ -687,7 +687,7 @@ export function MatchStage() {
         open={myProfileOpen}
         onClose={() => setMyProfileOpen(false)}
         profilePhoto={myProfile.profilePhoto}
-        setProfilePhoto={myProfile.setProfilePhoto}
+        onUpdateProfilePhoto={myProfile.updateProfilePhoto}
         username={myProfile.username}
         setUsername={myProfile.setUsername}
         gender={myProfile.gender}

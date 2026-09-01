@@ -23,6 +23,34 @@ type ServerProfile = { username: string | null; profilePhoto: string | null; bio
 const STORAGE_PREFIX = "rizzuno:profile:"
 
 /**
+ * Thrown by updateProfilePhoto()/addPost() when the server's response was
+ * specifically a moderation rejection (see lib/imageModeration) — never
+ * for any other kind of failure, which callers get as a plain Error
+ * instead. `unavailable` distinguishes "the provider couldn't be reached/
+ * timed out" (worth a retry) from a real content rejection (retrying the
+ * exact same image won't help) — see components/match/MyProfileSheet.tsx,
+ * which is the only place this ever surfaces to a person, as one of
+ * exactly two messages: "Image not allowed" or "Couldn't check image —
+ * try again". No provider/category/score detail is ever attached to this,
+ * on purpose — this file never even learns any of that; the server
+ * response it's built from doesn't carry it either.
+ */
+export class ImageModerationRejectedError extends Error {
+  constructor(public readonly unavailable: boolean) {
+    super(unavailable ? "moderation_unavailable" : "moderation_blocked")
+    this.name = "ImageModerationRejectedError"
+  }
+}
+
+/** Inspects a failed fetch Response for the two moderation-specific error codes app/api/profile/me and app/api/profile/posts return; throws ImageModerationRejectedError for those, a plain Error (with the HTTP status) for anything else. */
+async function throwForFailedImageUpload(res: Response, action: string): Promise<never> {
+  const body: { error?: string } = await res.json().catch(() => ({}))
+  if (body.error === "moderation_blocked") throw new ImageModerationRejectedError(false)
+  if (body.error === "moderation_unavailable") throw new ImageModerationRejectedError(true)
+  throw new Error(`${action}: ${res.status}`)
+}
+
+/**
  * Bumped only if the backfill logic below ever needs to run again for
  * everyone (it shouldn't). Gates the ENTIRE one-time
  * localStorage-to-server backfill, independently of whatever
@@ -55,20 +83,24 @@ const CURRENT_MIGRATION_VERSION = 1
  * except for a one-time backfill (gated by CURRENT_MIGRATION_VERSION, see
  * its own doc comment): each of profilePhoto/bio/posts is checked and
  * migrated INDEPENDENTLY — a pre-migration account might already have a
- * photo saved (an earlier edit went through app/api/profile/me before
- * this existed... no — more realistically, one field syncing successfully
- * on a previous load while another failed) without that meaning its posts
- * don't ALSO still need migrating. Requiring the whole profile to be
- * empty before backfilling anything was the bug: a friend's photo/bio
- * could show up while their genuinely-existing posts silently never did,
- * because the mere presence of a migrated photo made the check believe
- * there was nothing left to migrate.
+ * photo saved without that meaning its posts don't ALSO still need
+ * migrating. Requiring the whole profile to be empty before backfilling
+ * anything was the bug: a friend's photo/bio could show up while their
+ * genuinely-existing posts silently never did, because the mere presence
+ * of a migrated photo made the check believe there was nothing left to
+ * migrate.
+ *
+ * profilePhoto and posts both go through server-side moderation now (see
+ * lib/imageModeration) — every image this browser ever sends to
+ * app/api/profile/me or app/api/profile/posts (including this file's own
+ * migration backfill of old, pre-moderation local content) is subject to
+ * it exactly the same way, no exceptions.
  */
 export function useMyProfile() {
   const { data: session, status: sessionStatus } = useSession()
   const userId = session?.user?.id ?? ""
 
-  const [profilePhoto, setProfilePhoto] = useState<string | null>(null)
+  const [profilePhoto, setProfilePhotoState] = useState<string | null>(null)
   const [username, setUsername] = useState("")
   const [gender, setGender] = useState<Gender | null>(null)
   const [bio, setBio] = useState("")
@@ -95,7 +127,7 @@ export function useMyProfile() {
     if (sessionStatus === "loading") return
 
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting before loading the new account's own data (or nothing, if signed out) — never carrying over the previous account's fields
-    setProfilePhoto(null)
+    setProfilePhotoState(null)
     setUsername("")
     setGender(null)
     setBio("")
@@ -128,7 +160,7 @@ export function useMyProfile() {
           cachedPosts = stored.posts ?? []
           cachedGender = stored.gender ?? null
           cachedMigrationVersion = stored.serverProfileMigrationVersion ?? 0
-          setProfilePhoto(cachedPhoto)
+          setProfilePhotoState(cachedPhoto)
           if (stored.username) setUsername(stored.username)
           setGender(cachedGender)
           setBio(cachedBio)
@@ -149,7 +181,7 @@ export function useMyProfile() {
         if (!cancelled && res.ok) {
           const data: ServerProfile = await res.json()
           if (data.username) setUsername(data.username)
-          setProfilePhoto(data.profilePhoto)
+          setProfilePhotoState(data.profilePhoto)
           setBio(data.bio)
           setPosts(data.posts)
 
@@ -170,22 +202,42 @@ export function useMyProfile() {
 
             let migrationSucceeded = true
 
-            if (photoNeeded || bioNeeded) {
+            // Photo and bio are sent as two SEPARATE requests, never
+            // bundled — the same reason app/api/profile/me's PUT handler
+            // documents: a photo that a real content policy now rejects
+            // (it never went through moderation when it was first saved,
+            // pre-migration) must never also block an unrelated bio
+            // backfill, and vice versa.
+            if (photoNeeded) {
               try {
                 const putRes = await fetch("/api/profile/me", {
                   method: "PUT",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    ...(photoNeeded ? { profilePhoto: cachedPhoto } : {}),
-                    ...(bioNeeded ? { bio: cachedBio } : {}),
-                  }),
+                  body: JSON.stringify({ profilePhoto: cachedPhoto }),
                 })
                 if (!putRes.ok) {
-                  console.error("profile migration: photo/bio backfill failed", { status: putRes.status })
+                  console.error("profile migration: photo backfill failed", { status: putRes.status })
                   migrationSucceeded = false
                 }
               } catch {
-                console.error("profile migration: photo/bio backfill threw a network error")
+                console.error("profile migration: photo backfill threw a network error")
+                migrationSucceeded = false
+              }
+            }
+
+            if (bioNeeded) {
+              try {
+                const putRes = await fetch("/api/profile/me", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ bio: cachedBio }),
+                })
+                if (!putRes.ok) {
+                  console.error("profile migration: bio backfill failed", { status: putRes.status })
+                  migrationSucceeded = false
+                }
+              } catch {
+                console.error("profile migration: bio backfill threw a network error")
                 migrationSucceeded = false
               }
             }
@@ -193,12 +245,13 @@ export function useMyProfile() {
             if (postsNeeded) {
               // Sequential and awaited, not fire-and-forget — a client
               // that raced ahead without waiting could never tell a real
-              // upload failure apart from success, and had no way to know
-              // when it was actually safe to mark migration complete.
-              // Oldest first, so the final server-side order (each insert
-              // is newest-first) ends up matching what was already
-              // cached; stops at the first failure rather than silently
-              // uploading the rest out of order.
+              // upload failure (including a moderation rejection) apart
+              // from success, and had no way to know when it was actually
+              // safe to mark migration complete. Oldest first, so the
+              // final server-side order (each insert is newest-first)
+              // ends up matching what was already cached; stops at the
+              // first failure rather than silently uploading the rest out
+              // of order.
               for (const post of [...cachedPosts].reverse()) {
                 try {
                   const postRes = await fetch("/api/profile/posts", {
@@ -229,7 +282,7 @@ export function useMyProfile() {
                 const finalRes = await fetch("/api/profile/me")
                 if (!cancelled && finalRes.ok) {
                   const finalData: ServerProfile = await finalRes.json()
-                  setProfilePhoto(finalData.profilePhoto)
+                  setProfilePhotoState(finalData.profilePhoto)
                   setBio(finalData.bio)
                   setPosts(finalData.posts)
                 }
@@ -241,9 +294,14 @@ export function useMyProfile() {
 
             // Marked complete only if nothing needed backfilling in the
             // first place, or everything that did succeeded — never if a
-            // photo/bio/post upload actually failed, so a real failure
-            // gets a genuine retry on the next load instead of being
-            // permanently (and silently) given up on.
+            // photo/bio/post upload actually failed (moderation rejection
+            // included), so a real failure gets a genuine retry on the
+            // next load instead of being permanently (and silently) given
+            // up on. A moderation-rejected pre-migration photo/post is a
+            // real, deliberate rejection though, not a transient failure —
+            // it will keep "failing" (correctly) on every future load
+            // until the offending content is removed client-side; that's
+            // the intended behavior, not a bug to work around here.
             if (!cancelled && (!migrationNeeded || migrationSucceeded)) {
               setMigrationVersion(CURRENT_MIGRATION_VERSION)
             }
@@ -270,7 +328,8 @@ export function useMyProfile() {
   // actually run — otherwise the very first render (before restoring)
   // would overwrite a real saved profile with blanks. Purely a same-
   // browser instant-paint cache now (see this hook's own doc comment) —
-  // the effect below is what actually persists photo/bio server-side.
+  // updateProfilePhoto()/the bio auto-sync effect below are what actually
+  // persist those two fields server-side.
   useEffect(() => {
     if (!userId || !hydrated) return
     const stored: StoredProfile = {
@@ -288,52 +347,75 @@ export function useMyProfile() {
     }
   }, [userId, hydrated, profilePhoto, username, gender, bio, posts, migrationVersion])
 
-  // Persists profilePhoto/bio to the server whenever either actually
-  // changes post-hydration — this is what makes MyProfileSheet.tsx's
-  // existing `setProfilePhoto(editPhotoDraft)` / `setBio(editBioDraft)`
-  // calls (unchanged call sites) actually reach Postgres instead of only
-  // ever writing to this browser's own localStorage. Skips firing for the
-  // very first post-hydration render (nothing actually changed — it's the
-  // freshly loaded value) via `initializedRef`, so hydrating a profile
-  // never immediately re-PUTs the exact same value straight back.
-  const lastSyncedRef = useRef<{ profilePhoto: string | null; bio: string } | null>(null)
+  // Persists bio to the server whenever it actually changes post-hydration
+  // — this is what makes MyProfileSheet.tsx's existing `setBio(editBioDraft)`
+  // call (unchanged call site) actually reach Postgres instead of only
+  // ever writing to this browser's own localStorage. Text only, never
+  // moderated (see lib/imageModeration — images only) — profilePhoto is
+  // deliberately NOT part of this optimistic-sync effect; see
+  // updateProfilePhoto() below for why that one has to be awaited and
+  // server-first instead. Skips firing for the very first post-hydration
+  // render (nothing actually changed — it's the freshly loaded value), so
+  // hydrating a profile never immediately re-PUTs the exact same value
+  // straight back.
+  const lastSyncedBioRef = useRef<string | null>(null)
   useEffect(() => {
     if (!userId || !hydrated) return
-    if (lastSyncedRef.current === null) {
-      lastSyncedRef.current = { profilePhoto, bio }
+    if (lastSyncedBioRef.current === null) {
+      lastSyncedBioRef.current = bio
       return
     }
-    if (lastSyncedRef.current.profilePhoto === profilePhoto && lastSyncedRef.current.bio === bio) return
-    lastSyncedRef.current = { profilePhoto, bio }
+    if (lastSyncedBioRef.current === bio) return
+    lastSyncedBioRef.current = bio
     fetch("/api/profile/me", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profilePhoto, bio }),
+      body: JSON.stringify({ bio }),
     }).catch(() => {
       // Best-effort — a network hiccup here just means this particular
       // edit doesn't reach the server; the cache above still has it
       // locally, and the next real edit's PUT carries the current value
       // again regardless.
     })
-  }, [userId, hydrated, profilePhoto, bio])
+  }, [userId, hydrated, bio])
 
-  // Adds a post — persists server-side FIRST (so the id is the database's
-  // own, not a client-generated one nothing server-side recognizes), then
-  // reflects it locally. Throws on failure so MyProfileSheet.tsx's caller
-  // can decide how to handle it rather than silently pretending it saved.
-  const addPost = useCallback(
-    async (dataUrl: string) => {
-      const res = await fetch("/api/profile/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataUrl }),
-      })
-      if (!res.ok) throw new Error(`failed to add post: ${res.status}`)
-      const { post }: { post: Post } = await res.json()
-      setPosts((prev) => [post, ...prev])
-    },
-    []
-  )
+  // Sets a new profile photo (or `null` to remove one) — server-FIRST,
+  // unlike a plain setState: the whole point of moderation is that a
+  // rejected image must never become visible, even briefly, so this
+  // cannot optimistically apply the new photo before the server has
+  // actually confirmed it. Throws ImageModerationRejectedError (or a
+  // plain Error for any other failure) instead of applying anything —
+  // the existing photo in state/localStorage/the database is left exactly
+  // as it was. Removing a photo (`null`) skips moderation server-side
+  // (see app/api/profile/me's PUT) and this never throws for that case
+  // except on a genuine network/server error.
+  const updateProfilePhoto = useCallback(async (photo: string | null) => {
+    const res = await fetch("/api/profile/me", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profilePhoto: photo }),
+    })
+    if (!res.ok) await throwForFailedImageUpload(res, "failed to update profile photo")
+    setProfilePhotoState(photo)
+  }, [])
+
+  // Adds a post — persists (and gets moderated) server-side FIRST, so the
+  // id is the database's own, not a client-generated one nothing
+  // server-side recognizes, and so a rejected image is never reflected in
+  // local state at all. Throws ImageModerationRejectedError (or a plain
+  // Error for any other failure) so MyProfileSheet.tsx's caller can show
+  // "Image not allowed" / "Couldn't check image — try again" rather than
+  // silently pretending it saved.
+  const addPost = useCallback(async (dataUrl: string) => {
+    const res = await fetch("/api/profile/posts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dataUrl }),
+    })
+    if (!res.ok) await throwForFailedImageUpload(res, "failed to add post")
+    const { post }: { post: Post } = await res.json()
+    setPosts((prev) => [post, ...prev])
+  }, [])
 
   const removePost = useCallback(async (postId: string) => {
     const res = await fetch(`/api/profile/posts/${encodeURIComponent(postId)}`, { method: "DELETE" })
@@ -346,7 +428,8 @@ export function useMyProfile() {
     /** Whether this account's profile has actually finished loading (localStorage cache, then the server round trip — see this hook's own doc comment) — false for the brief gap while `userId` is known but its data hasn't loaded yet, and while nothing is loaded at all (signed out). MatchStage waits for this before treating onboarding/realtime as ready to evaluate, so it never judges "has a username" from fields that are still mid-reset to blank. */
     profileHydrated: hydrated,
     profilePhoto,
-    setProfilePhoto,
+    /** Server-first and moderated — see this function's own doc comment. Replaces the old plain setProfilePhoto setter. */
+    updateProfilePhoto,
     username,
     setUsername,
     gender,

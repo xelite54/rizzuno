@@ -90,5 +90,16 @@ mock.module("../../lib/db.ts", {
       if (dbMockState.friendsSnapshotShouldThrow) throw new Error("simulated friends DB failure")
       return []
     },
+    // lib/imageModeration/index.ts and abuse.ts's real DB-backed pieces —
+    // safe no-cache/no-history defaults so anything that happens to route
+    // an image through moderateImage() during a ws-server test (e.g. a
+    // raw "chat" image message) doesn't crash for want of a live Postgres.
+    // No existing ws-server test currently exercises that path; these
+    // exist so a future one (or tests/wsChatModeration.test.mts, which
+    // injects its own fake provider via setProviderForTesting) can, without
+    // this file needing to grow moderation-specific test knobs itself.
+    recordModerationEvent: async () => "fake-moderation-id",
+    getCachedModerationDecision: async () => null,
+    countRecentBlockedUploads: async () => 0,
   },
 })

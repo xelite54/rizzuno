@@ -847,3 +847,137 @@ export async function searchUsersByUsername(
   )
   return rows.map((r) => ({ username: r.username, alreadyRequested: r.already_requested, alreadyFriends: r.already_friends }))
 }
+
+// ---------------------------------------------------------------------------
+// Image moderation (see lib/imageModeration/) — the audit log / cache
+// backing store for the ONE centralized moderation pipeline every profile
+// photo/post/chat image upload goes through. This file only persists and
+// queries these rows; it makes no moderation decisions itself.
+
+export type ModerationSurface = "profile_photo" | "post" | "chat"
+export type ModerationDecision = "allow" | "review" | "block"
+export type ModerationCategoryScore = { category: string; score: number }
+
+export type ModerationEventRecord = {
+  userId: string
+  surface: ModerationSurface
+  imageHash: string
+  decision: ModerationDecision
+  categories: ModerationCategoryScore[]
+  provider: string
+  providerReference: string | null
+  policyVersion: string
+  providerModelVersion: string
+}
+
+/** Writes exactly one row per moderation attempt — called for every decision (allow/review/block), never only on rejection, so the cache below and the abuse-history counts have a complete picture. */
+export async function recordModerationEvent(event: ModerationEventRecord): Promise<string> {
+  const id = randomUUID()
+  await q(
+    `INSERT INTO moderation_events
+       (id, user_id, surface, image_hash, decision, categories, provider, provider_reference, policy_version, provider_model_version, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      id,
+      event.userId,
+      event.surface,
+      event.imageHash,
+      event.decision,
+      JSON.stringify(event.categories),
+      event.provider,
+      event.providerReference,
+      event.policyVersion,
+      event.providerModelVersion,
+      now(),
+    ]
+  )
+  return id
+}
+
+/**
+ * The moderation cache lookup — the exact same normalized image, already
+ * decided under the exact same policy version and provider model version,
+ * reuses that decision instead of a fresh provider call. Any prior decision
+ * (allow, review, or block) counts: re-paying the provider for an image
+ * it has already scored, under rules that haven't changed, would be pure
+ * waste either way. Most recent match wins if more than one exists.
+ */
+export async function getCachedModerationDecision(
+  imageHash: string,
+  policyVersion: string,
+  providerModelVersion: string
+): Promise<ModerationEventRecord & { moderationId: string } | null> {
+  const { rows } = await q<{
+    id: string
+    user_id: string
+    surface: ModerationSurface
+    image_hash: string
+    decision: ModerationDecision
+    categories: string
+    provider: string
+    provider_reference: string | null
+  }>(
+    `SELECT id, user_id, surface, image_hash, decision, categories, provider, provider_reference
+       FROM moderation_events
+      WHERE image_hash = $1 AND policy_version = $2 AND provider_model_version = $3
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [imageHash, policyVersion, providerModelVersion]
+  )
+  const row = rows[0]
+  if (!row) return null
+  let categories: ModerationCategoryScore[] = []
+  try {
+    categories = JSON.parse(row.categories)
+  } catch {
+    categories = []
+  }
+  return {
+    moderationId: row.id,
+    userId: row.user_id,
+    surface: row.surface,
+    imageHash: row.image_hash,
+    decision: row.decision,
+    categories,
+    provider: row.provider,
+    providerReference: row.provider_reference,
+    policyVersion,
+    providerModelVersion,
+  }
+}
+
+/**
+ * How many of this account's uploads (any surface) were BLOCKED within the
+ * given window — the raw signal lib/imageModeration/abuse.ts's escalation
+ * ladder is built on (see its own doc comment): a first blocked upload is
+ * just a rejection, but a pattern of them within a short window earns a
+ * temporary upload restriction rather than another silent one-off reject.
+ * `categoryFilter`, when given, narrows to blocks that included at least
+ * one of these categories — used for severe categories' own, stricter
+ * (lower-threshold) escalation count, kept separate from the general one.
+ */
+export async function countRecentBlockedUploads(
+  userId: string,
+  sinceMs: number,
+  categoryFilter?: string[]
+): Promise<number> {
+  if (categoryFilter && categoryFilter.length > 0) {
+    const { rows } = await q<{ categories: string }>(
+      `SELECT categories FROM moderation_events WHERE user_id = $1 AND decision = 'block' AND created_at > $2`,
+      [userId, sinceMs]
+    )
+    return rows.filter((r) => {
+      try {
+        const parsed: ModerationCategoryScore[] = JSON.parse(r.categories)
+        return parsed.some((c) => categoryFilter.includes(c.category))
+      } catch {
+        return false
+      }
+    }).length
+  }
+  const { rows } = await q<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM moderation_events WHERE user_id = $1 AND decision = 'block' AND created_at > $2`,
+    [userId, sinceMs]
+  )
+  return Number(rows[0]?.count ?? 0)
+}

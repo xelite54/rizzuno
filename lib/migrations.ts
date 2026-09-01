@@ -190,4 +190,42 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_user_posts_user ON user_posts(user_id, created_at DESC);
     `,
   },
+  {
+    // The one centralized image-moderation pipeline's audit log AND its
+    // moderation cache source (see lib/imageModeration/) — every profile
+    // photo/post/chat image upload writes exactly one row here, whatever
+    // the outcome, before (allow) or instead of (review/block) ever being
+    // persisted/sent anywhere else. `image_hash` + `policy_version` +
+    // `provider_model_version` together are the cache key: a later upload
+    // of the exact same normalized bytes, under the exact same policy and
+    // provider version, reuses the matching row's decision instead of
+    // re-paying the provider — but a policy or provider upgrade changes
+    // the version strings, so old decisions are never silently reused
+    // against different rules. `categories` is a JSON-encoded array of
+    // {category, score} — plain TEXT, matching every other JSON-shaped
+    // field already stored this way in this schema (no JSONB elsewhere to
+    // be consistent with). Deliberately does NOT store the image itself —
+    // a rejected image is never retained anywhere past the request that
+    // produced it, moderated or not.
+    id: "0006_moderation_events",
+    sql: `
+      CREATE TABLE IF NOT EXISTS moderation_events (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        image_hash TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        categories TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        provider_reference TEXT,
+        policy_version TEXT NOT NULL,
+        provider_model_version TEXT NOT NULL,
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_moderation_events_cache
+        ON moderation_events(image_hash, policy_version, provider_model_version, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_moderation_events_user
+        ON moderation_events(user_id, decision, created_at DESC);
+    `,
+  },
 ]

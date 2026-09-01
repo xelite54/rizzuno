@@ -10,6 +10,7 @@
     "test": "tsx --test --experimental-test-module-mocks tests/**/*.test.mts"
   },
   "dependencies": {
+    "image-size": "^2.0.2",
     "motion": "^13.1.0",
     "next": "16.3.1",
     "next-auth": "^5.0.0-beta.32",
