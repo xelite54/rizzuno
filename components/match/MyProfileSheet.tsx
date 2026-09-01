@@ -88,6 +88,13 @@ export function MyProfileSheet({
   const [deletingPost, setDeletingPost] = useState(false)
   // Same for signing out — needs a second tap too.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+  // Gender applies right away (see the Settings toggle below), which is
+  // exactly why it needs its own second-tap confirmation — it's a real,
+  // immediate change to who this account gets matched with, not a draft
+  // sitting behind a separate Save step the way Edit profile's other
+  // fields are. Holds whichever gender was just tapped but not yet
+  // confirmed; null means no pending change.
+  const [pendingGender, setPendingGender] = useState<Gender | null>(null)
   const [exportBusy, setExportBusy] = useState(false)
   // Which blocked-user ids currently have an in-flight unblock request —
   // per-row, so tapping one doesn't disable the whole list, and disabled
@@ -112,6 +119,7 @@ export function MyProfileSheet({
     setConfirmingDeletePost(false)
     setDeletingPost(false)
     setConfirmingSignOut(false)
+    setPendingGender(null)
   }
 
   function handleClose() {
@@ -568,37 +576,68 @@ export function MyProfileSheet({
 
                 <div className="mt-6 border-t border-border pt-4">
                   <p className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">Gender</p>
-                  {/* Applies right away — unlike the picker inside Edit profile,
-                      there's no draft/Save step here; this is the quick,
-                      settings-style toggle. */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setGender("male")}
-                      aria-pressed={gender === "male"}
-                      className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
-                        gender === "male"
-                          ? "border-accent bg-accent/10 text-foreground"
-                          : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
-                      }`}
-                    >
-                      <MaleIcon className="h-4 w-4" />
-                      Male
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setGender("female")}
-                      aria-pressed={gender === "female"}
-                      className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
-                        gender === "female"
-                          ? "border-accent bg-accent/10 text-foreground"
-                          : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
-                      }`}
-                    >
-                      <FemaleIcon className="h-4 w-4" />
-                      Female
-                    </button>
-                  </div>
+                  {pendingGender ? (
+                    <div className="rounded-xl bg-surface-2 p-3">
+                      <p className="text-[12px] leading-relaxed text-muted">
+                        Change gender to {pendingGender === "male" ? "Male" : "Female"}? This changes who
+                        you&apos;re matched with.
+                      </p>
+                      <div className="mt-2.5 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPendingGender(null)}
+                          className="flex-1 rounded-lg border border-border py-2 text-[13px] font-medium text-muted transition hover:bg-surface hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGender(pendingGender)
+                            setPendingGender(null)
+                          }}
+                          className="flex-1 rounded-lg bg-accent py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
+                        >
+                          Confirm
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Applies right away once confirmed below — unlike the
+                          picker that used to live inside Edit profile, there's
+                          no separate draft/Save step; tapping one of these is
+                          itself the first of the two taps this now needs. */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => gender !== "male" && setPendingGender("male")}
+                          aria-pressed={gender === "male"}
+                          className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+                            gender === "male"
+                              ? "border-accent bg-accent/10 text-foreground"
+                              : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
+                          }`}
+                        >
+                          <MaleIcon className="h-4 w-4" />
+                          Male
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => gender !== "female" && setPendingGender("female")}
+                          aria-pressed={gender === "female"}
+                          className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+                            gender === "female"
+                              ? "border-accent bg-accent/10 text-foreground"
+                              : "border-border text-muted hover:bg-surface-2 hover:text-foreground"
+                          }`}
+                        >
+                          <FemaleIcon className="h-4 w-4" />
+                          Female
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="mt-6 border-t border-border pt-4">
