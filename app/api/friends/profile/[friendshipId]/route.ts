@@ -53,6 +53,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
       return NextResponse.json({ error: "not_found" }, { status: 404 })
     }
     const profile = await getPublicProfile(otherUserId)
+    // Temporary diagnostic for the friend-posts investigation — safe to
+    // leave in (or remove once confirmed fixed): booleans/counts only,
+    // never a real id, username, or the image data itself.
+    console.log("friends/profile: GET result", {
+      usernameExists: Boolean(profile.username),
+      postCount: profile.posts.length,
+    })
     return NextResponse.json(profile)
   } catch (err) {
     const details = describeDbError(err)

@@ -14,11 +14,29 @@ type StoredProfile = {
   gender: Gender | null
   bio: string
   posts: Post[]
+  /** See CURRENT_MIGRATION_VERSION's own doc comment. */
+  serverProfileMigrationVersion?: number
 }
 
 type ServerProfile = { username: string | null; profilePhoto: string | null; bio: string; posts: Post[] }
 
 const STORAGE_PREFIX = "rizzuno:profile:"
+
+/**
+ * Bumped only if the backfill logic below ever needs to run again for
+ * everyone (it shouldn't). Gates the ENTIRE one-time
+ * localStorage-to-server backfill, independently of whatever
+ * photo/bio/posts actually look like on a given load — this is what makes
+ * "already migrated, then genuinely deleted all your posts later" behave
+ * correctly. Without this marker, evaluating server-emptiness on every
+ * load would look identical to "never migrated" in both cases, and a
+ * later intentional deletion would get silently un-done by re-uploading
+ * whatever stale posts this one browser's cache still happened to have.
+ * Once a browser+account pair has completed migration (or determined none
+ * was needed) at this version, it's never attempted again, ever, by this
+ * browser for this account.
+ */
+const CURRENT_MIGRATION_VERSION = 1
 
 /**
  * Username, profile photo, bio, and posts are all server-authoritative now
@@ -34,12 +52,17 @@ const STORAGE_PREFIX = "rizzuno:profile:"
  * localStorage is still used, but only as a same-browser CACHE now, for an
  * instant paint before the server round trip resolves — never the
  * authoritative copy. Every load re-fetches the server and lets it win,
- * except for a one-time backfill: if the server comes back with a
- * completely empty profile (photo/bio/posts) but this browser's cache
- * already had real content — the account existed before this migration —
- * that cached content is pushed to the server once so it becomes durable
- * and visible to other accounts going forward, instead of silently
- * vanishing the next time this hook loads.
+ * except for a one-time backfill (gated by CURRENT_MIGRATION_VERSION, see
+ * its own doc comment): each of profilePhoto/bio/posts is checked and
+ * migrated INDEPENDENTLY — a pre-migration account might already have a
+ * photo saved (an earlier edit went through app/api/profile/me before
+ * this existed... no — more realistically, one field syncing successfully
+ * on a previous load while another failed) without that meaning its posts
+ * don't ALSO still need migrating. Requiring the whole profile to be
+ * empty before backfilling anything was the bug: a friend's photo/bio
+ * could show up while their genuinely-existing posts silently never did,
+ * because the mere presence of a migrated photo made the check believe
+ * there was nothing left to migrate.
  */
 export function useMyProfile() {
   const { data: session, status: sessionStatus } = useSession()
@@ -50,6 +73,7 @@ export function useMyProfile() {
   const [gender, setGender] = useState<Gender | null>(null)
   const [bio, setBio] = useState("")
   const [posts, setPosts] = useState<Post[]>([])
+  const [migrationVersion, setMigrationVersion] = useState(0)
   const [hydrated, setHydrated] = useState(false)
   const [handle, setHandle] = useState("")
 
@@ -76,6 +100,7 @@ export function useMyProfile() {
     setGender(null)
     setBio("")
     setPosts([])
+    setMigrationVersion(0)
     setHandle("")
     setHydrated(false)
 
@@ -89,10 +114,10 @@ export function useMyProfile() {
       // cleared). Server data (below) supersedes this the moment it
       // arrives; this is purely to avoid a blank flash until then.
       let cachedGender: Gender | null = null
-      let cachedHadContent = false
       let cachedPhoto: string | null = null
       let cachedBio = ""
       let cachedPosts: Post[] = []
+      let cachedMigrationVersion = 0
       try {
         const raw = window.localStorage.getItem(STORAGE_PREFIX + userId)
         if (raw) {
@@ -102,7 +127,7 @@ export function useMyProfile() {
           cachedBio = stored.bio ?? ""
           cachedPosts = stored.posts ?? []
           cachedGender = stored.gender ?? null
-          cachedHadContent = Boolean(cachedPhoto) || cachedBio.length > 0 || cachedPosts.length > 0
+          cachedMigrationVersion = stored.serverProfileMigrationVersion ?? 0
           setProfilePhoto(cachedPhoto)
           if (stored.username) setUsername(stored.username)
           setGender(cachedGender)
@@ -112,6 +137,8 @@ export function useMyProfile() {
       } catch {
         // Corrupt or unavailable storage — start fresh rather than crash.
       }
+      if (cancelled) return
+      setMigrationVersion(cachedMigrationVersion)
 
       // 2) The server is now the actual source of truth for username/
       // profilePhoto/bio/posts (see this hook's own doc comment) — always
@@ -126,38 +153,106 @@ export function useMyProfile() {
           setBio(data.bio)
           setPosts(data.posts)
 
-          // One-time backfill: the server has nothing, but this browser's
-          // cache did — a pre-migration account. Push the cached content
-          // up so it's durable and actually visible to other accounts
-          // (e.g. on a friend's profile) from now on, instead of quietly
-          // disappearing the next time this loads.
-          const serverEmpty = !data.profilePhoto && !data.bio && data.posts.length === 0
-          if (serverEmpty && cachedHadContent) {
-            console.log("profile: backfilling pre-migration local profile content to the server")
-            if (cachedPhoto || cachedBio) {
-              fetch("/api/profile/me", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ profilePhoto: cachedPhoto, bio: cachedBio }),
-              }).catch(() => {
-                // Best-effort — the next save from the editor will retry
-                // implicitly by persisting whatever's currently in state.
-              })
+          if (cachedMigrationVersion < CURRENT_MIGRATION_VERSION) {
+            // Each field's own, INDEPENDENT check — never require all
+            // three to be empty before backfilling any one of them (see
+            // this hook's own doc comment for exactly why that was wrong).
+            const photoNeeded = !data.profilePhoto && Boolean(cachedPhoto)
+            const bioNeeded = !data.bio && cachedBio.length > 0
+            const postsNeeded = data.posts.length === 0 && cachedPosts.length > 0
+            const migrationNeeded = photoNeeded || bioNeeded || postsNeeded
+
+            console.log("profile post migration", {
+              cachedPostCount: cachedPosts.length,
+              serverPostCount: data.posts.length,
+              migrationNeeded,
+            })
+
+            let migrationSucceeded = true
+
+            if (photoNeeded || bioNeeded) {
+              try {
+                const putRes = await fetch("/api/profile/me", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    ...(photoNeeded ? { profilePhoto: cachedPhoto } : {}),
+                    ...(bioNeeded ? { bio: cachedBio } : {}),
+                  }),
+                })
+                if (!putRes.ok) {
+                  console.error("profile migration: photo/bio backfill failed", { status: putRes.status })
+                  migrationSucceeded = false
+                }
+              } catch {
+                console.error("profile migration: photo/bio backfill threw a network error")
+                migrationSucceeded = false
+              }
             }
-            // Oldest first, so the final server-side order (each insert is
-            // newest-first) ends up matching what was already cached.
-            for (const post of [...cachedPosts].reverse()) {
-              fetch("/api/profile/posts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ dataUrl: post.dataUrl }),
-              }).catch(() => {})
+
+            if (postsNeeded) {
+              // Sequential and awaited, not fire-and-forget — a client
+              // that raced ahead without waiting could never tell a real
+              // upload failure apart from success, and had no way to know
+              // when it was actually safe to mark migration complete.
+              // Oldest first, so the final server-side order (each insert
+              // is newest-first) ends up matching what was already
+              // cached; stops at the first failure rather than silently
+              // uploading the rest out of order.
+              for (const post of [...cachedPosts].reverse()) {
+                try {
+                  const postRes = await fetch("/api/profile/posts", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ dataUrl: post.dataUrl }),
+                  })
+                  if (!postRes.ok) {
+                    console.error("profile migration: a post backfill upload failed", { status: postRes.status })
+                    migrationSucceeded = false
+                    break
+                  }
+                } catch {
+                  console.error("profile migration: a post backfill upload threw a network error")
+                  migrationSucceeded = false
+                  break
+                }
+              }
+            }
+
+            if (migrationNeeded && migrationSucceeded) {
+              // Re-fetch so React state (and what gets cached locally
+              // right after) holds the CANONICAL database rows — real,
+              // server-generated post ids, not the client-generated
+              // crypto.randomUUID() ones a pre-migration post was created
+              // with, which the server has never heard of.
+              try {
+                const finalRes = await fetch("/api/profile/me")
+                if (!cancelled && finalRes.ok) {
+                  const finalData: ServerProfile = await finalRes.json()
+                  setProfilePhoto(finalData.profilePhoto)
+                  setBio(finalData.bio)
+                  setPosts(finalData.posts)
+                }
+              } catch {
+                // The uploads themselves already succeeded — state just
+                // won't reflect the canonical ids until the next reload.
+              }
+            }
+
+            // Marked complete only if nothing needed backfilling in the
+            // first place, or everything that did succeeded — never if a
+            // photo/bio/post upload actually failed, so a real failure
+            // gets a genuine retry on the next load instead of being
+            // permanently (and silently) given up on.
+            if (!cancelled && (!migrationNeeded || migrationSucceeded)) {
+              setMigrationVersion(CURRENT_MIGRATION_VERSION)
             }
           }
         }
       } catch {
-        // Network hiccup — keep whatever the cache provided; the save
-        // effects below will retry persisting on the next real edit.
+        // Network hiccup fetching the profile itself — keep whatever the
+        // cache provided; this whole load (backfill included) effectively
+        // retries on the next mount/account-switch.
       }
 
       if (cancelled) return
@@ -178,13 +273,20 @@ export function useMyProfile() {
   // the effect below is what actually persists photo/bio server-side.
   useEffect(() => {
     if (!userId || !hydrated) return
-    const stored: StoredProfile = { profilePhoto, username, gender, bio, posts }
+    const stored: StoredProfile = {
+      profilePhoto,
+      username,
+      gender,
+      bio,
+      posts,
+      serverProfileMigrationVersion: migrationVersion,
+    }
     try {
       window.localStorage.setItem(STORAGE_PREFIX + userId, JSON.stringify(stored))
     } catch {
       // Storage full or unavailable — this save just won't stick.
     }
-  }, [userId, hydrated, profilePhoto, username, gender, bio, posts])
+  }, [userId, hydrated, profilePhoto, username, gender, bio, posts, migrationVersion])
 
   // Persists profilePhoto/bio to the server whenever either actually
   // changes post-hydration — this is what makes MyProfileSheet.tsx's
