@@ -46,12 +46,14 @@ export function SelfPanel({ stream, status, cameraEnabled }: SelfPanelProps) {
           this tile — present in every state above (live video, camera off,
           denied, unavailable, still turning on), not just the sign-in
           screen, so it's there through idle/searching/matching/an active
-          call too, not just before you're signed in. Decorative only — the
-          drop shadow is what keeps it legible over whatever's actually in
-          the video, not just this app's own dark surface colors. */}
+          call too, not just before you're signed in. The same two-tone
+          accent/accent-2 gradient the rest of the brand mark uses, not
+          plain white — deliberately the one spot of real color on this
+          tile. The drop shadow keeps it legible over whatever's actually
+          in the video, not just this app's own dark surface colors. */}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute left-2 top-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-white/80 drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)]"
+        className="pointer-events-none absolute left-2 top-2 bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-[13px] font-extrabold uppercase tracking-[0.12em] text-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)]"
       >
         Rizzuno
       </span>
