@@ -279,14 +279,6 @@ export async function recordAcceptance(userId: string) {
   }
 }
 
-export async function getAcceptanceHistory(userId: string) {
-  const { rows } = await q<{ document: string; version: string; accepted_at: string }>(
-    `SELECT document, version, accepted_at FROM legal_acceptance WHERE user_id = $1 ORDER BY accepted_at DESC`,
-    [userId]
-  )
-  return rows.map((r) => ({ ...r, accepted_at: Number(r.accepted_at) }))
-}
-
 export type ClaimUsernameResult = { ok: true } | { ok: false; reason: "taken" }
 
 /**
@@ -389,11 +381,6 @@ export async function isBlockedEitherWay(a: string, b: string): Promise<boolean>
     [a, b, b, a]
   )
   return rows.length > 0
-}
-
-export async function listBlockedByUser(userId: string): Promise<string[]> {
-  const { rows } = await q<{ blocked_id: string }>(`SELECT blocked_id FROM blocks WHERE blocker_id = $1`, [userId])
-  return rows.map((r) => r.blocked_id)
 }
 
 /** The current, non-PII-adjacent snapshot of who you've blocked — just the account id and whatever username (if any) that account has claimed, for My Profile's "Blocked users" list. */
@@ -859,32 +846,4 @@ export async function searchUsersByUsername(
     [escapeLikePattern(trimmed.toLowerCase()), excludeUserId, limit]
   )
   return rows.map((r) => ({ username: r.username, alreadyRequested: r.already_requested, alreadyFriends: r.already_friends }))
-}
-
-export async function exportUserData(userId: string) {
-  const [status, profile, acceptance, blocked, reportsFiled] = await Promise.all([
-    getUserStatus(userId),
-    getPublicProfile(userId),
-    getAcceptanceHistory(userId),
-    listBlockedByUser(userId),
-    q<{ category: string; status: string; created_at: string }>(
-      `SELECT category, status, created_at FROM reports WHERE reporter_id = $1 ORDER BY created_at DESC`,
-      [userId]
-    ).then((res) => res.rows.map((r) => ({ ...r, created_at: Number(r.created_at) }))),
-  ])
-  return {
-    accountId: userId,
-    accountStatus: status,
-    // Profile photo/bio/posts are now server-stored too (migration 0005) —
-    // included here for the same reason username already was: this export
-    // is meant to be everything the server actually holds about the
-    // account, and these are no longer browser-only.
-    username: profile.username,
-    profilePhoto: profile.profilePhoto,
-    bio: profile.bio,
-    posts: profile.posts,
-    legalAcceptanceHistory: acceptance,
-    usersYouBlocked: blocked,
-    reportsYouFiled: reportsFiled,
-  }
 }

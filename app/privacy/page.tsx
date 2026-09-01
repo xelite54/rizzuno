@@ -413,18 +413,10 @@ export default function PrivacyPolicyPage() {
           <section id="export">
             <h2 className="text-[16px] font-semibold">14. Data export</h2>
             <p className="mt-2 text-muted">
-              My Profile → Privacy &amp; data → Download my data provides a copy of the server-side account
-              information currently available through Rizzuno&apos;s self-service export: your account status,
-              your claimed username, profile photo, bio, and posts, legal-acceptance history, accounts you have
-              blocked, and reports you have filed.
-            </p>
-            <p className="mt-2 text-muted">
-              This self-service export is not a complete copy of every record involving your account. It does not
-              currently include, for example, reports in which your account was the one reported, or the contents
-              of moderation actions taken against it — those exist in Rizzuno&apos;s database (see Section 3) but
-              aren&apos;t part of this particular export today. It also does not include your gender, because that
-              isn&apos;t stored on the server at all (Section 4) — it&apos;s already visible in the browser that
-              holds it.
+              Rizzuno does not currently offer a self-service &ldquo;download my data&rdquo; control in the app. If
+              you&apos;d like a copy of the server-side information Rizzuno holds about your account, you can request
+              one through the contact process in Section 13 — the same channel used for privacy and deletion
+              requests. Requests will be evaluated and handled as required by applicable law.
             </p>
           </section>
 
@@ -481,7 +473,10 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-[16px] font-semibold">18. Your rights &amp; controls</h2>
             <p className="mt-2 text-muted">These are the controls Rizzuno actually provides today, and exactly what each one does:</p>
             <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-              <li><strong className="text-foreground">Download your data</strong> — see Section 14.</li>
+              <li>
+                <strong className="text-foreground">Request a copy of your data</strong> — no self-service button; see
+                Section 14 for how to ask.
+              </li>
               <li>
                 <strong className="text-foreground">Block</strong> — enforced server-side; as currently built, Rizzuno does not provide a way to
                 reverse a block once made — we do not promise an &ldquo;unblock&rdquo; capability that doesn&apos;t

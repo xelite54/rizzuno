@@ -95,7 +95,6 @@ export function MyProfileSheet({
   // fields are. Holds whichever gender was just tapped but not yet
   // confirmed; null means no pending change.
   const [pendingGender, setPendingGender] = useState<Gender | null>(null)
-  const [exportBusy, setExportBusy] = useState(false)
   // Which blocked-user ids currently have an in-flight unblock request —
   // per-row, so tapping one doesn't disable the whole list, and disabled
   // long enough to prevent a double-tap sending two "unblock"s for the same
@@ -305,29 +304,6 @@ export function MyProfileSheet({
   }
 
 
-  // Basic data-export: whatever Rizzuno's server actually holds about this
-  // account (see app/api/account/data). Profile content itself isn't in
-  // that response because it isn't stored server-side at all — it's
-  // already visible right here, in the browser that holds it.
-  async function handleExportData() {
-    setExportBusy(true)
-    try {
-      const res = await fetch("/api/account/data")
-      if (!res.ok) return
-      const data = await res.json()
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = "rizzuno-account-data.json"
-      link.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      // Export failed — nothing destructive happened, just try again later.
-    } finally {
-      setExportBusy(false)
-    }
-  }
 
   // Tapping a history row's background opens that person's full profile —
   // separate from the row's own "Add" button, which still sends a request
@@ -419,8 +395,8 @@ export function MyProfileSheet({
                         Edit profile
                       </button>
                       {/* Icon only, no background/border of its own —
-                          History, Blocked users, Download my data, changing
-                          gender, and Sign out all live behind it now. */}
+                          History, Blocked users, changing gender, and Sign
+                          out all live behind it now. */}
                       <button
                         type="button"
                         onClick={() => setView("settings")}
@@ -638,21 +614,6 @@ export function MyProfileSheet({
                       </div>
                     </>
                   )}
-                </div>
-
-                <div className="mt-6 border-t border-border pt-4">
-                  <p className="mb-1 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">
-                    Privacy &amp; data
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleExportData}
-                    disabled={exportBusy}
-                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2 disabled:opacity-50"
-                  >
-                    <span>Download my data</span>
-                    <span className="text-[12px] text-muted">{exportBusy ? "Preparing…" : "Export"}</span>
-                  </button>
                 </div>
 
                 {/* Sign out is deliberately last — everything else on this

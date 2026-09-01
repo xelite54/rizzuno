@@ -130,6 +130,16 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // any prior acceptance row (see lib/db.ts's recordAcceptance/
   // hasAcceptedCurrent) — this list only changes what counts as "current"
   // going forward.
+  // Bumped 2026-09-01: removed the self-service "Download my data" export
+  // feature entirely — My Profile → Settings → Privacy & data, its
+  // handler, GET /api/account/data, and lib/db.ts's exportUserData()
+  // (along with getAcceptanceHistory()/listBlockedByUser(), which existed
+  // only to feed it) are gone. Privacy §14 no longer describes a
+  // self-service export button; it now points to the same contact
+  // process §13 already uses for privacy/deletion requests. §18's rights
+  // list updated to match. Material change (a previously available
+  // self-service control no longer exists), so every account with a prior
+  // acceptance record is asked again.
   { document: "terms", version: "2026-08-31" },
-  { document: "privacy", version: "2026-08-31" },
+  { document: "privacy", version: "2026-09-01" },
 ]
