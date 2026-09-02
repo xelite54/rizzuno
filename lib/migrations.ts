@@ -228,4 +228,29 @@ export const MIGRATIONS: Migration[] = [
         ON moderation_events(user_id, decision, created_at DESC);
     `,
   },
+  {
+    // Replaces the per-process, in-memory rate limiter
+    // (lib/apiRateLimit.ts) specifically for image-moderation uploads —
+    // Rizzuno runs as multiple, separately-deployed processes (the
+    // Vercel-deployed Next.js app AND the Railway-deployed realtime
+    // server both call lib/imageModeration's moderateImage(), and Vercel
+    // itself can run more than one serverless instance concurrently), so
+    // an in-memory counter only ever sees the requests that happened to
+    // land on the same process — trivially bypassable by spreading
+    // uploads across instances. One row per (user_id, surface): a fixed
+    // window counter, not a per-attempt log — self-bounded at roughly
+    // (number of accounts × 3 surfaces) rows, no cleanup job needed. See
+    // lib/db.ts's checkAndIncrementImageModerationRateLimit for the
+    // atomic upsert that reads and increments this in one round trip.
+    id: "0007_image_moderation_rate_limits",
+    sql: `
+      CREATE TABLE IF NOT EXISTS image_moderation_rate_limits (
+        user_id TEXT NOT NULL,
+        surface TEXT NOT NULL,
+        window_start BIGINT NOT NULL,
+        count INTEGER NOT NULL,
+        PRIMARY KEY (user_id, surface)
+      );
+    `,
+  },
 ]

@@ -29,11 +29,18 @@ type FakeEvent = {
 let events: FakeEvent[] = []
 let nextId = 1
 let recordCount = 0
+// A minimal in-memory stand-in for image_moderation_rate_limits — keyed
+// the same way the real fixed-window counter is (userId+surface), but
+// without real window-expiry semantics, since no test here needs a check
+// to actually roll over into a new window; resetFakeDb() clears it the
+// same as the moderation-events store above.
+let rateLimitCounts = new Map<string, number>()
 
 function resetFakeDb() {
   events = []
   nextId = 1
   recordCount = 0
+  rateLimitCounts = new Map()
 }
 
 mock.module("@/lib/db", {
@@ -60,6 +67,12 @@ mock.module("@/lib/db", {
           e.createdAt >= sinceMs &&
           (!categoryFilter || e.categories.some((c) => categoryFilter.includes(c.category)))
       ).length,
+    checkAndIncrementImageModerationRateLimit: async (userId: string, surface: string, limit: number) => {
+      const key = `${userId}:${surface}`
+      const count = (rateLimitCounts.get(key) ?? 0) + 1
+      rateLimitCounts.set(key, count)
+      return count > limit
+    },
   },
 })
 
@@ -69,7 +82,6 @@ mock.module("@/lib/db", {
 // ordering the same way tests/matchmaker.test.mts's own comment explains.
 const { moderateImage } = await import("../lib/imageModeration/index.ts")
 const { setProviderForTesting } = await import("../lib/imageModeration/provider.ts")
-const { isRateLimited } = await import("../lib/apiRateLimit.ts")
 import type { ProviderOutcome } from "../lib/imageModeration/provider.ts"
 
 let counter = 0
@@ -318,11 +330,4 @@ test("moderateImage: a direct call bypassing any UI — exactly what a malicious
   } finally {
     setProviderForTesting(null)
   }
-})
-
-// Sanity check that this file's own rate-limit tests aren't leaking into
-// unrelated global state in a way that would mask a real bug — a fresh,
-// never-before-used userId always starts with a clean rate-limit bucket.
-test("apiRateLimit sanity: a brand-new key is never pre-limited", () => {
-  assert.equal(isRateLimited(`image-moderation-test-sanity:${uid("sanity")}`, 5, 60_000), false)
 })

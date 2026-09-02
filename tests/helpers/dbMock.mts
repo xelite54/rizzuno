@@ -101,5 +101,6 @@ mock.module("../../lib/db.ts", {
     recordModerationEvent: async () => "fake-moderation-id",
     getCachedModerationDecision: async () => null,
     countRecentBlockedUploads: async () => 0,
+    checkAndIncrementImageModerationRateLimit: async () => false,
   },
 })

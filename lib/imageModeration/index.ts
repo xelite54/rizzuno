@@ -1,5 +1,4 @@
-import { recordModerationEvent, getCachedModerationDecision } from "@/lib/db"
-import { isRateLimited } from "@/lib/apiRateLimit"
+import { recordModerationEvent, getCachedModerationDecision, checkAndIncrementImageModerationRateLimit, describeDbError } from "@/lib/db"
 import { validateAndDecodeImage } from "./imageValidation"
 import { hashImageBytes } from "./hash"
 import { decideModeration, POLICY_VERSION } from "./policy"
@@ -15,12 +14,13 @@ import type { ModerateImageInput, ModerationResult, CategoryScore } from "./type
  * persisted or forwarded to another user. There is no other code path
  * anywhere in this repo that's allowed to decide an image is safe; see
  * this directory's other files for the pieces this composes:
- *   imageValidation.ts — real, decoded-byte format/dimension checks
- *   hash.ts             — the moderation cache key
- *   policy.ts           — THE decision engine (thresholds live only here)
- *   provider.ts          — the pluggable detector (never the decider)
- *   severeContent.ts    — the separate CSAM-suspicion extension point
- *   abuse.ts            — violation-history escalation
+ *   imageValidation.ts   — real, decoded-byte format/dimension checks
+ *   hash.ts              — the moderation cache key
+ *   policy.ts            — THE decision engine (thresholds live only here)
+ *   provider.ts          — selects the pluggable detector (never the decider)
+ *   sightengineProvider.ts — the real, live detector (Sightengine)
+ *   severeContent.ts     — the separate CSAM-suspicion extension point
+ *   abuse.ts             — violation-history escalation
  *
  * `userId` must already be a verified session id (session.user.id from
  * auth()) — this function does not authenticate anything itself; every
@@ -29,8 +29,13 @@ import type { ModerateImageInput, ModerationResult, CategoryScore } from "./type
  *
  * Rate limits, upload byte/dimension limits, category thresholds, and the
  * abuse-escalation ladder are all reasonable starting defaults (see each
- * module's own doc comment) — not empirically validated against real
- * traffic or a real provider account, since this environment has neither.
+ * module's own doc comment), not tuned against real production traffic.
+ * The detector itself (sightengineProvider.ts) is a real, live integration
+ * against Sightengine's actual API — its response mapping is covered by
+ * tests/imageModerationSightengine.test.mts against realistic, documented
+ * response shapes; whether SIGHTENGINE_API_USER/SIGHTENGINE_API_SECRET are
+ * actually configured in a given deployment is a separate, operational
+ * question (see provider.ts's own doc comment and .env.example).
  */
 export async function moderateImage(input: ModerateImageInput): Promise<ModerationResult> {
   const { userId, dataUrl, surface } = input
@@ -40,7 +45,13 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // rapid upload/delete/upload/delete cycle never gets more provider
   // calls than this allows, even though the STORED post count stays at
   // or under 20 throughout. Checked before touching the image at all.
-  if (isRateLimited(`image-moderation:${surface}:${userId}`, RATE_LIMITS[surface], RATE_LIMIT_WINDOW_MS)) {
+  //
+  // Backed by Postgres (lib/db.ts's checkAndIncrementImageModerationRateLimit),
+  // not the in-memory lib/apiRateLimit.ts used elsewhere — this needs to be
+  // correct across the multiple, separately-deployed processes that call
+  // moderateImage() (see that function's own doc comment), which a
+  // per-process in-memory counter can't be.
+  if (await checkImageModerationRateLimit(userId, surface)) {
     console.warn("imageModeration: rate limited", { surface })
     return { decision: "block", categories: [], provider: "rate_limited", moderationId: "", unavailable: true }
   }
@@ -158,6 +169,24 @@ const RATE_LIMITS: Record<ModerateImageInput["surface"], number> = {
   profile_photo: 10,
   post: 20,
   chat: 30,
+}
+
+/**
+ * Wraps the Postgres-backed rate-limit check so a database failure here
+ * fails the same way every other unavailability in this pipeline does —
+ * closed. If Postgres can't even be reached to check whether this account
+ * is within its limit, that's "can't verify this is safe to accept" in
+ * exactly the same sense a provider timeout is; treating it as "not rate
+ * limited, let it through" would quietly undo the whole point of having a
+ * limit whenever the database is briefly unavailable.
+ */
+async function checkImageModerationRateLimit(userId: string, surface: ModerateImageInput["surface"]): Promise<boolean> {
+  try {
+    return await checkAndIncrementImageModerationRateLimit(userId, surface, RATE_LIMITS[surface], RATE_LIMIT_WINDOW_MS)
+  } catch (err) {
+    console.error("imageModeration: rate limit check failed — failing closed", describeDbError(err))
+    return true
+  }
 }
 
 export type { ModerationResult, ModerateImageInput, ModerationSurface, ModerationDecision, CategoryScore } from "./types"

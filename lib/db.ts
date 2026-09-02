@@ -981,3 +981,59 @@ export async function countRecentBlockedUploads(
   )
   return Number(rows[0]?.count ?? 0)
 }
+
+/**
+ * The shared, distributed replacement for lib/apiRateLimit.ts's in-memory
+ * isRateLimited() — specifically for image-moderation uploads (see
+ * lib/imageModeration/index.ts), where the caller can be either of the two
+ * separately-deployed processes this repo runs as (see migration
+ * 0007_image_moderation_rate_limits's own comment). Backed by one row per
+ * (userId, surface) in image_moderation_rate_limits — a fixed window
+ * counter, not a per-attempt log.
+ *
+ * The INSERT ... ON CONFLICT below reads and increments in one atomic
+ * round trip: Postgres serializes concurrent upserts to the same row, so
+ * two requests for the same account+surface landing on two different
+ * instances at the same instant still can't both "win" a race and both
+ * see a stale pre-increment count — one of them genuinely executes after
+ * the other. When the existing row's window has already elapsed, the same
+ * statement resets it to a fresh window with count 1 instead of
+ * incrementing.
+ *
+ * This is a FIXED window, not the sliding window isRateLimited() used —
+ * Postgres has no equivalent of a sorted-set structure to implement a true
+ * sliding window without either an unbounded per-attempt log (defeating
+ * the point of a bounded table) or multiple round trips per check. The
+ * known, accepted tradeoff: a burst can allow up to roughly 2x the limit
+ * across a window boundary (the tail of one window plus the head of the
+ * next). For upload throttling, not a security boundary on its own — it
+ * works alongside, not instead of, moderation itself and the separate
+ * abuse-escalation ladder (lib/imageModeration/abuse.ts) — this is an
+ * acceptable, standard tradeoff, not an oversight.
+ *
+ * Returns whether this attempt is OVER the limit (true = rate limited) —
+ * same boolean contract as isRateLimited(), so lib/imageModeration/
+ * index.ts's call site reads the same either way.
+ */
+export async function checkAndIncrementImageModerationRateLimit(
+  userId: string,
+  surface: string,
+  limit: number,
+  windowMs: number
+): Promise<boolean> {
+  const windowStart = Math.floor(Date.now() / windowMs) * windowMs
+  const { rows } = await q<{ count: number }>(
+    `INSERT INTO image_moderation_rate_limits (user_id, surface, window_start, count)
+     VALUES ($1, $2, $3, 1)
+     ON CONFLICT (user_id, surface) DO UPDATE
+     SET count = CASE
+           WHEN image_moderation_rate_limits.window_start = EXCLUDED.window_start
+           THEN image_moderation_rate_limits.count + 1
+           ELSE 1
+         END,
+         window_start = EXCLUDED.window_start
+     RETURNING count`,
+    [userId, surface, windowStart]
+  )
+  return (rows[0]?.count ?? 0) > limit
+}
