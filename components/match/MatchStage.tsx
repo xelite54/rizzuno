@@ -411,8 +411,8 @@ export function MatchStage() {
   // serverState for as long as WebRTC still reports connected (see
   // useMatchmaking.ts's `state` derivation). During that gap `state` reads
   // "active" with no peer to show, which would otherwise flash an empty
-  // stage between the undo window ending and "Getting ready…"/"Finding
-  // someone…" reappearing. Mapping "active with no peer" to "queue-pending"
+  // stage between the undo window ending and "Finding someone…"
+  // reappearing. Mapping "active with no peer" to "queue-pending"
   // too closes that gap — and is genuinely accurate here, not just a
   // presentational patch: the real serverState already IS "queue-pending"
   // at that exact moment, `state` just hasn't caught up to it yet.

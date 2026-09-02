@@ -34,11 +34,14 @@ function describeState(state: MatchState, cameraOff: boolean): string {
     case "queue-pending":
       // "find"/"skip" was sent, but the server hasn't confirmed queue
       // membership ("queued") or found a match yet — see useMatchmaking's
-      // own doc comment on this state. Distinct copy from "searching" on
-      // purpose: this is the one label allowed to describe an attempt
-      // that isn't confirmed yet, so "Finding someone…" itself stays an
-      // honest, server-backed claim rather than an optimistic guess.
-      return "Getting ready…"
+      // own doc comment on this state. Used to show its own "Getting
+      // ready…" label here, distinct from "searching"'s "Finding
+      // someone…" — but the gap between the two is normally sub-second,
+      // so in practice that just meant a visible flicker from one label to
+      // the other almost immediately. Same label as "searching" now, so
+      // there's nothing to flicker between; queue-pending resolving to a
+      // real queue entry a moment later is invisible instead of announced.
+      return "Finding someone…"
     case "searching":
       return "Finding someone…"
     case "connecting":

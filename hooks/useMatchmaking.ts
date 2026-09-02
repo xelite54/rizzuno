@@ -75,8 +75,10 @@ const CONNECTION_FAILED_RETRY_MS = 15_000
 // How long "queue-pending" is allowed to sit unconfirmed before treating it
 // as a dropped/lost "find" — long enough that a normal round trip (even a
 // slow one) resolves well within it, short enough that a genuinely lost
-// message doesn't leave the guest staring at "Getting ready…" indefinitely.
-// See the ack-timeout effect below.
+// message doesn't leave the guest staring at "Finding someone…" (see
+// StatusPill.tsx — queue-pending and searching share that label now)
+// indefinitely without an actual queue entry behind it. See the
+// ack-timeout effect below.
 const QUEUE_PENDING_ACK_TIMEOUT_MS = 5000
 
 export function useMatchmaking(
@@ -367,8 +369,8 @@ export function useMatchmaking(
   // the guest hasn't actually changed their mind about wanting to match.
   // `serverState` goes back to "idle" specifically so StatusPill's existing
   // camera-aware copy ("Turn on your camera to start matching") is what
-  // shows, instead of "Finding someone…"/"Getting ready…" over a queue
-  // entry that doesn't actually exist server-side anymore. Cancels either
+  // shows, instead of "Finding someone…" over a queue entry that doesn't
+  // actually exist server-side anymore. Cancels either
   // "searching" (confirmed queued) or "queue-pending" (asked, not yet
   // confirmed) the same way — camera-off ends the attempt regardless of
   // which stage it was at.
