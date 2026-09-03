@@ -318,7 +318,7 @@ export function useMatchmaking(
     }
   }, [])
 
-  const { remoteStream, status: rtcStatus } = useWebRTC({
+  const { remoteStream, remoteVideoReady, status: rtcStatus } = useWebRTC({
     roomId,
     initiator,
     videoTrack,
@@ -327,8 +327,18 @@ export function useMatchmaking(
     onSignal,
   })
 
-  // The connection is genuinely "active" once WebRTC media is actually flowing.
-  const state: MatchState = rtcStatus === "connected" ? "active" : serverState
+  // The connection is genuinely "active" once WebRTC media is actually
+  // flowing — `rtcStatus === "connected"` alone only means ICE/DTLS
+  // negotiation succeeded, which is NOT the same thing (a connection can
+  // report "connected" with zero remote video frames ever actually
+  // decoding). `remoteVideoReady` (see useWebRTC.ts) is the real signal:
+  // a live remote video track has arrived AND getStats() has confirmed
+  // real frames decoding. Until both are true, `state` stays whatever
+  // `serverState` already is — "connecting" from the moment "matched" was
+  // received (see nextMatchState's "matched-received" case) — rather than
+  // showing the matched-profile UI over what would otherwise be an empty
+  // peer tile.
+  const state: MatchState = rtcStatus === "connected" && remoteVideoReady ? "active" : serverState
 
   // The one place any code path is allowed to claim "we're trying to get
   // into the queue" — never "searching" itself; see

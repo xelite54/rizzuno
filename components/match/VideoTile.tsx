@@ -115,6 +115,19 @@ export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps
     video.addEventListener("waiting", onWaiting)
     video.addEventListener("stalled", onStalled)
 
+    // The video TRACK's own "unmute" (WebRTC's "real data just started
+    // arriving for this track" signal, not the UI mic-mute concept) is a
+    // distinct moment from any of the <video> ELEMENT events above — a
+    // track can exist and be attached well before it's actually live,
+    // exactly the gap a first play() attempt can land in and fail/no-op
+    // without ever getting a second real chance once data does start.
+    const tracks = stream.getTracks()
+    const trackUnmuteHandlers = tracks.map((track) => {
+      const onTrackUnmute = () => attemptPlay(`track-unmuted:${track.kind}`)
+      track.addEventListener("unmute", onTrackUnmute)
+      return { track, onTrackUnmute }
+    })
+
     // Distinguishes "reached `playing`, decoding real frames, but visibly
     // frozen" from a genuinely healthy element — readyState/paused alone
     // can both look fine on a stream that stopped actually advancing.
@@ -138,6 +151,9 @@ export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps
       video.removeEventListener("playing", onPlaying)
       video.removeEventListener("waiting", onWaiting)
       video.removeEventListener("stalled", onStalled)
+      for (const { track, onTrackUnmute } of trackUnmuteHandlers) {
+        track.removeEventListener("unmute", onTrackUnmute)
+      }
     }
   }, [stream, muted])
 
