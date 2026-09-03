@@ -79,7 +79,15 @@ export const MAX_CHAT_IMAGE_LENGTH = 2_000_000
  * expose anyone's identity involuntarily the way including it in
  * PublicPeerIdentity would.
  */
-export type FriendSummary = { id: string; userId: string; username: string | null; online: boolean; since: number }
+export type FriendSummary = {
+  id: string
+  userId: string
+  username: string | null
+  /** The friend's current profile photo — re-sent fresh in every friends-snapshot (see server/ws-server.ts's sendFriendsSnapshot/notifyFriendsOfProfileChange), so a friend's own later photo/username change is reflected the next time this account receives one, not frozen at whatever it was when the friendship formed. */
+  profilePhoto: string | null
+  online: boolean
+  since: number
+}
 
 /** A friend request someone else sent you — `id` is the request's own opaque id (used to accept/decline it), not the sender's account id, which this doesn't expose until you accept. */
 export type ReceivedFriendRequest = { id: string; senderId: string; username: string | null; createdAt: number }

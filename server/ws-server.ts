@@ -211,6 +211,7 @@ async function sendFriendsSnapshot(state: ConnectionState) {
       id: f.friendshipId,
       userId: f.userId,
       username: f.username,
+      profilePhoto: f.profilePhoto,
       online: connections.has(f.userId),
       since: f.since,
     })),
@@ -246,6 +247,23 @@ async function trySendFriendsSnapshot(state: ConnectionState) {
 async function refreshSnapshotIfOnline(userId: string) {
   const state = connections.get(userId)
   if (state) await trySendFriendsSnapshot(state)
+}
+
+/**
+ * Pushes a fresh friends-snapshot to every currently-online friend of
+ * `userId` — the friends-list/chat-header equivalent of "peer-updated"
+ * (see the "profile-update" case below, which does the same thing for
+ * whoever this account is CURRENTLY matched with). Called only when a
+ * "profile-update" actually changed the username or photo, since
+ * `listFriends()` re-joins live against `users` either way — a friend
+ * who's offline right now just sees the change the next time they connect
+ * (sendFriendsSnapshot already runs on every "hello"), same as any other
+ * friends-snapshot refresh; this is what gets it there sooner for whoever
+ * already has the app open.
+ */
+async function notifyFriendsOfProfileChange(userId: string) {
+  const friends = await listFriends(userId)
+  await Promise.all(friends.map((f) => refreshSnapshotIfOnline(f.userId)))
 }
 
 /**
@@ -904,6 +922,9 @@ export function createRizzunoWebSocketServer() {
           }
           state.profileRevision = message.revision
 
+          const previousUsername = state.username
+          const previousProfilePhoto = state.profilePhoto
+
           const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
           const nextUsername = rawUsername && !containsSevereContent(rawUsername) ? rawUsername : state.username
           const nextGender =
@@ -941,6 +962,19 @@ export function createRizzunoWebSocketServer() {
           }
           // PAUSED (no room, not seeking): identity is already updated
           // above; correctly stays outside the queue either way.
+
+          // FRIENDS: a username/photo change is worth telling online
+          // friends about regardless of whether this account is currently
+          // in a room, searching, or paused — unlike the gender-driven
+          // requeue above, this isn't about matching at all, just keeping
+          // an already-open Friends list/chat header current. See
+          // notifyFriendsOfProfileChange's own doc comment.
+          if (nextUsername !== previousUsername || (message.profilePhoto !== undefined && message.profilePhoto !== previousProfilePhoto)) {
+            const { userId, displayId } = state
+            notifyFriendsOfProfileChange(userId).catch((err) =>
+              console.error("ws-server: notifying friends of a profile change failed", { displayId, ...describeErr(err) })
+            )
+          }
           break
         }
         case "friend-request": {

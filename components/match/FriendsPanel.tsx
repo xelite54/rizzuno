@@ -492,9 +492,18 @@ export function FriendsPanel({
                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
                           <span className="relative shrink-0">
-                            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-2 text-[14px] font-semibold text-accent-foreground">
-                              {friend.displayName.charAt(0)}
-                            </span>
+                            {friend.profilePhoto ? (
+                              // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
+                              <img
+                                src={friend.profilePhoto}
+                                alt=""
+                                className="h-11 w-11 rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-2 text-[14px] font-semibold text-accent-foreground">
+                                {friend.displayName.charAt(0)}
+                              </span>
+                            )}
                             <span
                               className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface ${
                                 friend.online ? "bg-online" : "bg-muted"
@@ -624,9 +633,14 @@ export function FriendsPanel({
                     }}
                     className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition hover:bg-surface-2"
                   >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
-                      {active.displayName.charAt(0)}
-                    </span>
+                    {active.profilePhoto ? (
+                      // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
+                      <img src={active.profilePhoto} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
+                        {active.displayName.charAt(0)}
+                      </span>
+                    )}
                     <span className="min-w-0">
                       <span className="block truncate text-[14px] font-medium text-foreground">
                         {active.displayName}

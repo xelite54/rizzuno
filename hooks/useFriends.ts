@@ -23,6 +23,14 @@
 // MatchStage.tsx for where these get populated from useMatchmaking()'s real
 // friends-snapshot data, and FriendsPanel.tsx for where `userId`/`senderId`
 // actually gets used (blocking a friend or search result).
-export type DemoFriend = { id: string; userId: string; displayName: string; username: string; online: boolean }
+export type DemoFriend = {
+  id: string
+  userId: string
+  displayName: string
+  username: string
+  /** The friend's current profile photo, straight from the latest friends-snapshot (see server/ws-server.ts) — kept current there when the friend changes it, not just a value cached from whenever the friendship formed. */
+  profilePhoto: string | null
+  online: boolean
+}
 export type PendingRequest = { id: string; senderId: string; displayName: string; username: string }
 export type BlockedUser = { id: string; displayName: string }

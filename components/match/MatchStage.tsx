@@ -404,6 +404,7 @@ export function MatchStage() {
     userId: f.userId,
     displayName: f.username ?? "",
     username: f.username ?? "",
+    profilePhoto: f.profilePhoto,
     online: f.online,
   }))
   const requests: PendingRequest[] = rawFriendRequestsReceived.map((r) => ({

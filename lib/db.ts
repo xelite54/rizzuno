@@ -533,21 +533,35 @@ export async function removeFriendship(userId: string, friendshipId: string): Pr
   return { otherId: row.user_a_id === userId ? row.user_b_id : row.user_a_id }
 }
 
-export type FriendSummary = { friendshipId: string; userId: string; username: string | null; since: number }
+export type FriendSummary = {
+  friendshipId: string
+  userId: string
+  username: string | null
+  /** Live-joined from `users.profile_photo`, same as `username` below — always the friend's CURRENT photo at query time, never a value cached from whenever the friendship formed. */
+  profilePhoto: string | null
+  since: number
+}
 
 export async function listFriends(userId: string): Promise<FriendSummary[]> {
-  const { rows } = await q<{ id: string; other_id: string; created_at: string; username: string | null }>(
+  const { rows } = await q<{ id: string; other_id: string; created_at: string; username: string | null; profile_photo: string | null }>(
     `SELECT f.id,
             CASE WHEN f.user_a_id = $1 THEN f.user_b_id ELSE f.user_a_id END AS other_id,
             f.created_at,
-            u.username
+            u.username,
+            u.profile_photo
      FROM friendships f
      JOIN users u ON u.id = CASE WHEN f.user_a_id = $1 THEN f.user_b_id ELSE f.user_a_id END
      WHERE f.user_a_id = $1 OR f.user_b_id = $1
      ORDER BY f.created_at DESC`,
     [userId]
   )
-  return rows.map((r) => ({ friendshipId: r.id, userId: r.other_id, username: r.username, since: Number(r.created_at) }))
+  return rows.map((r) => ({
+    friendshipId: r.id,
+    userId: r.other_id,
+    username: r.username,
+    profilePhoto: r.profile_photo,
+    since: Number(r.created_at),
+  }))
 }
 
 export type ReceivedFriendRequest = { requestId: string; senderId: string; username: string | null; createdAt: number }
