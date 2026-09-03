@@ -83,11 +83,15 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   if (!label) return null
 
   // Not shown during "idle"/"queue-pending"/"searching" — just the label on
-  // its own there. Still shown for "connecting" (a real match was found,
-  // WebRTC is negotiating) and "peer-left" (about to search again) —
-  // "paused" never gets here at all (a deliberate stop, not a wait, so it
-  // doesn't get a label to attach this to in the first place).
-  const waitingForMatch = state === "connecting" || state === "peer-left"
+  // its own there. Still shown for "peer-left" (about to search again,
+  // same "here's who's around" context "Finding someone…" already gets).
+  // Deliberately NOT shown for "connecting" — a match was already found;
+  // an online count at that point answers a question ("who's around to
+  // match with?") that no longer applies, so "connecting" is just
+  // "Connecting…" and nothing else. "paused" never gets here at all (a
+  // deliberate stop, not a wait, so it doesn't get a label to attach this
+  // to in the first place).
+  const waitingForMatch = state === "peer-left"
   const onlineCountLabel = waitingForMatch && onlineCount !== null ? describeOnlineCount(onlineCount) : null
 
   return (
