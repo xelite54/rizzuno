@@ -9,6 +9,15 @@ type VideoTileProps = {
   className?: string
 }
 
+// How often to check that a supposedly-playing <video> element's
+// currentTime is actually advancing — TEMPORARY, part of the same
+// "connected but no remote video renders" investigation as
+// hooks/useWebRTC.ts's own stats/ontrack diagnostics (see that file's doc
+// comments). This is the one failure mode getStats() alone can never see:
+// real, decoded frames that still never reach the element's own rendering.
+// Remove alongside those once a real two-device test confirms the fix.
+const PLAYBACK_CHECK_INTERVAL_MS = 5000
+
 export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
@@ -27,30 +36,109 @@ export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps
   // whenever autoplay was already going to succeed on its own.
   useEffect(() => {
     const video = videoRef.current
-    if (!video || video.srcObject === stream) return
-    video.srcObject = stream
+    if (!video) return
+
+    // Concise, TEMPORARY diagnostics for the same investigation as
+    // useWebRTC.ts's stats/ontrack logging — together they're what tells
+    // apart "no remote packets arriving" (see that file) from "packets
+    // decoding fine but this element never actually reaches `playing`"
+    // (this file). `label` distinguishes the self tile (always muted, was
+    // never actually affected) from the peer tile in the logs without
+    // needing this component to know which one it is.
+    const label = muted ? "self" : "peer"
+
+    function attemptPlay(reason: string) {
+      if (!video || video.paused === false) return
+      const playPromise = video.play()
+      if (playPromise === undefined) return
+      playPromise.catch((err) => {
+        console.error("videoTile: autoplay blocked, retrying muted", { label, reason, error: String(err) })
+        // A muted play is near-universally allowed even where starting
+        // unmuted from a standstill wasn't — this is what actually makes
+        // the picture itself show up. Restoring the originally intended
+        // muted state right after usually succeeds too: the gesture-gated
+        // restriction applies to STARTING playback with audio, not to
+        // unmuting media that's already playing.
+        if (!video) return
+        video.muted = true
+        video
+          .play()
+          .then(() => {
+            if (video && !muted) video.muted = false
+          })
+          .catch((err2) => {
+            console.error("videoTile: muted autoplay retry also failed", { label, error: String(err2) })
+          })
+      })
+    }
+
+    if (video.srcObject !== stream) {
+      video.srcObject = stream
+      console.log("videoTile: srcObject set", {
+        label,
+        hasStream: Boolean(stream),
+        trackKinds: stream?.getTracks().map((t) => t.kind) ?? [],
+      })
+    }
     if (!stream) return
 
-    const playPromise = video.play()
-    if (playPromise === undefined) return
-    playPromise.catch((err) => {
-      console.error("videoTile: autoplay blocked, retrying muted", { error: String(err) })
-      // A muted play is near-universally allowed even where starting
-      // unmuted from a standstill wasn't — this is what actually makes
-      // the picture itself show up. Restoring the originally intended
-      // muted state right after usually succeeds too: the gesture-gated
-      // restriction applies to STARTING playback with audio, not to
-      // unmuting media that's already playing.
-      video.muted = true
-      video
-        .play()
-        .then(() => {
-          if (!muted) video.muted = false
+    attemptPlay("initial")
+
+    // `autoPlay`/the immediate attempt above can both fire before the
+    // element actually has real data — re-attempting on these events
+    // catches the case where playback needs a nudge again once metadata/
+    // enough data has genuinely arrived, not just once at srcObject-assignment
+    // time. All of these (loadedmetadata/canplay/playing/waiting/stalled)
+    // are logged, concisely, as exactly the trail needed to tell "reached
+    // playing" apart from "stuck at readyState X" from the console alone.
+    function onLoadedMetadata() {
+      console.log("videoTile: loadedmetadata", { label, videoWidth: video?.videoWidth, videoHeight: video?.videoHeight })
+      attemptPlay("loadedmetadata")
+    }
+    function onCanPlay() {
+      console.log("videoTile: canplay", { label, readyState: video?.readyState })
+      attemptPlay("canplay")
+    }
+    function onPlaying() {
+      console.log("videoTile: playing", { label, videoWidth: video?.videoWidth, videoHeight: video?.videoHeight })
+    }
+    function onWaiting() {
+      console.log("videoTile: waiting (stalled buffering)", { label })
+    }
+    function onStalled() {
+      console.log("videoTile: stalled (no data arriving)", { label })
+    }
+
+    video.addEventListener("loadedmetadata", onLoadedMetadata)
+    video.addEventListener("canplay", onCanPlay)
+    video.addEventListener("playing", onPlaying)
+    video.addEventListener("waiting", onWaiting)
+    video.addEventListener("stalled", onStalled)
+
+    // Distinguishes "reached `playing`, decoding real frames, but visibly
+    // frozen" from a genuinely healthy element — readyState/paused alone
+    // can both look fine on a stream that stopped actually advancing.
+    let lastCheckedTime = video.currentTime
+    const playbackCheck = setInterval(() => {
+      if (!video) return
+      if (!video.paused && video.currentTime === lastCheckedTime) {
+        console.error("videoTile: currentTime hasn't advanced since the last check — playback may be stalled", {
+          label,
+          readyState: video.readyState,
+          currentTime: video.currentTime,
         })
-        .catch((err2) => {
-          console.error("videoTile: muted autoplay retry also failed", { error: String(err2) })
-        })
-    })
+      }
+      lastCheckedTime = video.currentTime
+    }, PLAYBACK_CHECK_INTERVAL_MS)
+
+    return () => {
+      clearInterval(playbackCheck)
+      video.removeEventListener("loadedmetadata", onLoadedMetadata)
+      video.removeEventListener("canplay", onCanPlay)
+      video.removeEventListener("playing", onPlaying)
+      video.removeEventListener("waiting", onWaiting)
+      video.removeEventListener("stalled", onStalled)
+    }
   }, [stream, muted])
 
   return (

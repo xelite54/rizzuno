@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { RtcSignal } from "@/lib/signaling/protocol"
 
 /**
@@ -119,11 +119,22 @@ const STATS_INTERVAL_MS = 5000
  * selected ICE candidate pair's type (host/srflx/relay) and transport
  * (udp/tcp), round-trip time, the OUTGOING video's packet loss (as the
  * remote side actually reports it back via RTCP receiver reports),
- * bitrate (derived from the delta in `bytesSent` between polls — getStats
- * only ever reports a cumulative counter, never a rate directly), and the
- * real, currently-transmitted frame rate/resolution (which can be lower
- * than the camera's own capture settings the moment congestion control
- * scales either down).
+ * bitrate (derived from the delta in `bytesSent`/`bytesReceived` between
+ * polls — getStats only ever reports a cumulative counter, never a rate
+ * directly), and the real, currently-transmitted/received frame rate and
+ * resolution (which can be lower than either side's own capture settings
+ * the moment congestion control scales either down).
+ *
+ * TEMPORARY, for diagnosing the "connected but no remote video renders"
+ * report — the inbound half in particular (bytesReceived/framesReceived/
+ * framesDecoded) exists specifically to tell apart the three ways that can
+ * fail: no packets arriving at all (bytesReceived never grows) vs. packets
+ * arriving but nothing decoding (bytesReceived grows, framesDecoded
+ * doesn't) vs. real decoded frames that still never reach the `<video>`
+ * element's own `playing` state (framesDecoded grows — see VideoTile.tsx's
+ * own diagnostics for that last piece, which getStats() alone can't see).
+ * Remove once a real two-device test confirms the fix and this is no
+ * longer needed to tell those apart.
  *
  * NEVER logs a candidate's address/port, `relatedAddress`, or any TURN
  * credential — only `candidateType` and `protocol`, which reveal nothing
@@ -134,6 +145,8 @@ const STATS_INTERVAL_MS = 5000
 function makeStatsLogger(pc: RTCPeerConnection, roomId: string) {
   let lastOutboundVideoBytes: number | null = null
   let lastOutboundVideoTimestamp: number | null = null
+  let lastInboundVideoBytes: number | null = null
+  let lastInboundVideoTimestamp: number | null = null
 
   return async function logStats() {
     if (pc.connectionState !== "connected") return
@@ -180,6 +193,17 @@ function makeStatsLogger(pc: RTCPeerConnection, roomId: string) {
     let framesPerSecond: number | null = null
     let resolution: string | null = null
 
+    // Inbound (remote video actually arriving/decoding on THIS end) — see
+    // this function's own doc comment for exactly which failure mode each
+    // field is here to catch.
+    let inboundBytesReceived: number | null = null
+    let inboundPacketsReceived: number | null = null
+    let framesReceived: number | null = null
+    let framesDecoded: number | null = null
+    let inboundFramesPerSecond: number | null = null
+    let inboundResolution: string | null = null
+    let incomingBitrateKbps: number | null = null
+
     report.forEach((stat) => {
       if (stat.type === "outbound-rtp" && stat.kind === "video") {
         framesPerSecond = typeof stat.framesPerSecond === "number" ? Math.round(stat.framesPerSecond) : null
@@ -202,6 +226,26 @@ function makeStatsLogger(pc: RTCPeerConnection, roomId: string) {
         fractionLost = typeof stat.fractionLost === "number" ? Math.round(stat.fractionLost * 1000) / 1000 : null
         if (rttMs === null && typeof stat.roundTripTime === "number") rttMs = Math.round(stat.roundTripTime * 1000)
       }
+      if (stat.type === "inbound-rtp" && stat.kind === "video") {
+        inboundBytesReceived = typeof stat.bytesReceived === "number" ? stat.bytesReceived : null
+        inboundPacketsReceived = typeof stat.packetsReceived === "number" ? stat.packetsReceived : null
+        framesReceived = typeof stat.framesReceived === "number" ? stat.framesReceived : null
+        framesDecoded = typeof stat.framesDecoded === "number" ? stat.framesDecoded : null
+        inboundFramesPerSecond = typeof stat.framesPerSecond === "number" ? Math.round(stat.framesPerSecond) : null
+        inboundResolution =
+          typeof stat.frameWidth === "number" && typeof stat.frameHeight === "number"
+            ? `${stat.frameWidth}x${stat.frameHeight}`
+            : null
+        if (typeof stat.bytesReceived === "number" && typeof stat.timestamp === "number") {
+          if (lastInboundVideoBytes !== null && lastInboundVideoTimestamp !== null) {
+            const bytesDelta = stat.bytesReceived - lastInboundVideoBytes
+            const msDelta = stat.timestamp - lastInboundVideoTimestamp
+            if (msDelta > 0) incomingBitrateKbps = Math.round((bytesDelta * 8) / msDelta)
+          }
+          lastInboundVideoBytes = stat.bytesReceived
+          lastInboundVideoTimestamp = stat.timestamp
+        }
+      }
     })
 
     console.log("webrtc: stats", {
@@ -209,11 +253,16 @@ function makeStatsLogger(pc: RTCPeerConnection, roomId: string) {
       candidateType,
       transportProtocol,
       rttMs,
-      packetsLost,
-      fractionLost,
-      outgoingBitrateKbps,
-      framesPerSecond,
-      resolution,
+      outgoing: { packetsLost, fractionLost, bitrateKbps: outgoingBitrateKbps, framesPerSecond, resolution },
+      incoming: {
+        bytesReceived: inboundBytesReceived,
+        packetsReceived: inboundPacketsReceived,
+        framesReceived,
+        framesDecoded,
+        bitrateKbps: incomingBitrateKbps,
+        framesPerSecond: inboundFramesPerSecond,
+        resolution: inboundResolution,
+      },
     })
   }
 }
@@ -240,10 +289,25 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
   const [status, setStatus] = useState<PeerConnectionStatus>("new")
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const sendersRef = useRef<{ video: RTCRtpSender | null; audio: RTCRtpSender | null }>({ video: null, audio: null })
-  const remoteStream = useMemo(() => (roomId ? new MediaStream() : null), [roomId])
+  // Mirrors the latest videoTrack/audioTrack props for the room effect's own
+  // closure to read without needing them in its dependency array (which
+  // would tear down and recreate the whole RTCPeerConnection on every
+  // camera toggle — see that effect's own trailing comment). Kept current
+  // by the replaceTrack-syncing effect further down.
+  const videoTrackRef = useRef<MediaStreamTrack | null>(videoTrack)
+  const audioTrackRef = useRef<MediaStreamTrack | null>(audioTrack)
+  // Starts null, not an eagerly-created empty MediaStream — see the
+  // ontrack handler below for why: attaching an always-present-but-empty
+  // stream to <video> up front, then mutating it as tracks trickle in, is
+  // exactly the pattern that made it easy to believe "the video element
+  // has a stream" while it might still have zero actual tracks. null here
+  // means exactly what it says: no remote media has arrived yet.
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
 
   useEffect(() => {
-    if (!roomId || !remoteStream) return
+    if (!roomId) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a fresh room's remote stream starts unknown, same as `status` below
+    setRemoteStream(null)
 
     // Explicit, not just the implicit default — "all" (never "relay")
     // means every candidate type is gathered and ICE's own priority
@@ -261,13 +325,39 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
 
     // A brand-new RTCPeerConnection was just created for this room — this is
     // resource initialization, not mirroring some other piece of state.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus("connecting")
 
     const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" })
     const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" })
     sendersRef.current = { video: videoTransceiver.sender, audio: audioTransceiver.sender }
     configureVideoEncoding(videoTransceiver.sender)
+
+    // Groups both senders under one explicit local stream (their own msid)
+    // so the far side's `ontrack` reliably reports `event.streams[0]` as
+    // ONE real, negotiated MediaStream carrying both tracks as they
+    // arrive, rather than two separately-signaled per-track streams (the
+    // default when addTransceiver is used without this — since video and
+    // audio are added as two separate transceivers here, nothing else
+    // would otherwise tell the far side they belong together). This is
+    // the sender-side half of "attach the actual incoming stream,
+    // event.streams[0] when available" below — setStreams() is what
+    // actually makes that the normal case instead of the exception.
+    // sender.setStreams is a relatively recent addition (not in every
+    // TS DOM lib version) — called defensively; ontrack's own fallback
+    // path further down still produces correct playback even if this
+    // silently does nothing on an old browser, just via the constructed
+    // MediaStream instead of the real negotiated one.
+    try {
+      const localGroupStream = new MediaStream()
+      videoTransceiver.sender.setStreams?.(localGroupStream)
+      audioTransceiver.sender.setStreams?.(localGroupStream)
+    } catch (err) {
+      console.error("webrtc: sender.setStreams failed — remote tracks will use the fallback stream instead", {
+        roomId,
+        error: String(err),
+      })
+    }
+
     if (videoTrack) {
       videoTransceiver.sender
         .replaceTrack(videoTrack)
@@ -279,9 +369,41 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
         .catch((err) => console.error("webrtc: replaceTrack (initial audio) failed", { roomId, error: String(err) }))
     }
 
+    // Own persistent fallback stream — used only if a remote track ever
+    // arrives with no negotiated stream of its own (event.streams empty).
+    // Never the primary path when setStreams() above worked, but always
+    // correct either way: VideoTile just needs one MediaStream containing
+    // whichever real tracks currently exist, however they got grouped.
+    const fallbackStream = new MediaStream()
+    let activeRemoteStream: MediaStream | null = null
+
     pc.ontrack = (event) => {
-      if (!remoteStream.getTracks().includes(event.track)) {
-        remoteStream.addTrack(event.track)
+      // TEMPORARY diagnostic — see makeStatsLogger's own doc comment for
+      // the broader "connected but no video renders" investigation this
+      // is part of. `track.muted` here is WebRTC's own "no RTP data is
+      // currently arriving for this track" signal (distinct from the UI's
+      // mic-mute concept) — false at ontrack time is a good sign real
+      // packets are already flowing; true means the track exists but
+      // nothing has been received for it yet.
+      console.log("webrtc: ontrack fired", {
+        roomId,
+        kind: event.track.kind,
+        readyState: event.track.readyState,
+        muted: event.track.muted,
+        hasNegotiatedStream: event.streams.length > 0,
+      })
+      event.track.onended = () => console.log("webrtc: remote track ended", { roomId, kind: event.track.kind })
+      event.track.onmute = () => console.log("webrtc: remote track muted (no data arriving)", { roomId, kind: event.track.kind })
+      event.track.onunmute = () => console.log("webrtc: remote track unmuted (data flowing)", { roomId, kind: event.track.kind })
+
+      const negotiatedStream = event.streams[0]
+      const nextStream = negotiatedStream ?? fallbackStream
+      if (!negotiatedStream && !fallbackStream.getTracks().includes(event.track)) {
+        fallbackStream.addTrack(event.track)
+      }
+      if (nextStream !== activeRemoteStream) {
+        activeRemoteStream = nextStream
+        setRemoteStream(nextStream)
       }
     }
 
@@ -312,7 +434,43 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     // Cleared below alongside everything else the moment this room ends —
     // a fresh interval starts for whatever room (if any) comes next.
     const statsLogger = makeStatsLogger(pc, roomId)
-    const statsInterval = setInterval(statsLogger, STATS_INTERVAL_MS)
+
+    // Sender self-heal — confirms the video/audio RTCRtpSender still
+    // actually has the track it's supposed to (`replaceTrack` calls are
+    // fire-and-forget elsewhere in this file; a rejected one is logged but
+    // otherwise left as-is). If a sender's `.track` has unexpectedly gone
+    // null/stale relative to what videoTrackRef/audioTrackRef says is
+    // current, that's this account silently sending no video/audio despite
+    // everything else looking connected — reapply replaceTrack rather than
+    // just logging it and leaving it broken.
+    function checkSenderHealth() {
+      const { video, audio } = sendersRef.current
+      if (video && video.track !== videoTrackRef.current) {
+        console.error("webrtc: video sender's track doesn't match the current camera track — reapplying replaceTrack", {
+          roomId,
+          senderHasTrack: Boolean(video.track),
+          expectedTrack: Boolean(videoTrackRef.current),
+        })
+        video
+          .replaceTrack(videoTrackRef.current)
+          .catch((err) => console.error("webrtc: sender self-heal replaceTrack (video) failed", { roomId, error: String(err) }))
+      }
+      if (audio && audio.track !== audioTrackRef.current) {
+        console.error("webrtc: audio sender's track doesn't match the current mic track — reapplying replaceTrack", {
+          roomId,
+          senderHasTrack: Boolean(audio.track),
+          expectedTrack: Boolean(audioTrackRef.current),
+        })
+        audio
+          .replaceTrack(audioTrackRef.current)
+          .catch((err) => console.error("webrtc: sender self-heal replaceTrack (audio) failed", { roomId, error: String(err) }))
+      }
+    }
+
+    const statsInterval = setInterval(() => {
+      statsLogger()
+      checkSenderHealth()
+    }, STATS_INTERVAL_MS)
 
     async function flushPendingCandidates() {
       const queued = pendingCandidates
@@ -394,15 +552,21 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
       pcRef.current = null
       sendersRef.current = { video: null, audio: null }
       setStatus("closed")
+      setRemoteStream(null)
     }
     // videoTrack/audioTrack are deliberately excluded: the effect below keeps
-    // them in sync via replaceTrack without recreating the connection.
+    // them in sync via replaceTrack (and this effect's own checkSenderHealth
+    // self-heal) without recreating the connection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, initiator, remoteStream, sendSignal, onSignal])
+  }, [roomId, initiator, sendSignal, onSignal])
 
   // Swap the outgoing tracks whenever the camera/mic is toggled or a
   // different device is chosen — replaceTrack only, never renegotiation.
+  // Also keeps videoTrackRef/audioTrackRef current for the room effect's
+  // own checkSenderHealth self-heal to read.
   useEffect(() => {
+    videoTrackRef.current = videoTrack
+    audioTrackRef.current = audioTrack
     const { video, audio } = sendersRef.current
     if (video && video.track !== videoTrack) {
       video.replaceTrack(videoTrack).catch((err) => console.error("webrtc: replaceTrack (video) failed", { error: String(err) }))
