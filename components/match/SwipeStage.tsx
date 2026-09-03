@@ -62,10 +62,16 @@ export function SwipeStage({
   const wheelResetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const containerRef = useRef<HTMLDivElement | null>(null)
 
-  // Paused counts as swipeable too — there's no "Resume" button anymore,
-  // resuming just reuses the same swipe-left gesture as skipping someone,
-  // demonstrated rather than explained.
-  const canSwipe = (matchState === "active" || (matchState === "paused" && Boolean(onResume))) && !isExiting && !locked
+  // Matching is never auto-started (see MatchStage.tsx) — "idle" (never
+  // started, or just refreshed) and "paused" (deliberately stopped) are
+  // both "not currently searching" from the guest's own point of view, and
+  // share the exact same swipe-to-start/resume gesture; there's no
+  // separate "Start"/"Resume" button for either, the same gesture that
+  // skips someone mid-call does double duty here too, demonstrated rather
+  // than explained (see PausedNotice, which StatusPill now shows for both
+  // states with the camera on).
+  const isWaitingToStart = matchState === "idle" || matchState === "paused"
+  const canSwipe = (matchState === "active" || (isWaitingToStart && Boolean(onResume))) && !isExiting && !locked
 
   useEffect(() => {
     const el = containerRef.current
@@ -90,8 +96,10 @@ export function SwipeStage({
       duration: reduceMotion ? 0.12 : undefined,
       onComplete: () => {
         // Same gesture, two different meanings depending on what's on
-        // screen: skip the person you're with, or resume looking for one.
-        if (matchState === "paused") {
+        // screen: skip the person you're with, or start/resume looking for
+        // one (whether this is the very first search or a resumed one —
+        // findMatch() itself doesn't care, see lib/matchStateMachine.ts).
+        if (isWaitingToStart) {
           onResume?.()
         } else {
           onSwipeComplete()
@@ -184,7 +192,11 @@ export function SwipeStage({
               ? onResume
                 ? "Matching paused. Press left arrow to resume."
                 : "Matching paused. Turn on your camera to resume."
-              : "Waiting for a match"
+              : matchState === "idle"
+                ? onResume
+                  ? "Press left arrow to start matching."
+                  : "Turn on your camera to start matching."
+                : "Waiting for a match"
         }
         className="absolute inset-0 origin-bottom cursor-grab touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-accent-2 active:cursor-grabbing"
       >

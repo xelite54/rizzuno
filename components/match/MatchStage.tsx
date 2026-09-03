@@ -271,62 +271,28 @@ export function MatchStage() {
   // person themselves.
   const cameraOff = !videoTrack
 
-  // Spec §2: as soon as the guest is online, signed in, fully onboarded,
-  // and their camera is actually on, start looking — no manual "start" step
-  // beyond that. Because `videoTrack` is a dependency here, turning the
-  // camera on *after* everything else was already ready still triggers
-  // this the moment it becomes available, not just at mount.
+  // Deliberately NOT auto-started. A first visit (or a refresh) lands in
+  // "idle" and stays there — SwipeStage/StatusPill show the same calm
+  // "stay zone" treatment idle already shares with a deliberate pause (see
+  // StatusPill.tsx's own doc comment on why "idle" and "paused" render
+  // identically there now) until the guest actually swipes. That swipe is
+  // just findMatch() (see SwipeStage's onResume, wired below) — the
+  // matchmaking state machine already treats "find-sent" as valid from any
+  // state, "idle" included (see lib/matchStateMachine.ts), so there's
+  // nothing else here to wire up for that first search to work correctly.
   //
-  // Gated on `realtimeReady`, not the raw WebSocket `connected` flag.
-  // `connected` only means the transport opened — server/ws-server.ts
-  // doesn't register a ConnectionState (and silently drops every message,
-  // including "find") until "hello" has actually been verified and
-  // processed, which is a real async chain (ticket verify, a DB status
-  // check, the friends-snapshot queries). Firing on `connected` alone could
-  // send "find" into that gap and get silently dropped. `realtimeReady`
-  // only ever flips true once the server's own "ready" ack comes back (see
-  // useMatchmaking.ts), so there's nothing to race.
-  //
-  // IMPORTANT — this effect is ONLY the initial bootstrap. `state ===
-  // "idle"` correctly describes "never started yet", which is exactly what
-  // this is for, but it does NOT (and must not be relied on to) describe
-  // "safe to resume after a reconnect" — a disconnect that happened while
-  // genuinely searching or mid-call leaves `state` stuck on a stale
-  // "searching"/"connecting"/"active" that this effect will then never see
-  // as "idle" again, which used to mean nothing ever retried it (the bug
-  // this comment used to describe as intentional). Reconnect-resume is now
-  // useMatchmaking.ts's own responsibility — see its `wantsMatchingRef` and
-  // the effect that resends "find" on every fresh `realtimeReady`
-  // regardless of what `state` was before the disconnect. `requested.current`
-  // here only guards THIS effect against firing more than once per ready
-  // session for its own (onboarding-gated) reasons.
-  const requested = useRef(false)
-  useEffect(() => {
-    if (!realtimeReady) {
-      requested.current = false
-      return
-    }
-    if (
-      state === "idle" &&
-      signedIn &&
-      legalAccepted &&
-      onboarded &&
-      !restriction &&
-      !cameraOff &&
-      !requested.current
-    ) {
-      requested.current = true
-      console.log("matchmaking: auto-start conditions met — calling findMatch()")
-      findMatch()
-    }
-  }, [realtimeReady, state, signedIn, legalAccepted, onboarded, restriction, cameraOff, findMatch])
+  // Reconnect-resume (a disconnect mid-search or mid-call re-finding
+  // automatically once realtime comes back) is unaffected by any of this —
+  // that's useMatchmaking.ts's own responsibility, driven by its
+  // `wantsMatchingRef` (which only ever becomes true once the guest has
+  // actually swiped at least once), not by anything in this file.
 
   // CAMERA MUST CONTROL QUEUE MEMBERSHIP — turning the camera off while
-  // actively searching used to only change local UI (the auto-start effect
-  // above just wouldn't retrigger); it never actually removed this account
-  // from the real server-side queue (server/matchmaker.ts's `waiting`), so
-  // a camera-off guest kept showing up as a live match candidate to other
-  // people with nothing to actually show them. `leaveQueueOnly` (unlike
+  // actively searching used to only change local UI; it never actually
+  // removed this account from the real server-side queue (server/
+  // matchmaker.ts's `waiting`), so a camera-off guest kept showing up as a
+  // live match candidate to other people with nothing to actually show
+  // them. `leaveQueueOnly` (unlike
   // pauseMatching) doesn't touch `wantsMatching` — the guest hasn't changed
   // their mind about wanting to match, the camera just makes it temporarily
   // impossible — so turning it back on resumes automatically here, exactly

@@ -24,12 +24,11 @@ function describeOnlineCount(count: number): string {
 function describeState(state: MatchState, cameraOff: boolean): string {
   switch (state) {
     case "idle":
-      // Matching starts on its own the instant a live camera track exists
-      // (see MatchStage's auto-start effect) — genuinely idle otherwise,
-      // with nothing real to claim yet. Deliberately NOT "Finding
-      // someone…" here — that label means the server has actually
-      // confirmed this account is in its queue (see "searching" below),
-      // which idle by definition hasn't asked for yet.
+      // Matching is never auto-started (see MatchStage.tsx) — a first
+      // visit or a refresh lands here and stays until the guest actually
+      // swipes. The camera-on case never reaches this label at all — see
+      // below, where "idle" branches to the same PausedNotice treatment
+      // "paused" gets, before any of this pill markup is even considered.
       return cameraOff ? "Turn on your camera to start matching" : ""
     case "queue-pending":
       // "find"/"skip" was sent, but the server hasn't confirmed queue
@@ -50,8 +49,9 @@ function describeState(state: MatchState, cameraOff: boolean): string {
       return "They left — finding someone new…"
     case "paused":
       // The camera-on case never reaches this label at all — see below,
-      // where "paused" branches to the full PausedNotice treatment before
-      // any of this pill markup is even considered.
+      // where "paused" (like "idle" above) branches to the full
+      // PausedNotice treatment before any of this pill markup is even
+      // considered.
       return cameraOff ? "Turn on your camera to resume matching" : ""
     case "active":
       return ""
@@ -64,14 +64,18 @@ function describeState(state: MatchState, cameraOff: boolean): string {
 }
 
 export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCount = null, onResume }: StatusPillProps) {
-  // "Paused" has two genuinely different presentations depending on why —
-  // camera-off is a small blocker explained inline like every other pill
-  // state below, but a deliberate pause with the camera still on gets the
-  // full branded PausedNotice treatment instead (there's no peer, and empty
-  // video reads as broken rather than restful — see PausedNotice's own
-  // comment). This is still the one place that decision gets made — nothing
-  // above this component chooses between the two.
-  if (state === "paused" && !cameraOff) {
+  // "idle" and "paused" both get the full branded PausedNotice treatment
+  // when the camera is on — matching is never auto-started (see
+  // MatchStage.tsx), so a first visit ("idle") and a deliberate pause
+  // ("paused") are the same "not currently searching, swipe when ready"
+  // moment from the guest's own point of view, and share the exact same
+  // "stay zone" screen rather than one of them showing a blank tile. Camera
+  // off still gets its own small inline blocker instead, for both — there's
+  // a more specific, actionable thing to say (there's no peer either way,
+  // and empty video reads as broken rather than restful — see
+  // PausedNotice's own comment). This is still the one place that decision
+  // gets made — nothing above this component chooses between the two.
+  if ((state === "idle" || state === "paused") && !cameraOff) {
     return <PausedNotice onlineCount={onlineCount} />
   }
 

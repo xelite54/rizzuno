@@ -186,19 +186,19 @@ export function useMatchmaking(
   // — the "desired intent" this whole reconnect fix hinges on, kept
   // deliberately separate from `serverState` (which only reflects what the
   // server last actually told us, and goes stale the instant the socket
-  // drops — see the effect below). Starts false: nothing auto-starts until
-  // MatchStage's own onboarding-gated effect calls findMatch() for the
-  // first time. From then on, findMatch() (called directly, by skip, the
-  // peer-left auto-retry, or a successful block) sets it true;
-  // pauseMatching() and the full teardown effect are the only things that
-  // set it back to false.
+  // drops — see the effect below). Starts false: matching is never
+  // auto-started (see MatchStage.tsx) — nothing sets this true until the
+  // guest actually swipes for the first time. From then on, findMatch()
+  // (called directly, by skip, the peer-left auto-retry, or a successful
+  // block) sets it true; pauseMatching() and the full teardown effect are
+  // the only things that set it back to false.
   //
   // A ref, not state, on purpose: it's read by the reconnect-resume effect
   // further down, and if it were state, flipping it inside findMatch()
   // would itself be a dependency change that re-triggers that same effect
-  // a second time — double-sending "find" the moment MatchStage's own
-  // auto-start effect calls findMatch() directly (realtimeReady/roomId
-  // wouldn't have changed, only this). A ref sidesteps that: writing to it
+  // a second time — double-sending "find" the moment the guest's own swipe
+  // calls findMatch() directly (realtimeReady/roomId wouldn't have
+  // changed, only this). A ref sidesteps that: writing to it
   // doesn't schedule a re-render or re-run any effect, so the reconnect
   // effect only ever re-evaluates when realtimeReady or roomId actually
   // change — a genuine reconnect or a room actually clearing, never this.
@@ -933,10 +933,11 @@ export function useMatchmaking(
   // and doesn't currently have an active room. This is deliberately
   // independent of whatever `serverState`/`state` happened to be before the
   // disconnect — a stale "searching"/"queue-pending" works exactly the same
-  // as "idle" here, which is the actual bug this fixes: MatchStage's own
-  // auto-start effect
-  // only ever fires from `state === "idle"`, so a disconnect that happened
-  // while genuinely searching (or mid-call) left nothing to ever retry it.
+  // as "idle" here, which is the actual bug this fixes: a `findMatch()`
+  // call gated on `state === "idle"` alone (like MatchStage's old
+  // now-removed auto-start effect used to be) would leave a disconnect
+  // that happened while genuinely searching (or mid-call) with nothing to
+  // ever retry it.
   useEffect(() => {
     if (!realtimeReady) {
       resumedForCurrentReadyRef.current = false
@@ -952,9 +953,9 @@ export function useMatchmaking(
   // "peer-left" is a brief transitional state — automatically look for
   // someone new. Also gated on `realtimeReady`: a peer-left right as the
   // socket happens to reconnect (rare, but not impossible) would otherwise
-  // send "find" into the same pre-"hello" gap the initial auto-start effect
-  // guards against. If we're not ready when this would fire, skip the timer
-  // entirely rather than sending into the gap — `realtimeReady` is in the
+  // send "find" into the same pre-"hello" gap the reconnect-resume effect
+  // above guards against. If we're not ready when this would fire, skip
+  // the timer entirely rather than sending into the gap — `realtimeReady` is in the
   // dependency array, so once the reconnect's "hello" is actually
   // acknowledged, this effect re-runs and (serverState still being
   // "peer-left") schedules the retry then instead.
