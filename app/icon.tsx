@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og"
 
-// Static favicon version of the playing-card mark in BrandMark.tsx.
+// Static favicon version of the paired connection mark in BrandMark.tsx.
 export const size = { width: 64, height: 64 }
 export const contentType = "image/png"
 
@@ -27,20 +27,17 @@ export default function Icon() {
               height: CARD_HEIGHT,
               borderRadius: CARD_RADIUS,
               border: "2px solid rgba(255,255,255,.3)",
-              background: "#6637a3",
+              background: "linear-gradient(135deg, #4e3562, #251b2d)",
+              color: "rgba(255,255,255,.72)",
+              fontSize: 18,
+              fontWeight: 500,
               display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               transform: "rotate(5deg)",
             }}
           >
-            <div
-              style={{
-                margin: 5,
-                flex: 1,
-                borderRadius: "50%",
-                border: "1px solid rgba(255,255,255,.35)",
-                transform: "rotate(-24deg)",
-              }}
-            />
+            ‹
           </div>
           <div
             style={{
@@ -48,18 +45,17 @@ export default function Icon() {
               height: CARD_HEIGHT,
               borderRadius: CARD_RADIUS,
               border: "2px solid rgba(255,255,255,.35)",
-              background: "#e9416d",
+              background: "linear-gradient(135deg, #bd4568, #682d4c)",
               color: "rgba(255,255,255,.95)",
               fontSize: 14,
-              fontWeight: 900,
-              fontStyle: "italic",
+              fontWeight: 500,
               marginLeft: -CARD_WIDTH * 0.43,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
             }}
           >
-            R
+            ›
           </div>
         </div>
       </div>

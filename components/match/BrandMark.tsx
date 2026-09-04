@@ -11,10 +11,10 @@ const CARD_RATIO = 0.68
 const CORNER_RATIO = 0.12
 
 /**
- * Rizzuno's playing-card mark. The purple card stays grounded while the
- * coral R card nudges left, echoing the gesture that moves through matches.
- * Its tilted inner face gives it playing-card character without copying an
- * existing game's identity.
+ * Rizzuno's connection mark. Each card carries one half of the same heart:
+ * the purple half stays grounded while the coral half nudges toward it. The
+ * two separate people/cards becoming one symbol mirrors the product without
+ * borrowing the visual language of a playing-card game.
  */
 export function BrandMark({ size = 16 }: BrandMarkProps) {
   const reduceMotion = useReducedMotion()
@@ -23,37 +23,37 @@ export function BrandMark({ size = 16 }: BrandMarkProps) {
   const radius = Math.max(2, Math.round(size * CORNER_RATIO * 10) / 10)
   const overlap = width * 0.43
   const amplitude = size * 0.2
-  const inset = Math.max(1.5, size * 0.1)
   const cardStyle = { width, height: size, borderWidth: border, borderRadius: radius }
 
   return (
     <span className="relative inline-flex items-center" style={{ height: size }} aria-hidden="true">
       <span
-        className="relative overflow-hidden border-white/20 bg-[#6637a3] shadow-sm shadow-black/40"
+        className="relative overflow-hidden border-white/15 bg-gradient-to-br from-[#4e3562] to-[#251b2d] shadow-sm shadow-black/40"
         style={{ ...cardStyle, transform: "rotate(5deg)" }}
       >
-        <span
-          className="absolute rotate-[-24deg] rounded-[50%] border border-white/25 bg-white/[0.08]"
-          style={{ inset }}
-        />
-        <span className="absolute bottom-[16%] left-[18%] h-[12%] w-[12%] rounded-full bg-white/55" />
+        <svg
+          viewBox="0 0 16 20"
+          fill="none"
+          className="absolute right-[-8%] top-1/2 h-[62%] w-[78%] -translate-y-1/2 text-white/75"
+          aria-hidden="true"
+        >
+          <path d="M8 4.3C7.75 3.55 6.95 3 5.72 3 3.28 3 1.5 4.95 1.5 7.45 1.5 11.55 5.86 15.1 8 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
       </span>
       <motion.span
-        className="relative z-10 overflow-hidden border-white/25 bg-[#e9416d] shadow-sm shadow-black/50"
+        className="relative z-10 overflow-hidden border-white/15 bg-gradient-to-br from-[#bd4568] to-[#682d4c] shadow-sm shadow-black/50"
         style={{ ...cardStyle, marginLeft: -overlap }}
         animate={reduceMotion ? undefined : { x: [0, -amplitude, 0], rotate: [0, -8, 0] }}
         transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 1.1, ease: "easeInOut" }}
       >
-        <span
-          className="absolute rotate-[-24deg] rounded-[50%] border border-white/35 bg-white/[0.12]"
-          style={{ inset }}
-        />
-        <span
-          className="absolute inset-0 flex items-center justify-center font-black italic leading-none text-white/90"
-          style={{ fontSize: Math.max(6, size * 0.32) }}
+        <svg
+          viewBox="0 0 16 20"
+          fill="none"
+          className="absolute left-[-8%] top-1/2 h-[62%] w-[78%] -translate-y-1/2 text-white/80"
+          aria-hidden="true"
         >
-          R
-        </span>
+          <path d="M8 4.3C8.25 3.55 9.05 3 10.28 3 12.72 3 14.5 4.95 14.5 7.45 14.5 11.55 10.14 15.1 8 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+        </svg>
       </motion.span>
     </span>
   )
