@@ -29,7 +29,7 @@ export function BrandMark({ size = 16 }: BrandMarkProps) {
     <span className="relative inline-flex items-center" style={{ height: size }} aria-hidden="true">
       <span
         className="relative overflow-hidden border-white/15 bg-gradient-to-br from-[#4e3562] to-[#251b2d] shadow-sm shadow-black/40"
-        style={{ ...cardStyle, transform: "rotate(5deg)" }}
+        style={cardStyle}
       >
         <svg
           viewBox="0 0 16 20"

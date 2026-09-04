@@ -674,11 +674,11 @@ export function MatchStage() {
           )}
         </div>
         {onHomeScreen && (
-          <div className="pointer-events-none absolute bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 sm:bottom-8">
+          <div className="pointer-events-none absolute bottom-6 left-1/2 z-40 -translate-x-1/2 sm:bottom-8">
             <motion.div
               animate={reduceMotion ? undefined : { x: [3, -3, 3] }}
               transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-              className="flex items-center -space-x-2 text-white/45"
+              className="absolute right-[calc(100%+0.625rem)] top-0 flex h-full items-center -space-x-2 text-white/45"
               aria-hidden="true"
             >
               <ChevronLeftIcon className="h-[18px] w-[18px] opacity-20" />
