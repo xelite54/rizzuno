@@ -19,12 +19,19 @@ const UNO_CORNER_RATIO = 0.125 / 3.5
  * Rizzuno's mark — two cards, not a symbol drawn on one. The product is
  * fundamentally a stack of video cards swiped through one at a time (see
  * SwipeStage), so the mark is that same shape, doubled: two transparent,
- * UNO-proportioned card outlines drifting toward each other and apart. No
- * pips, numerals, or symbol on either card — just the two of them, in the
- * app's two accent colors, letting whatever's behind them show through.
+ * UNO-proportioned card outlines, one behind the other, in the app's two
+ * accent colors, letting whatever's behind them show through. No pips,
+ * numerals, or symbol on either card — just the two of them.
+ *
+ * One card holds still; the other nudges left and tilts on a slow loop —
+ * not both drifting toward and apart from each other, which is what this
+ * used to do. A single motion source reads as one considered animation;
+ * two cards drifting independently read as noise, the same reasoning
+ * PausedNotice.tsx's own (separately built, tile-scale) two-card stack
+ * uses for its identical one-static-one-moving treatment.
  *
  * This is the one definition of the mark — every other place it appears
- * (StatusPill, PausedNotice, the sign-in screen) renders this exact
+ * (StatusPill, SelfPanel, the sign-in screen) renders this exact
  * component rather than its own copy, so there's nothing to keep in sync
  * by hand except app/icon.tsx, the one static (non-React) exception.
  */
@@ -39,17 +46,12 @@ export function BrandMark({ size = 16 }: BrandMarkProps) {
 
   return (
     <span className="relative inline-flex items-center" style={{ height: size }} aria-hidden="true">
-      <motion.span
-        className="border border-accent"
-        style={cardStyle}
-        animate={{ x: [0, amplitude, 0] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
-      />
+      <span className="border border-accent" style={cardStyle} />
       <motion.span
         className="border border-accent-2"
         style={{ ...cardStyle, marginLeft: -overlap }}
-        animate={{ x: [0, -amplitude, 0] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+        animate={{ x: [0, -amplitude, 0], rotate: [0, -6, 0] }}
+        transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 0.9, ease: "easeInOut" }}
       />
     </span>
   )
