@@ -25,7 +25,6 @@ import { PeerProfileSheet } from "./PeerProfileSheet"
 import { MatchChatPanel } from "./MatchChatPanel"
 import { MyProfileSheet } from "./MyProfileSheet"
 import { UndoSkipToast } from "./UndoSkipToast"
-import { BrandMark } from "./BrandMark"
 import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
 import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends"
@@ -509,20 +508,6 @@ export function MatchStage() {
           }
         >
           <SelfPanel stream={stream} status={status} cameraEnabled={cameraEnabled} />
-          {onHomeScreen && (
-            <div className="absolute left-3 top-3 z-30 rounded-xl bg-black/35 px-2.5 py-2 backdrop-blur-sm">
-              <div className="flex items-center gap-2">
-                <BrandMark size={22} />
-                <span className="text-[12px] font-semibold tracking-[-0.01em] text-white/90">Rizzuno</span>
-              </div>
-              {onlineCount !== null && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-white/55">
-                  <span className="h-1.5 w-1.5 rounded-full bg-online" />
-                  {onlineCount === 1 ? "1 online" : `${onlineCount.toLocaleString()} online`}
-                </div>
-              )}
-            </div>
-          )}
           {/* Every personal control is anchored to the self-video itself.
               Friends/profile sit at the top and media/chat at the bottom;
               neither becomes a detached viewport toolbar on mobile. */}
