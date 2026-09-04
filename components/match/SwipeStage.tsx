@@ -214,12 +214,14 @@ export function SwipeStage({
             top-left corner once a call is active. Same two-tone accent/
             accent-2 gradient the rest of the brand mark uses, sized up
             slightly from its old self-tile size. */}
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute right-2 top-2 z-10 bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-[15px] font-extrabold uppercase tracking-[0.12em] text-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)]"
-        >
-          Rizzuno.com
-        </span>
+        {!isWaitingToStart && (
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute right-2 top-2 z-10 bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-[15px] font-extrabold uppercase tracking-[0.12em] text-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)]"
+          >
+            Rizzuno.com
+          </span>
+        )}
 
         <AnimatePresence mode="wait">
           {matchState === "active" && peer ? (
