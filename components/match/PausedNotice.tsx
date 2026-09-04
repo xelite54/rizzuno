@@ -30,7 +30,7 @@ export function PausedNotice({ mode = "start" }: PausedNoticeProps) {
         </section>
       </main>
 
-      <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 sm:bottom-8">
+      <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 sm:bottom-8 lg:left-auto lg:right-0 lg:w-[42%] lg:translate-x-0 lg:justify-center xl:w-[48%]">
         <motion.div
           animate={reduceMotion ? undefined : { x: [3, -3, 3] }}
           transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
