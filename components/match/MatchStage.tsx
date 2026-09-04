@@ -80,6 +80,34 @@ export function MatchStage() {
   const { stream, videoTrack, audioTrack, status, micEnabled, cameraEnabled, toggleMic, toggleCamera } =
     useLocalMedia()
 
+  // Guards the self-camera's home-screen grow/shrink layout animation
+  // (see the motion.div below, keyed on `onHomeScreen`) against replaying
+  // itself for reasons that have nothing to do with the guest actually
+  // leaving/returning to the home screen on purpose. Coming back to this
+  // tab after it was backgrounded can produce a brief, spurious flicker in
+  // derived state — e.g. a WebSocket reconnect settling right as focus
+  // returns — and without this, that flicker alone was enough to replay
+  // the "leaving home" shrink-then-grow-back transition even though the
+  // guest never swiped or did anything. Suppressing layout animation for
+  // a short window right after regaining visibility means whatever the
+  // correct state actually is just appears, instead of visibly animating
+  // to it and back.
+  const [suppressHomeLayoutAnimation, setSuppressHomeLayoutAnimation] = useState(false)
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    function handleVisibilityChange() {
+      if (document.visibilityState !== "visible") return
+      setSuppressHomeLayoutAnimation(true)
+      clearTimeout(timer)
+      timer = setTimeout(() => setSuppressHomeLayoutAnimation(false), 600)
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+      clearTimeout(timer)
+    }
+  }, [])
+
   // Lifted up here (not owned by MyProfileSheet) because a real match needs
   // to see this guest's username too — useMatchmaking hands it to the server.
   const myProfile = useMyProfile()
@@ -496,8 +524,12 @@ export function MatchStage() {
             // The camera should only travel/expand when the guest leaves
             // home to start matching. Entering home (initial hydration,
             // returning from another screen, or pausing) is immediate so the
-            // landing composition never replays the transition by itself.
-            layout: reduceMotion || onHomeScreen
+            // landing composition never replays the transition by itself —
+            // and so is anything happening in the brief window right after
+            // this tab regains visibility (see suppressHomeLayoutAnimation's
+            // own doc comment above), regardless of which way `onHomeScreen`
+            // itself happens to read at that exact moment.
+            layout: reduceMotion || onHomeScreen || suppressHomeLayoutAnimation
               ? { duration: 0 }
               : { duration: 0.52, ease: EASE_OUT },
           }}
