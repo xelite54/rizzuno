@@ -21,52 +21,55 @@ type PausedNoticeProps = {
  *
  * Rebuilt around how this genre of app actually treats its own in-app
  * waiting state (Omegle-style random video chat — OmeTV, Monkey,
- * Bazoocam, Holla): a plain, direct, VIDEO-TILE-SHAPED placeholder with a
- * clearly labeled action, not a marketing hero. Their taglines live on the
- * outward landing page; the in-app screen itself is short and functional
- * — "Hit Start", "Tap to Start", nothing more. Rizzuno's own equivalent of
- * that is its swipe gesture (Holla uses the same swipe-to-match model), so
- * the placeholder here IS a real "no video yet" tile — echoing
- * SelfPanel.tsx's own empty-camera treatment (BrandMark + one short line)
- * rather than inventing a separate look for it — labeled plainly with the
- * one thing to actually do, and nudged with a small, restrained nod
- * (rather than a full demonstration) toward the swipe that starts it. No
- * separate marketing headline — "Meet someone new." already lives on
- * SignInLanding, and this screen isn't that one.
+ * Bazoocam, Holla): a plain, direct, VIDEO-TILE-SHAPED placeholder, not a
+ * marketing hero. Their taglines live on the outward landing page; the
+ * in-app screen itself is short and functional. Rizzuno's own equivalent
+ * is its swipe gesture (Holla uses the same swipe-to-match model), so the
+ * placeholder is a real "no video yet" tile — echoing SelfPanel.tsx's own
+ * empty-camera treatment (BrandMark, kept simple) rather than inventing a
+ * separate look for it — now doubled into the same two-card read
+ * BrandMark itself already uses (see BrandMark.tsx's own doc comment:
+ * "the product is fundamentally a stack of video cards"), each card
+ * carrying one of the two accent colors instead of both dumped into one
+ * flat tile. No caption spelling the gesture out ("Swipe left to
+ * start") — the back card doing the actual nudge-and-tilt motion is the
+ * demonstration; a real competitor's screen doesn't caption its own
+ * animation either. No separate marketing headline — "Meet someone
+ * new." already lives on SignInLanding, and this screen isn't that one.
  */
 export function PausedNotice({ onlineCount = null }: PausedNoticeProps) {
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-surface-2 px-8 text-center">
-      {/* The placeholder tile itself — same role as SelfPanel's own "no
-          video" state, just here for the peer's side instead. Nudges
-          left and tilts on a slow loop: not a full demo of the swipe (it
-          needs to stay put and legible), just enough motion to read as
-          "this can be dragged", the same restraint a real onboarding
-          affordance uses rather than replaying the whole gesture. Purely
-          decorative — the interactive element it sits in front of
-          (SwipeStage's own draggable region) already carries the real
-          aria-label. */}
-      <motion.div
-        aria-hidden="true"
-        className="flex aspect-[3/4] w-40 flex-col items-center justify-center gap-2.5 rounded-[28px] border border-border bg-surface-1 shadow-lg shadow-black/30 sm:w-48"
-        animate={{ x: [0, -14, 0], rotate: [0, -3, 0] }}
-        transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 0.9, ease: "easeInOut" }}
-      >
-        <BrandMark size={40} />
-      </motion.div>
-
-      <div className="flex flex-col items-center gap-1.5">
-        <p className="text-[14px] font-semibold text-foreground/85">Swipe left to start</p>
-        {onlineCount !== null && (
-          <p className="flex items-center gap-1.5 text-[12px] text-muted">
-            <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inset-0 animate-ping rounded-full bg-online opacity-75" />
-              <span className="relative h-1.5 w-1.5 rounded-full bg-online" />
-            </span>
-            {onlineCount === 1 ? "1 person online now" : `${onlineCount.toLocaleString()} people online now`}
-          </p>
-        )}
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-surface-2 px-8 text-center">
+      {/* Two cards, not one — the same stack BrandMark's own two outlined
+          cards already stand for, just at tile scale and with roles this
+          time: the front one stays put ("in the middle"), the back one
+          does the moving, nudging left and tilting on a slow loop. Not a
+          full demo of the swipe (it needs to stay legible, not fly off)
+          — just enough motion to read as "this can be dragged", the same
+          restraint a real onboarding affordance uses rather than
+          replaying the whole gesture. Purely decorative — the
+          interactive element this sits in front of (SwipeStage's own
+          draggable region) already carries the real aria-label. */}
+      <div className="relative aspect-[3/4] w-44 sm:w-56" aria-hidden="true">
+        <motion.div
+          className="absolute inset-0 rounded-[28px] border-2 border-accent-2/50 bg-surface-1 shadow-lg shadow-black/30"
+          animate={{ x: [10, -6, 10], y: [7, 7, 7], rotate: [5, -2, 5] }}
+          transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 0.9, ease: "easeInOut" }}
+        />
+        <div className="relative z-10 flex h-full w-full flex-col items-center justify-center rounded-[28px] border-2 border-accent/50 bg-surface-1 shadow-lg shadow-black/30">
+          <BrandMark size={48} />
+        </div>
       </div>
+
+      {onlineCount !== null && (
+        <p className="flex items-center gap-1.5 text-[12px] text-muted">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inset-0 animate-ping rounded-full bg-online opacity-75" />
+            <span className="relative h-1.5 w-1.5 rounded-full bg-online" />
+          </span>
+          {onlineCount === 1 ? "1 person online now" : `${onlineCount.toLocaleString()} people online now`}
+        </p>
+      )}
     </div>
   )
 }
