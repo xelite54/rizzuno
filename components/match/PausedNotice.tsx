@@ -1,7 +1,6 @@
 "use client"
 
 import { motion } from "motion/react"
-import { BrandMark } from "./BrandMark"
 
 type PausedNoticeProps = {
   /** How many accounts currently have a live connection — omitted entirely (not shown as a placeholder "0") until the server's first "online-count" arrives. See useMatchmaking.ts's `onlineCount`. */
@@ -26,16 +25,25 @@ type PausedNoticeProps = {
  * in-app screen itself is short and functional. Rizzuno's own equivalent
  * is its swipe gesture (Holla uses the same swipe-to-match model), so the
  * placeholder is a real "no video yet" tile — echoing SelfPanel.tsx's own
- * empty-camera treatment (BrandMark, kept simple) rather than inventing a
- * separate look for it — now doubled into the same two-card read
- * BrandMark itself already uses (see BrandMark.tsx's own doc comment:
- * "the product is fundamentally a stack of video cards"), each card
- * carrying one of the two accent colors instead of both dumped into one
- * flat tile. No caption spelling the gesture out ("Swipe left to
- * start") — the back card doing the actual nudge-and-tilt motion is the
- * demonstration; a real competitor's screen doesn't caption its own
- * animation either. No separate marketing headline — "Meet someone
- * new." already lives on SignInLanding, and this screen isn't that one.
+ * empty-camera treatment rather than inventing a separate look for it —
+ * doubled into the same two-card read BrandMark.tsx already stands for
+ * (see its own doc comment: "the product is fundamentally a stack of
+ * video cards"), each card carrying one of the two accent colors instead
+ * of both dumped into one flat tile. No caption spelling the gesture out
+ * ("Swipe left to start") — the back card doing the actual nudge-and-tilt
+ * motion is the demonstration; a real competitor's screen doesn't caption
+ * its own animation either. No separate marketing headline — "Meet
+ * someone new." already lives on SignInLanding, and this screen isn't
+ * that one.
+ *
+ * The small mark inside the front card is a plain, STATIC pair of
+ * outlines — deliberately not the animated <BrandMark> component, even
+ * though it's built to the exact same proportions. <BrandMark> runs its
+ * own independent drift (both its cards sliding toward and apart from
+ * each other) — nested inside the big cards' own nudge-and-tilt loop,
+ * that was two unrelated motions competing in the same small area at
+ * once. One motion source (the big back card) reads as a considered
+ * animation; two overlapping ones reads as noise.
  */
 export function PausedNotice({ onlineCount = null }: PausedNoticeProps) {
   return (
@@ -57,7 +65,15 @@ export function PausedNotice({ onlineCount = null }: PausedNoticeProps) {
           transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 0.9, ease: "easeInOut" }}
         />
         <div className="relative z-10 flex h-full w-full flex-col items-center justify-center rounded-[28px] border-2 border-accent/50 bg-surface-1 shadow-lg shadow-black/30">
-          <BrandMark size={48} />
+          {/* Static — see this component's own doc comment for why this
+              isn't <BrandMark>. Sized to match its size=48 output exactly. */}
+          <span className="relative inline-flex items-center" style={{ height: 48 }}>
+            <span className="border border-accent" style={{ width: 31, height: 48, borderWidth: 4.3, borderRadius: 2 }} />
+            <span
+              className="border border-accent-2"
+              style={{ width: 31, height: 48, borderWidth: 4.3, borderRadius: 2, marginLeft: -15.5 }}
+            />
+          </span>
         </div>
       </div>
 
