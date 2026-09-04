@@ -25,6 +25,7 @@ import { PeerProfileSheet } from "./PeerProfileSheet"
 import { MatchChatPanel } from "./MatchChatPanel"
 import { MyProfileSheet } from "./MyProfileSheet"
 import { UndoSkipToast } from "./UndoSkipToast"
+import { BrandMark } from "./BrandMark"
 import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
 import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends"
@@ -503,11 +504,25 @@ export function MatchStage() {
           }}
           className={
             onHomeScreen
-              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[42vw] max-w-44 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none lg:bottom-2 lg:left-2 lg:top-2 lg:h-[calc(100%-1rem)] lg:w-auto"
+              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none lg:bottom-2 lg:left-2 lg:top-2 lg:h-[calc(100%-1rem)] lg:w-auto"
               : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
         >
           <SelfPanel stream={stream} status={status} cameraEnabled={cameraEnabled} />
+          {onHomeScreen && (
+            <div className="absolute left-3 top-3 z-30 rounded-xl bg-black/35 px-2.5 py-2 backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <BrandMark size={22} />
+                <span className="text-[12px] font-semibold tracking-[-0.01em] text-white/90">Rizzuno</span>
+              </div>
+              {onlineCount !== null && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-[10px] font-medium text-white/55">
+                  <span className="h-1.5 w-1.5 rounded-full bg-online" />
+                  {onlineCount === 1 ? "1 online" : `${onlineCount.toLocaleString()} online`}
+                </div>
+              )}
+            </div>
+          )}
           {/* Every personal control is anchored to the self-video itself.
               Friends/profile sit at the top and media/chat at the bottom;
               neither becomes a detached viewport toolbar on mobile. */}
