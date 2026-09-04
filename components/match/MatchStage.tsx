@@ -490,41 +490,33 @@ export function MatchStage() {
             was. */}
         <motion.div
           layout
+          initial={false}
           layoutDependency={onHomeScreen}
           transition={{
-            layout: reduceMotion
+            // The camera should only travel/expand when the guest leaves
+            // home to start matching. Entering home (initial hydration,
+            // returning from another screen, or pausing) is immediate so the
+            // landing composition never replays the transition by itself.
+            layout: reduceMotion || onHomeScreen
               ? { duration: 0 }
               : { duration: 0.52, ease: EASE_OUT },
           }}
           className={
             onHomeScreen
-              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[42vw] max-w-44 overflow-visible rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none lg:bottom-2 lg:left-2 lg:top-2 lg:h-[calc(100%-1rem)] lg:w-auto"
+              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[42vw] max-w-44 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none lg:bottom-2 lg:left-2 lg:top-2 lg:h-[calc(100%-1rem)] lg:w-auto"
               : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
         >
           <SelfPanel stream={stream} status={status} cameraEnabled={cameraEnabled} />
-          {/* Your own controls — mic, camera, chat, friends, profile. On
-              desktop (`md:relative` on the wrapper above) these still overlay
-              your own video tile via `md:absolute`, exactly as before.
-              Nested here (not moved out to be `<main>`'s direct children) on
-              purpose — `fixed` positions relative to the viewport regardless
-              of DOM nesting, so staying nested costs mobile nothing, while
-              moving them out would've broken `md:absolute`'s desktop
-              positioning (it'd anchor to `<main>`, not to this bubble).
-              Below `md`, `fixed` (not `absolute`) escapes the now-tiny
-              96px bubble entirely, overlaying the full viewport instead of
-              being crammed inside it. The friends/profile row also moves to
-              top-center on mobile — top-right is now the self-view bubble,
-              and top-left is PersonBadge's peer-name badge (SwipeStage.tsx)
-              once a call is active, so top-center is the one spot free in
-              both states. None of it is reachable until signed in and fully
-              onboarded. */}
+          {/* Every personal control is anchored to the self-video itself.
+              Friends/profile sit at the top and media/chat at the bottom;
+              neither becomes a detached viewport toolbar on mobile. */}
           {signedIn && legalAccepted && onboarded && !restriction && (
             <>
               {/* Deliberately faint until touched — this is your own utility
                   corner, not the point of the screen, so it should recede
                   rather than compete with the person you're talking to. */}
-              <div className={`z-30 flex items-center gap-1 rounded-full bg-black/30 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "absolute right-3 top-3 opacity-70" : "fixed left-1/2 top-4 -translate-x-1/2 opacity-25 md:absolute md:left-auto md:right-4 md:top-4 md:z-10 md:translate-x-0"}`}>
+              <div className={`absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-3 top-3 opacity-75" : "right-1 top-1 opacity-45 md:right-4 md:top-4 md:z-10 md:opacity-25"}`}>
                 {FRIENDS_ENABLED && (
                   <button
                     type="button"

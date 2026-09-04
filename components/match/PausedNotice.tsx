@@ -21,43 +21,43 @@ export function PausedNotice({ onlineCount = null, mode = "start" }: PausedNotic
   const action = mode === "start" ? "start" : "resume"
 
   return (
-    <div className="pointer-events-none absolute inset-0 isolate overflow-hidden bg-[#0c0910] text-left">
-      <div className="absolute -right-40 -top-48 h-[34rem] w-[34rem] rounded-full bg-accent/[0.07] blur-[120px]" aria-hidden="true" />
+    <div className="pointer-events-none absolute inset-0 isolate overflow-hidden bg-[#0b0b0d] text-left">
+      <div className="absolute -right-48 -top-56 h-[36rem] w-[36rem] rounded-full bg-accent-2/[0.055] blur-[140px]" aria-hidden="true" />
 
-      <header className="absolute right-5 top-5 z-20 flex items-center gap-5 sm:right-8 sm:top-7 lg:left-[58%] lg:right-auto xl:left-[52%]">
+      <header className="absolute right-5 top-5 z-20 flex items-center gap-4 sm:right-8 sm:top-7 lg:left-[58%] lg:right-auto lg:top-8 xl:left-[52%]">
         <div className="flex items-center gap-2.5">
-          <BrandMark size={24} />
-          <span className="text-[13px] font-bold tracking-[-0.01em] text-foreground">Rizzuno</span>
+          <BrandMark size={22} />
+          <span className="text-[12px] font-semibold tracking-[-0.01em] text-white/90">Rizzuno</span>
         </div>
         {onlineCount !== null && (
-          <div className="flex items-center gap-2 text-[12px] text-white/50">
-            <span className="h-1.5 w-1.5 rounded-full bg-online" />
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-white/38">
+            <span className="h-1.5 w-1.5 rounded-full bg-online/80" />
             {onlineCount === 1 ? "1 online" : `${onlineCount.toLocaleString()} online`}
           </div>
         )}
       </header>
 
-      <main className="relative z-10 flex h-full items-end px-6 pb-28 pt-24 sm:items-center sm:px-10 sm:pb-20 lg:pl-[58%] lg:pr-10 xl:pl-[52%]">
-        <section className="max-w-[46rem]">
-          <h1 className="text-[clamp(3.25rem,11vw,5.8rem)] font-bold leading-[0.94] tracking-[-0.065em] text-foreground lg:text-[clamp(4.5rem,7vw,7rem)]">
-            Meet someone
-            <span className="block text-white/32">new.</span>
+      <main className="relative z-10 flex h-full items-end px-6 pb-28 pt-24 sm:items-center sm:px-10 sm:pb-20 lg:pl-[58%] lg:pr-12 xl:pl-[52%] xl:pr-16">
+        <section className="max-w-[42rem]">
+          <h1 className="text-balance text-[clamp(2.75rem,10vw,4.75rem)] font-semibold leading-[0.98] tracking-[-0.052em] text-white/95 lg:text-[clamp(3.75rem,5.7vw,5.75rem)]">
+            Different sides.
+            <span className="mt-1 block text-white/38">Same moment.</span>
           </h1>
         </section>
       </main>
 
-      <div className="absolute bottom-6 right-6 z-20 flex items-center gap-3 sm:bottom-8 sm:right-10 lg:left-[58%] lg:right-auto xl:left-[52%]">
+      <div className="absolute bottom-6 right-6 z-20 flex items-center gap-2.5 sm:bottom-8 sm:right-10 lg:left-[58%] lg:right-auto xl:left-[52%]">
         <motion.div
           animate={reduceMotion ? undefined : { x: [3, -3, 3] }}
           transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-          className="flex items-center -space-x-2 text-white/55"
+          className="flex items-center -space-x-2 text-white/45"
           aria-hidden="true"
         >
-          <ChevronLeftIcon className="h-5 w-5 opacity-25" />
-          <ChevronLeftIcon className="h-5 w-5 opacity-55" />
-          <ChevronLeftIcon className="h-5 w-5 opacity-90" />
+          <ChevronLeftIcon className="h-[18px] w-[18px] opacity-20" />
+          <ChevronLeftIcon className="h-[18px] w-[18px] opacity-50" />
+          <ChevronLeftIcon className="h-[18px] w-[18px] opacity-80" />
         </motion.div>
-        <span className="whitespace-nowrap text-[12px] font-medium text-white/60">Swipe left to {action}</span>
+        <span className="whitespace-nowrap text-[13px] font-medium tracking-[-0.01em] text-white/48">Swipe left to {action}</span>
       </div>
     </div>
   )
