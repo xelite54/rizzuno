@@ -30,7 +30,7 @@ import type { PeerProfile } from "@/hooks/useMatchmaking"
 import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends"
 import { useLegalAcceptance } from "@/hooks/useLegalAcceptance"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
-import { UsersIcon } from "@/components/icons"
+import { ChevronLeftIcon, UsersIcon } from "@/components/icons"
 import { EASE_OUT } from "@/lib/motion"
 
 // How long a completed skip stays undoable before the real teardown/next-
@@ -521,8 +521,8 @@ export function MatchStage() {
   const [myProfileOpen, setMyProfileOpen] = useState(false)
 
   return (
-    <div className="relative flex h-dvh w-dvw flex-col overflow-hidden bg-background">
-      <main className="relative z-10 flex min-h-0 flex-1 flex-row gap-1 p-0 md:p-2">
+    <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-[#0b0b0d]" : "bg-background"}`}>
+      <main className={`relative z-10 flex min-h-0 flex-1 flex-row ${useHomeSplit ? "gap-0 p-0" : "gap-1 p-0 md:p-2"}`}>
         {/* Below `md`, this is your own small self-view bubble floating over
             the full-screen peer video — the "picture in picture" frame
             Omegle TV and similar mobile-optimized video-chat sites use,
@@ -552,11 +552,16 @@ export function MatchStage() {
           }}
           className={
             useHomeSplit
-              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-2xl md:border md:border-border md:shadow-none"
+              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-none md:border-0 md:shadow-none"
               : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
         >
-          <SelfPanel stream={stream} status={status} cameraEnabled={cameraEnabled} />
+          <SelfPanel
+            stream={stream}
+            status={status}
+            cameraEnabled={cameraEnabled}
+            flushDesktop={useHomeSplit}
+          />
           {/* Every personal control is anchored to the self-video itself.
               Friends/profile sit at the top and media/chat at the bottom;
               neither becomes a detached viewport toolbar on mobile. */}
@@ -613,7 +618,7 @@ export function MatchStage() {
             </>
           )}
         </motion.div>
-        <div className="relative h-full min-h-0 min-w-0 flex-1 md:rounded-2xl md:border md:border-border">
+        <div className={`relative h-full min-h-0 min-w-0 flex-1 ${useHomeSplit ? "md:rounded-none md:border-0" : "md:rounded-2xl md:border md:border-border"}`}>
           {authLoading ? null : !signedIn ? (
             <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
           ) : restriction && restriction.reason !== "acceptance_required" ? (
@@ -668,6 +673,23 @@ export function MatchStage() {
             </>
           )}
         </div>
+        {onHomeScreen && (
+          <div className="pointer-events-none absolute bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2.5 sm:bottom-8">
+            <motion.div
+              animate={reduceMotion ? undefined : { x: [3, -3, 3] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+              className="flex items-center -space-x-2 text-white/45"
+              aria-hidden="true"
+            >
+              <ChevronLeftIcon className="h-[18px] w-[18px] opacity-20" />
+              <ChevronLeftIcon className="h-[18px] w-[18px] opacity-50" />
+              <ChevronLeftIcon className="h-[18px] w-[18px] opacity-80" />
+            </motion.div>
+            <span className="whitespace-nowrap text-[13px] font-medium tracking-[-0.01em] text-white/55">
+              Swipe left to {swipeMatchState === "paused" ? "resume" : "start"}
+            </span>
+          </div>
+        )}
       </main>
 
       {FRIENDS_ENABLED && (
