@@ -24,7 +24,7 @@ export function PausedNotice({ onlineCount = null, mode = "start" }: PausedNotic
     <div className="pointer-events-none absolute inset-0 isolate overflow-hidden bg-[#0b0b0d] text-left">
       <div className="absolute -right-48 -top-56 h-[36rem] w-[36rem] rounded-full bg-accent-2/[0.055] blur-[140px]" aria-hidden="true" />
 
-      <header className="absolute right-5 top-5 z-20 flex flex-col items-end gap-1.5 sm:right-8 sm:top-7 lg:right-0 lg:top-8 lg:w-[42%] lg:flex-row lg:items-center lg:gap-4 xl:w-[48%]">
+      <header className="absolute left-5 top-5 z-20 flex flex-col items-start gap-1.5 sm:left-8 sm:top-7 lg:left-0 lg:top-8 lg:w-[42%] lg:flex-row lg:items-center lg:gap-4 xl:w-[48%]">
         <div className="flex items-center gap-2.5">
           <BrandMark size={22} />
           <span className="text-[12px] font-semibold tracking-[-0.01em] text-white/90">Rizzuno</span>
@@ -46,7 +46,7 @@ export function PausedNotice({ onlineCount = null, mode = "start" }: PausedNotic
         </section>
       </main>
 
-      <div className="absolute bottom-6 left-1/2 z-20 flex -translate-x-1/2 items-center gap-2.5 sm:bottom-8 lg:left-auto lg:right-0 lg:w-[42%] lg:translate-x-0 lg:justify-center xl:w-[48%]">
+      <div className="absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2.5">
         <motion.div
           animate={reduceMotion ? undefined : { x: [3, -3, 3] }}
           transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
