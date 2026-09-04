@@ -76,7 +76,7 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   // PausedNotice's own comment). This is still the one place that decision
   // gets made — nothing above this component chooses between the two.
   if ((state === "idle" || state === "paused") && !cameraOff) {
-    return <PausedNotice onlineCount={onlineCount} mode={state === "idle" ? "start" : "resume"} />
+    return <PausedNotice onlineCount={onlineCount} />
   }
 
   const label = describeState(state, cameraOff)

@@ -171,9 +171,11 @@ export function SwipeStage({
     <div
       ref={containerRef}
       onKeyDown={handleKeyDown}
-      className="relative h-full w-full overflow-hidden rounded-2xl bg-surface"
+      className={`relative h-full w-full overflow-hidden rounded-2xl ${isWaitingToStart ? "bg-[#0b0b0d] md:rounded-none" : "bg-surface"}`}
     >
-      <motion.div style={{ scale: nextScale, opacity: nextOpacity }} className="absolute inset-0 bg-surface-2" />
+      {!isWaitingToStart && (
+        <motion.div style={{ scale: nextScale, opacity: nextOpacity }} className="absolute inset-0 bg-surface-2" />
+      )}
 
       <motion.div
         style={{ x, rotate, scale }}
@@ -200,8 +202,10 @@ export function SwipeStage({
         }
         className="absolute inset-0 origin-bottom cursor-grab touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-accent-2 active:cursor-grabbing"
       >
-        <VideoTile stream={remoteStream} className="bg-surface-2" />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
+        <VideoTile stream={remoteStream} className={isWaitingToStart ? "bg-[#0b0b0d]" : "bg-surface-2"} />
+        {!isWaitingToStart && (
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
+        )}
 
         {/* The brand wordmark — on the OTHER person's tile, not your own
             (see SelfPanel.tsx, which used to carry this): whoever you're

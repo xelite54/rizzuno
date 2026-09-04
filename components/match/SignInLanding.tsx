@@ -25,7 +25,7 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
     <div className="flex h-full w-full flex-col items-start justify-center rounded-2xl bg-background px-7 py-6 sm:px-10">
       <div className="flex items-center gap-2">
         <BrandMark />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">Rizzuno</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-accent">Rizzuno.com</span>
       </div>
       <h1 className="mt-3 text-[46px] font-extrabold leading-[0.95] tracking-tight text-foreground sm:text-[56px]">
         Meet someone

@@ -8,13 +8,15 @@ type SelfPanelProps = {
   stream: MediaStream | null
   status: MediaPermissionState
   cameraEnabled: boolean
+  /** Removes the desktop rounding when this panel is flush against the homepage content panel. */
+  flushDesktop?: boolean
 }
 
-export function SelfPanel({ stream, status, cameraEnabled }: SelfPanelProps) {
+export function SelfPanel({ stream, status, cameraEnabled, flushDesktop = false }: SelfPanelProps) {
   const showVideo = Boolean(stream) && cameraEnabled && status === "granted"
 
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-2xl bg-surface">
+    <div className={`relative h-full w-full overflow-hidden rounded-2xl bg-surface ${flushDesktop ? "md:rounded-none" : ""}`}>
       {showVideo ? (
         <VideoTile stream={stream} muted mirrored />
       ) : (
