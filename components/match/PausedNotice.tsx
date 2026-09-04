@@ -24,17 +24,17 @@ export function PausedNotice({ onlineCount = null, mode = "start" }: PausedNotic
     <div className="pointer-events-none absolute inset-0 isolate overflow-hidden bg-[#0c0910] text-left">
       <div className="absolute -right-40 -top-48 h-[34rem] w-[34rem] rounded-full bg-accent/[0.07] blur-[120px]" aria-hidden="true" />
 
-      <header className="absolute right-5 top-5 z-20 flex items-center gap-5 sm:right-8 sm:top-7 lg:right-10">
+      <header className="absolute right-5 top-5 z-20 flex items-center gap-5 sm:right-8 sm:top-7 lg:left-[58%] lg:right-auto xl:left-[52%]">
+        <div className="flex items-center gap-2.5">
+          <BrandMark size={24} />
+          <span className="text-[13px] font-bold tracking-[-0.01em] text-foreground">Rizzuno</span>
+        </div>
         {onlineCount !== null && (
           <div className="flex items-center gap-2 text-[12px] text-white/50">
             <span className="h-1.5 w-1.5 rounded-full bg-online" />
             {onlineCount === 1 ? "1 online" : `${onlineCount.toLocaleString()} online`}
           </div>
         )}
-        <div className="flex items-center gap-2.5">
-          <BrandMark size={24} />
-          <span className="text-[13px] font-bold tracking-[-0.01em] text-foreground">Rizzuno</span>
-        </div>
       </header>
 
       <main className="relative z-10 flex h-full items-end px-6 pb-28 pt-24 sm:items-center sm:px-10 sm:pb-20 lg:pl-[58%] lg:pr-10 xl:pl-[52%]">
