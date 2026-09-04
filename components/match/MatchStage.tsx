@@ -498,7 +498,7 @@ export function MatchStage() {
           }}
           className={
             onHomeScreen
-              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-24 overflow-visible rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-28 lg:left-[6%] lg:top-[28%] lg:w-[clamp(13rem,19vw,18rem)]"
+              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[42vw] max-w-44 overflow-visible rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none lg:bottom-2 lg:left-2 lg:top-2 lg:h-[calc(100%-1rem)] lg:w-auto"
               : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
         >
@@ -524,7 +524,7 @@ export function MatchStage() {
               {/* Deliberately faint until touched — this is your own utility
                   corner, not the point of the screen, so it should recede
                   rather than compete with the person you're talking to. */}
-              <div className={`fixed left-1/2 top-4 z-30 flex -translate-x-1/2 items-center gap-1 rounded-full bg-black/20 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-50" : "opacity-25 md:absolute md:left-auto md:right-4 md:top-4 md:z-10 md:translate-x-0"}`}>
+              <div className={`fixed z-30 flex items-center gap-1 rounded-full bg-black/20 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "left-auto right-4 top-16 translate-x-0 opacity-55" : "left-1/2 top-4 -translate-x-1/2 opacity-25 md:absolute md:left-auto md:right-4 md:top-4 md:z-10 md:translate-x-0"}`}>
                 {FRIENDS_ENABLED && (
                   <button
                     type="button"
@@ -547,8 +547,8 @@ export function MatchStage() {
                   onOpenProfile={() => setMyProfileOpen(true)}
                 />
               </div>
-              <div className={`fixed bottom-4 right-4 z-30 flex items-center justify-end ${onHomeScreen ? "" : "md:absolute md:z-10"}`}>
-                <div className="flex items-center gap-1 rounded-full bg-black/20 p-1 opacity-25 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100">
+              <div className={onHomeScreen ? "absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center justify-center" : "fixed bottom-4 right-4 z-30 flex items-center justify-end md:absolute md:z-10"}>
+                <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-25"}`}>
                   <ControlBar
                     micEnabled={micEnabled}
                     cameraEnabled={cameraEnabled}
