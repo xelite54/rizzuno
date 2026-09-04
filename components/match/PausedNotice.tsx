@@ -58,7 +58,12 @@ export function PausedNotice({ onlineCount = null }: PausedNoticeProps) {
           replaying the whole gesture. Purely decorative — the
           interactive element this sits in front of (SwipeStage's own
           draggable region) already carries the real aria-label. */}
-      <div className="relative aspect-[3/4] w-44 sm:w-56" aria-hidden="true">
+      {/* bg-surface-2 here too, matching the panel behind it — the back
+          card below moves off its resting position (nudge/tilt), and
+          without a real fill of its own this wrapper would show through
+          as a literal transparent gap right where the back card just
+          was, instead of just more of the same panel. */}
+      <div className="relative aspect-[3/4] w-44 rounded-[28px] bg-surface-2 sm:w-56" aria-hidden="true">
         <motion.div
           className="absolute inset-0 rounded-[28px] border-2 border-accent-2/50 bg-surface-1 shadow-lg shadow-black/30"
           animate={{ x: [10, -6, 10], y: [7, 7, 7], rotate: [5, -2, 5] }}
