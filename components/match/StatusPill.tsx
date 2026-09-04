@@ -69,7 +69,7 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   // MatchStage.tsx), so a first visit ("idle") and a deliberate pause
   // ("paused") are the same "not currently searching, swipe when ready"
   // moment from the guest's own point of view, and share the exact same
-  // "stay zone" screen rather than one of them showing a blank tile. Camera
+  // signed-in home screen rather than one of them showing a blank tile. Camera
   // off still gets its own small inline blocker instead, for both — there's
   // a more specific, actionable thing to say (there's no peer either way,
   // and empty video reads as broken rather than restful — see
