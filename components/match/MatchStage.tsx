@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useSession, signIn, signOut } from "next-auth/react"
+import { motion, useReducedMotion } from "motion/react"
 import { useLocalMedia } from "@/hooks/useLocalMedia"
 import { useMatchmaking } from "@/hooks/useMatchmaking"
 import { useMyProfile } from "@/hooks/useMyProfile"
@@ -30,6 +31,7 @@ import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends
 import { useLegalAcceptance } from "@/hooks/useLegalAcceptance"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { UsersIcon } from "@/components/icons"
+import { EASE_OUT } from "@/lib/motion"
 
 // How long a completed skip stays undoable before the real teardown/next-
 // match search actually commits.
@@ -74,6 +76,7 @@ const SIGNIN_CHANNEL_NAME = "rizzuno-auth"
 type SignInPopupMessage = { ok: true } | { error: string }
 
 export function MatchStage() {
+  const reduceMotion = useReducedMotion()
   const { stream, videoTrack, audioTrack, status, micEnabled, cameraEnabled, toggleMic, toggleCamera } =
     useLocalMedia()
 
@@ -485,10 +488,17 @@ export function MatchStage() {
             no separate "mobile" markup for that side. At `md` and up it
             reverts to exactly the side-by-side desktop layout this always
             was. */}
-        <div
+        <motion.div
+          layout
+          layoutDependency={onHomeScreen}
+          transition={{
+            layout: reduceMotion
+              ? { duration: 0 }
+              : { duration: 0.52, ease: EASE_OUT },
+          }}
           className={
             onHomeScreen
-              ? "absolute right-4 top-20 z-20 aspect-[3/4] w-24 overflow-visible rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:right-6 sm:top-24 sm:w-28 lg:right-[6%] lg:top-1/2 lg:w-[clamp(13rem,19vw,18rem)] lg:-translate-y-1/2"
+              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-24 overflow-visible rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-28 lg:left-[6%] lg:top-[28%] lg:w-[clamp(13rem,19vw,18rem)]"
               : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
         >
@@ -561,7 +571,7 @@ export function MatchStage() {
               />
             </>
           )}
-        </div>
+        </motion.div>
         <div className="relative h-full min-h-0 min-w-0 flex-1 md:rounded-2xl md:border md:border-border">
           {authLoading ? null : !signedIn ? (
             <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
