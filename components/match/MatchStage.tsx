@@ -81,7 +81,7 @@ export function MatchStage() {
     useLocalMedia()
 
   // Guards the self-camera's home-screen grow/shrink layout animation
-  // (see the motion.div below, keyed on `onHomeScreen`) against replaying
+  // (see the motion.div below, keyed on `useHomeSplit`) against replaying
   // itself for reasons that have nothing to do with the guest actually
   // leaving/returning to the home screen on purpose. Coming back to this
   // tab after it was backgrounded can produce a brief, spurious flicker in
@@ -428,6 +428,23 @@ export function MatchStage() {
     !cameraOff &&
     (swipeMatchState === "idle" || swipeMatchState === "paused")
 
+  // Keep the structural home split independent from async session/profile/
+  // camera hydration. Matchmaking state is idle on the first render, so a
+  // returning guest now begins at 42/58 instead of rendering one 50/50 frame
+  // while those other values settle. Only an actual matching state is
+  // allowed to animate the shell from 42/58 to 50/50.
+  const useHomeSplit =
+    (authLoading || signedIn) &&
+    (swipeMatchState === "idle" || swipeMatchState === "paused")
+  const animateIntoMatching =
+    signedIn &&
+    !useHomeSplit &&
+    (swipeMatchState === "queue-pending" ||
+      swipeMatchState === "searching" ||
+      swipeMatchState === "connecting" ||
+      swipeMatchState === "active" ||
+      swipeMatchState === "peer-left")
+
   // Friends + friend requests — real data now (see useMatchmaking.ts, which
   // owns the one WebSocket connection this all rides on, and
   // server/ws-server.ts + lib/db.ts for the actual persisted backend).
@@ -519,7 +536,7 @@ export function MatchStage() {
         <motion.div
           layout
           initial={false}
-          layoutDependency={onHomeScreen}
+          layoutDependency={useHomeSplit}
           transition={{
             // The camera should only travel/expand when the guest leaves
             // home to start matching. Entering home (initial hydration,
@@ -527,14 +544,14 @@ export function MatchStage() {
             // landing composition never replays the transition by itself —
             // and so is anything happening in the brief window right after
             // this tab regains visibility (see suppressHomeLayoutAnimation's
-            // own doc comment above), regardless of which way `onHomeScreen`
-            // itself happens to read at that exact moment.
-            layout: reduceMotion || onHomeScreen || suppressHomeLayoutAnimation
+            // own doc comment above), regardless of which way the shell
+            // state happens to read at that exact moment.
+            layout: reduceMotion || !animateIntoMatching || suppressHomeLayoutAnimation
               ? { duration: 0 }
               : { duration: 0.52, ease: EASE_OUT },
           }}
           className={
-            onHomeScreen
+            useHomeSplit
               ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-2xl md:border md:border-border md:shadow-none"
               : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
