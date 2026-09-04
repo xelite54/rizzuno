@@ -22,8 +22,6 @@ export function PausedNotice({ onlineCount = null, mode = "start" }: PausedNotic
 
   return (
     <div className="pointer-events-none absolute inset-0 isolate overflow-hidden bg-[#0b0b0d] text-left">
-      <div className="absolute -right-48 -top-56 h-[36rem] w-[36rem] rounded-full bg-accent-2/[0.055] blur-[140px]" aria-hidden="true" />
-
       <header className="absolute right-5 top-5 z-20 flex flex-col items-end gap-1.5 sm:right-8 sm:top-7 lg:right-0 lg:top-8 lg:w-[42%] lg:flex-row lg:items-center lg:gap-4 xl:w-[48%]">
         <div className="flex items-center gap-2.5">
           <BrandMark size={22} />
