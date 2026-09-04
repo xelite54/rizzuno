@@ -36,14 +36,11 @@ type PausedNoticeProps = {
  * someone new." already lives on SignInLanding, and this screen isn't
  * that one.
  *
- * The small mark inside the front card is a plain, STATIC pair of
- * outlines — deliberately not the animated <BrandMark> component, even
- * though it's built to the exact same proportions. <BrandMark> runs its
- * own independent drift (both its cards sliding toward and apart from
- * each other) — nested inside the big cards' own nudge-and-tilt loop,
- * that was two unrelated motions competing in the same small area at
- * once. One motion source (the big back card) reads as a considered
- * animation; two overlapping ones reads as noise.
+ * Nothing rendered inside either card — no small icon, no second copy of
+ * the two-card mark tucked into one of the two big cards. The front and
+ * back tiles themselves ARE Rizzuno's two-card read at this point; a
+ * miniature version of the same motif nested inside one of them just
+ * reads as a logo inside the logo, not a second idea.
  */
 export function PausedNotice({ onlineCount = null }: PausedNoticeProps) {
   return (
@@ -69,17 +66,7 @@ export function PausedNotice({ onlineCount = null }: PausedNoticeProps) {
           animate={{ x: [10, -6, 10], y: [7, 7, 7], rotate: [5, -2, 5] }}
           transition={{ duration: 2.4, repeat: Infinity, repeatDelay: 0.9, ease: "easeInOut" }}
         />
-        <div className="relative z-10 flex h-full w-full flex-col items-center justify-center rounded-[28px] border-2 border-accent/50 bg-surface-1 shadow-lg shadow-black/30">
-          {/* Static — see this component's own doc comment for why this
-              isn't <BrandMark>. Sized to match its size=48 output exactly. */}
-          <span className="relative inline-flex items-center" style={{ height: 48 }}>
-            <span className="border border-accent" style={{ width: 31, height: 48, borderWidth: 4.3, borderRadius: 2 }} />
-            <span
-              className="border border-accent-2"
-              style={{ width: 31, height: 48, borderWidth: 4.3, borderRadius: 2, marginLeft: -15.5 }}
-            />
-          </span>
-        </div>
+        <div className="relative z-10 h-full w-full rounded-[28px] border-2 border-accent/50 bg-surface-1 shadow-lg shadow-black/30" />
       </div>
 
       {onlineCount !== null && (
