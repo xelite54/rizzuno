@@ -1,9 +1,9 @@
 .background {
-  background-color: var(--background);
+  background-color: #251b2d;
   background-image:
-    radial-gradient(ellipse at center, rgb(155 93 229 / 22%), transparent 68%),
-    radial-gradient(ellipse at center, rgb(240 68 114 / 8%), transparent 70%),
-    linear-gradient(135deg, #100d12, var(--surface-2));
+    radial-gradient(ellipse at center, rgb(166 126 196 / 24%), rgb(166 126 196 / 8%) 42%, transparent 72%),
+    radial-gradient(ellipse at center, rgb(207 139 169 / 22%), rgb(207 139 169 / 7%) 44%, transparent 74%),
+    linear-gradient(135deg, #21192e, #302033 55%, #392530);
   background-size: 150% 150%, 140% 140%, 100% 100%;
   background-position: 0% 15%, 100% 85%, center;
   background-repeat: no-repeat;
