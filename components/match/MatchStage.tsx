@@ -30,7 +30,7 @@ import type { PeerProfile } from "@/hooks/useMatchmaking"
 import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends"
 import { useLegalAcceptance } from "@/hooks/useLegalAcceptance"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
-import { ChevronLeftIcon, UsersIcon } from "@/components/icons"
+import { UsersIcon } from "@/components/icons"
 import { EASE_OUT } from "@/lib/motion"
 
 // How long a completed skip stays undoable before the real teardown/next-
@@ -673,23 +673,6 @@ export function MatchStage() {
             </>
           )}
         </div>
-        {onHomeScreen && (
-          <div className="pointer-events-none absolute bottom-6 left-1/2 z-40 -translate-x-1/2 sm:bottom-8">
-            <motion.div
-              animate={reduceMotion ? undefined : { x: [3, -3, 3] }}
-              transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-              className="absolute right-[calc(100%+0.625rem)] top-0 flex h-full items-center -space-x-2 text-white/45"
-              aria-hidden="true"
-            >
-              <ChevronLeftIcon className="h-[18px] w-[18px] opacity-20" />
-              <ChevronLeftIcon className="h-[18px] w-[18px] opacity-50" />
-              <ChevronLeftIcon className="h-[18px] w-[18px] opacity-80" />
-            </motion.div>
-            <span className="whitespace-nowrap text-[13px] font-medium tracking-[-0.01em] text-white/55">
-              Swipe left to {swipeMatchState === "paused" ? "resume" : "start"}
-            </span>
-          </div>
-        )}
       </main>
 
       {FRIENDS_ENABLED && (
