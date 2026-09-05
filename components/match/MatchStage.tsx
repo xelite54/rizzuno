@@ -521,7 +521,7 @@ export function MatchStage() {
   const [myProfileOpen, setMyProfileOpen] = useState(false)
 
   return (
-    <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-[#100d12]" : "bg-background"}`}>
+    <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-home-glow" : "bg-background"}`}>
       <main className={`relative z-10 flex min-h-0 flex-1 flex-row ${useHomeSplit ? "gap-0 p-0" : "gap-1 p-0 md:p-2"}`}>
         {/* Below `md`, this is your own small self-view bubble floating over
             the full-screen peer video — the "picture in picture" frame
