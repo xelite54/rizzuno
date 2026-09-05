@@ -2,6 +2,7 @@
 
 import { BrandMark } from "./BrandMark"
 import { ChevronLeftIcon } from "@/components/icons"
+import styles from "./PausedNotice.module.css"
 
 type PausedNoticeProps = {
   /** Current live connections, shown beside the brand when available. */
@@ -16,7 +17,7 @@ type PausedNoticeProps = {
  */
 export function PausedNotice({ onlineCount = null, paused = false }: PausedNoticeProps) {
   return (
-    <div className="pointer-events-none absolute inset-0 isolate overflow-hidden bg-[#100d12] text-left">
+    <div className={`${styles.background} pointer-events-none absolute inset-0 isolate overflow-hidden text-left`}>
       <header className="absolute inset-x-6 top-6 z-20 flex flex-wrap items-center justify-between gap-4 md:inset-x-10 md:top-8 xl:inset-x-14">
         <div className="flex items-center gap-3">
           <BrandMark size={28} />
