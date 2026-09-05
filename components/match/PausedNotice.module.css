@@ -1,18 +1,18 @@
 .background {
-  background-color: #251b2d;
+  background-color: #2c2033;
   background-image:
-    radial-gradient(ellipse at center, rgb(166 126 196 / 24%), rgb(166 126 196 / 8%) 42%, transparent 72%),
-    radial-gradient(ellipse at center, rgb(207 139 169 / 22%), rgb(207 139 169 / 7%) 44%, transparent 74%),
-    linear-gradient(135deg, #21192e, #302033 55%, #392530);
-  background-size: 150% 150%, 140% 140%, 100% 100%;
-  background-position: 0% 15%, 100% 85%, center;
+    radial-gradient(ellipse at center, rgb(171 145 192 / 22%), rgb(171 145 192 / 8%) 38%, transparent 72%),
+    radial-gradient(ellipse at center, rgb(208 154 171 / 28%), rgb(208 154 171 / 9%) 40%, transparent 74%),
+    linear-gradient(135deg, #241b30, #38283e 52%, #49313e);
+  background-size: 135% 145%, 145% 135%, 100% 100%;
+  background-position: 10% 20%, 90% 80%, center;
   background-repeat: no-repeat;
-  animation: ambient-drift 24s ease-in-out infinite alternate;
+  animation: ambient-drift 32s ease-in-out infinite alternate;
 }
 
 @keyframes ambient-drift {
   to {
-    background-position: 100% 75%, 0% 25%, center;
+    background-position: 85% 65%, 15% 35%, center;
   }
 }
 
