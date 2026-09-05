@@ -362,7 +362,7 @@ export function FriendsPanel({
                           value={searchQuery}
                           onChange={(event) => setSearchQuery(event.target.value)}
                           placeholder="Search by username"
-                          className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted focus:outline-none"
+                          className="min-h-7 min-w-0 flex-1 bg-transparent text-[15px] text-foreground placeholder:text-muted focus:outline-none"
                         />
                       </div>
                       <button
@@ -380,34 +380,29 @@ export function FriendsPanel({
                     <>
                       <div className="flex min-w-0 flex-1 items-center gap-1.5">
                         <h2 className="text-[15px] font-semibold text-foreground">Friends</h2>
-                        <button
-                          type="button"
-                          onClick={() => setSearchActive(true)}
-                          aria-label="Search people"
-                          className="flex h-7 w-7 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                        >
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button type="button" onClick={() => setSearchActive(true)} aria-label="Search people" className="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-2 text-muted transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2">
                           <SearchIcon className="h-4 w-4" />
                         </button>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        {requests.length > 0 && (
+                        {(
                           <button
                             type="button"
                             onClick={() => setView("requests")}
                             aria-label={`${requests.length} friend request${requests.length === 1 ? "" : "s"}`}
-                            className="relative flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                            className="relative flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             <MailIcon className="h-4 w-4" />
-                            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-accent-foreground">
+                            {requests.length > 0 && <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-accent-foreground">
                               {requests.length}
-                            </span>
+                            </span>}
                           </button>
                         )}
                         <button
                           type="button"
                           onClick={onClose}
                           aria-label="Close friends"
-                          className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                          className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                         >
                           <CloseIcon className="h-4 w-4" />
                         </button>
@@ -461,7 +456,7 @@ export function FriendsPanel({
                                 sendFriendRequest(person.username)
                               }}
                               disabled={requested || person.alreadyFriends}
-                              className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
+                              className="shrink-0 min-h-11 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
                             >
                               {person.alreadyFriends ? "Friend" : requested ? "Requested" : "Add"}
                             </button>
@@ -478,13 +473,14 @@ export function FriendsPanel({
                       <UsersIcon className="h-6 w-6 text-muted" />
                     </div>
                     <p className="text-[14px] font-medium text-foreground">No friends yet</p>
+                    <button type="button" onClick={() => setSearchActive(true)} className="mt-2 flex h-11 items-center justify-center gap-2 rounded-xl bg-foreground px-5 text-[14px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"><SearchIcon className="h-4 w-4" />Find people</button>
                   </div>
                 ) : (
                   <div className="flex-1 overflow-y-auto py-2">
                     {friends.map((friend) => (
                       <div
                         key={friend.id}
-                        className="relative flex w-full items-center gap-2 px-5 py-3 transition hover:bg-surface-2"
+                        className="relative mx-3 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl px-3 py-3 transition hover:bg-surface-2"
                       >
                         <button
                           type="button"
@@ -528,7 +524,7 @@ export function FriendsPanel({
                             setRowMenuFriendId((prev) => (prev === friend.id ? null : friend.id))
                           }}
                           aria-label={`More options for ${friend.displayName}`}
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-white/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
                             rowMenuFriendId === friend.id ? "bg-white/10 text-foreground" : ""
                           }`}
                         >
@@ -555,7 +551,7 @@ export function FriendsPanel({
                                     <button
                                       type="button"
                                       onClick={() => setRowMenuConfirm(null)}
-                                      className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+                                      className="min-h-11 flex-1 rounded-xl border border-border py-2 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
                                     >
                                       Cancel
                                     </button>
@@ -569,7 +565,7 @@ export function FriendsPanel({
                                         }
                                         setRowMenuFriendId(null)
                                       }}
-                                      className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
+                                      className="min-h-11 flex-1 rounded-xl bg-danger py-2 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
                                     >
                                       {rowMenuConfirm === "unfriend" ? "Unfriend" : "Block"}
                                     </button>
@@ -621,7 +617,7 @@ export function FriendsPanel({
                     type="button"
                     onClick={() => setView("list")}
                     aria-label="Back to friends"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   >
                     <ChevronLeftIcon className="h-4 w-4" />
                   </button>
@@ -635,9 +631,9 @@ export function FriendsPanel({
                   >
                     {active.profilePhoto ? (
                       // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
-                      <img src={active.profilePhoto} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                      <img src={active.profilePhoto} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
                     ) : (
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
+                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
                         {active.displayName.charAt(0)}
                       </span>
                     )}
@@ -652,7 +648,7 @@ export function FriendsPanel({
                     type="button"
                     onClick={onClose}
                     aria-label="Close friends"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   >
                     <CloseIcon className="h-4 w-4" />
                   </button>
@@ -732,7 +728,7 @@ export function FriendsPanel({
                       type="button"
                       onClick={() => setView("list")}
                       aria-label="Back to friends"
-                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                     >
                       <ChevronLeftIcon className="h-4 w-4" />
                     </button>
@@ -742,7 +738,7 @@ export function FriendsPanel({
                     type="button"
                     onClick={onClose}
                     aria-label="Close friends"
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   >
                     <CloseIcon className="h-4 w-4" />
                   </button>
@@ -770,7 +766,7 @@ export function FriendsPanel({
                           }
                         }}
                         aria-label={`View ${request.displayName}'s profile`}
-                        className="flex cursor-pointer items-center gap-3 px-5 py-3 transition hover:bg-surface-2"
+                        className="mx-3 mb-3 grid cursor-pointer grid-cols-[2.75rem_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-border p-4 transition hover:bg-surface-2"
                       >
                         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[14px] font-semibold text-accent-foreground">
                           {request.displayName.charAt(0)}
@@ -781,20 +777,21 @@ export function FriendsPanel({
                           </span>
                         </span>
                         <div
-                          className="flex shrink-0 items-center gap-1.5"
+                          className="col-span-2 grid grid-cols-2 gap-2"
                           onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
                         >
                           <button
                             type="button"
                             onClick={() => handleDeclineRequest(request.id)}
-                            className="rounded-lg border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                            className="min-h-11 rounded-xl border border-border px-3 py-2 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             Decline
                           </button>
                           <button
                             type="button"
                             onClick={() => handleAcceptRequest(request.id)}
-                            className="rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                            className="min-h-11 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             Accept
                           </button>
@@ -832,7 +829,7 @@ export function FriendsPanel({
                   type="button"
                   onClick={() => setViewingRequesterId(null)}
                   aria-label="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                 >
                   <CloseIcon className="h-4 w-4" />
                 </button>
@@ -895,7 +892,7 @@ export function FriendsPanel({
                   type="button"
                   onClick={() => setViewingFriendId(null)}
                   aria-label="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                 >
                   <CloseIcon className="h-4 w-4" />
                 </button>
@@ -1035,7 +1032,7 @@ export function FriendsPanel({
                   type="button"
                   onClick={() => setViewingSearchResultUsername(null)}
                   aria-label="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                 >
                   <CloseIcon className="h-4 w-4" />
                 </button>

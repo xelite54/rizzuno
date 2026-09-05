@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
 
 type ChooseUsernameProps = {
   onChosen: (username: string) => void
@@ -21,7 +22,7 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
 
   const cleaned = value.trim().toLowerCase()
   const tooShort = cleaned.length > 0 && cleaned.length < 3
-  const valid = cleaned.length >= 3
+  const valid = USERNAME_PATTERN.test(cleaned)
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -63,13 +64,15 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
               autoFocus
               value={value}
               onChange={(event) => {
-                setValue(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 24))
+                setValue(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, USERNAME_MAX_LENGTH))
                 // A prior "taken" error is about the value that produced
                 // it, not whatever's typed next — clear it the moment the
                 // field changes rather than leaving stale text on screen.
                 setError(null)
               }}
               placeholder="username"
+              aria-label="Username"
+              maxLength={USERNAME_MAX_LENGTH}
               className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground placeholder:text-muted focus:outline-none"
             />
           </div>
@@ -78,7 +81,7 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
             {error ? (
               <span className="text-danger">{error}</span>
             ) : (
-              tooShort && <span className="text-muted">At least 3 characters.</span>
+              <span className="text-muted">{tooShort ? "At least 3 characters." : "3–17 characters · letters, numbers, _ or ."}</span>
             )}
           </p>
 

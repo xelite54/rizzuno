@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl } from "@/lib/image"
+import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { PeerProfileSheet } from "./PeerProfileSheet"
@@ -198,6 +199,11 @@ export function MyProfileSheet({
     setUsernameError(null)
     setPhotoError(null)
 
+    if (trimmed !== username && !USERNAME_PATTERN.test(trimmed)) {
+      setUsernameError("Use 3–17 characters: letters, numbers, _ or .")
+      return
+    }
+
     if (trimmed && trimmed !== username) {
       setSavingEdit(true)
       try {
@@ -363,13 +369,13 @@ export function MyProfileSheet({
           transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
           className="fixed inset-0 z-50 flex flex-col bg-surface"
         >
-          <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
+          <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
             {view !== "profile" ? (
               <button
                 type="button"
                 onClick={goBack}
                 aria-label="Back"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
               >
                 <ChevronLeftIcon className="h-4 w-4" />
               </button>
@@ -393,7 +399,7 @@ export function MyProfileSheet({
               type="button"
               onClick={handleXClick}
               aria-label={view === "profile" ? "Close" : "Done"}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
             >
               <CloseIcon className="h-4 w-4" />
             </button>
@@ -421,29 +427,20 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  {/* Edit profile still sits exactly on the row's true
-                      center — the outer row centers this inner wrapper, and
-                      since Settings is positioned off *that* wrapper (not
-                      the row), it doesn't add to the wrapper's own width and
-                      pull the center off. Settings then lands immediately
-                      next to Edit profile, not out at the row's edge. */}
-                  <div className="mt-4 flex w-full items-center justify-center">
-                    <div className="relative inline-flex">
+                  <div className="mt-6 w-full max-w-xs">
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
                       <button
                         type="button"
                         onClick={startEditing}
-                        className="rounded-lg border border-border px-4 py-1.5 text-[13px] font-medium text-foreground transition hover:bg-surface-2"
+                        className="flex h-11 items-center justify-center rounded-xl bg-foreground px-5 text-[14px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         Edit profile
                       </button>
-                      {/* Icon only, no background/border of its own —
-                          History, Blocked users, changing gender, and Sign
-                          out all live behind it now. */}
                       <button
                         type="button"
                         onClick={() => setView("settings")}
                         aria-label="Settings"
-                        className="absolute left-full ml-2 flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         <SettingsIcon className="h-4 w-4" />
                       </button>
@@ -514,8 +511,8 @@ export function MyProfileSheet({
                         {initial}
                       </span>
                     )}
-                    <span className="absolute inset-0 flex items-center justify-center rounded-full bg-black/45 text-[11px] font-medium text-foreground transition group-hover:bg-black/60">
-                      Change
+                    <span className="absolute -bottom-2 whitespace-nowrap rounded-full border border-border bg-surface-2 px-3 py-1.5 text-[12px] font-medium text-foreground shadow-sm transition group-hover:bg-surface">
+                      Change photo
                     </span>
                   </button>
                   <input
@@ -529,25 +526,31 @@ export function MyProfileSheet({
                 </div>
 
                 <div className="mt-6">
-                  <label className="mb-1.5 block text-[12px] font-medium text-muted">Username</label>
+                  <label htmlFor="edit-username" className="mb-2 block text-[13px] font-medium text-foreground">Username</label>
                   <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-accent-2">
                     <span className="text-[13px] text-muted">@</span>
                     <input
+                      id="edit-username"
+                      maxLength={USERNAME_MAX_LENGTH}
+                      aria-describedby="edit-username-hint"
+                      aria-invalid={!!usernameError}
                       value={editUsernameDraft}
                       onChange={(event) => {
-                        setEditUsernameDraft(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, 24))
+                        setEditUsernameDraft(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, USERNAME_MAX_LENGTH))
                         setUsernameError(null)
                       }}
                       placeholder="username"
-                      className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted focus:outline-none"
+                      className="min-h-7 min-w-0 flex-1 bg-transparent text-[15px] text-foreground placeholder:text-muted focus:outline-none"
                     />
                   </div>
+                  <p id="edit-username-hint" className="mt-2 flex justify-between gap-3 text-[12px] text-muted"><span>Letters, numbers, _ or .</span><span>{editUsernameDraft.length}/{USERNAME_MAX_LENGTH}</span></p>
                   {usernameError && <p className="mt-1.5 text-[12px] text-danger">{usernameError}</p>}
                 </div>
 
                 <div className="mt-6">
-                  <label className="mb-1.5 block text-[12px] font-medium text-muted">Bio</label>
+                  <label htmlFor="edit-bio" className="mb-2 block text-[13px] font-medium text-foreground">Bio</label>
                   <textarea
+                    id="edit-bio"
                     value={editBioDraft}
                     onChange={(event) => setEditBioDraft(event.target.value.slice(0, 200))}
                     placeholder="Tell people a little about yourself"
@@ -557,14 +560,17 @@ export function MyProfileSheet({
                   <p className="mt-1 text-right text-[11px] text-muted">{editBioDraft.length}/200</p>
                 </div>
 
+                <div className="mt-8 grid grid-cols-2 gap-3 border-t border-border pt-5">
+                <button type="button" onClick={goBack} disabled={savingEdit || checkingPhoto} className="h-12 rounded-xl border border-border text-[14px] font-medium text-foreground transition hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50">Cancel</button>
                 <button
                   type="button"
                   onClick={saveEdit}
                   disabled={savingEdit || checkingPhoto}
-                  className="mt-4 w-full rounded-xl bg-accent px-4 py-2.5 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
+                  className="h-12 rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
                 >
-                  {checkingPhoto ? "Checking image…" : savingEdit ? "Saving…" : "Save"}
+                  {checkingPhoto ? "Checking image…" : savingEdit ? "Saving…" : "Save changes"}
                 </button>
+                </div>
               </div>
             )}
 
@@ -574,7 +580,7 @@ export function MyProfileSheet({
                   <button
                     type="button"
                     onClick={() => setView("history")}
-                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2"
+                    className="flex w-full items-center justify-between min-h-12 rounded-xl px-3 py-3 text-left text-[13px] text-foreground transition hover:bg-surface-2"
                   >
                     <span>History</span>
                     <span className="text-[12px] text-muted">
@@ -584,7 +590,7 @@ export function MyProfileSheet({
                   <button
                     type="button"
                     onClick={() => setView("blocked")}
-                    className="flex w-full items-center justify-between rounded-xl px-1 py-2.5 text-left text-[13px] text-foreground transition hover:bg-surface-2"
+                    className="flex w-full items-center justify-between min-h-12 rounded-xl px-3 py-3 text-left text-[13px] text-foreground transition hover:bg-surface-2"
                   >
                     <span>Blocked users</span>
                     <span className="text-[12px] text-muted">
@@ -689,7 +695,7 @@ export function MyProfileSheet({
                     <button
                       type="button"
                       onClick={() => setConfirmingSignOut(true)}
-                      className="w-full rounded-xl px-1 py-2.5 text-left text-[13px] font-medium text-danger transition hover:bg-surface-2"
+                      className="w-full min-h-12 rounded-xl px-3 py-3 text-left text-[13px] font-medium text-danger transition hover:bg-surface-2"
                     >
                       Sign out
                     </button>
@@ -785,7 +791,7 @@ export function MyProfileSheet({
                             }
                           }}
                           aria-label={`View ${identity}'s profile`}
-                          className="flex cursor-pointer items-center gap-3 rounded-xl px-1 py-2.5 transition hover:bg-surface-2"
+                          className="flex cursor-pointer items-center gap-3 min-h-12 rounded-xl px-3 py-3 transition hover:bg-surface-2"
                         >
                           <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
                             {person.profilePhoto ? (
@@ -839,7 +845,7 @@ export function MyProfileSheet({
                       {blockedUsers.map((person) => {
                         const busy = unblockingIds.has(person.id)
                         return (
-                          <div key={person.id} className="flex items-center gap-3 rounded-xl px-1 py-2.5">
+                          <div key={person.id} className="flex items-center gap-3 min-h-12 rounded-xl px-3 py-3">
                             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
                               {person.displayName.charAt(0).toUpperCase()}
                             </span>
