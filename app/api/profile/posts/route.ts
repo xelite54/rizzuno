@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { addPost, getUserStatus, describeDbError } from "@/lib/db"
+import { addPost, getUserStatus, describeDbError, hasRizzPlus } from "@/lib/db"
 import { moderateImage } from "@/lib/imageModeration"
 
 /**
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
 
   try {
     const status = await getUserStatus(userId)
+    if (!await hasRizzPlus(userId)) return NextResponse.json({ error: "subscription_required" }, { status: 402 })
     if (status.banned || status.deleted) {
       return NextResponse.json({ error: "account_unavailable" }, { status: 403 })
     }

@@ -8,6 +8,9 @@ import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from ".
 import { verifyTicket } from "../lib/realtimeTicket"
 import {
   getUserStatus,
+  getAccountGender,
+  getPublicProfile,
+  claimAccountGender,
   addBlock,
   removeBlock,
   fileReport,
@@ -720,7 +723,11 @@ export function createRizzunoWebSocketServer() {
         // Validated the same way "profile-update" validates it below — a
         // malformed/tampered value must never slip into matching as some
         // unhandled third gender.
-        const gender = isValidGender(message.gender) ? message.gender : undefined
+        let gender = (await getAccountGender(userId)) ?? undefined
+        if (!gender && isValidGender(message.gender)) {
+          await claimAccountGender(userId, message.gender)
+          gender = (await getAccountGender(userId)) ?? undefined
+        }
 
         state = {
           ws,
@@ -729,7 +736,7 @@ export function createRizzunoWebSocketServer() {
           handle,
           username,
           gender,
-          profilePhoto: message.profilePhoto,
+          profilePhoto: (await getPublicProfile(userId)).profilePhoto,
           roomId: existing?.roomId ?? null,
           seeking: false,
           searchGeneration: existing?.searchGeneration ?? 0,
@@ -972,13 +979,13 @@ export function createRizzunoWebSocketServer() {
 
           const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
           const nextUsername = rawUsername && !containsSevereContent(rawUsername) ? rawUsername : state.username
-          const nextGender =
-            message.gender === undefined ? state.gender : isValidGender(message.gender) ? message.gender : state.gender
+          if (isValidGender(message.gender) && message.gender !== state.gender) await claimAccountGender(state.userId, message.gender)
+          const nextGender = (await getAccountGender(state.userId)) ?? state.gender
           const genderChanged = nextGender !== state.gender
 
           state.username = nextUsername
           state.gender = nextGender
-          if (message.profilePhoto !== undefined) state.profilePhoto = message.profilePhoto
+          if (message.profilePhoto !== undefined) state.profilePhoto = (await getPublicProfile(state.userId)).profilePhoto
 
           console.log("ws-server: profile-update applied", {
             displayId: state.displayId,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { getPublicProfile, updateOwnProfile, getUserStatus, describeDbError } from "@/lib/db"
+import { getPublicProfile, updateOwnProfile, getUserStatus, describeDbError, hasRizzPlus, getAccountGender } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { moderateImage } from "@/lib/imageModeration"
 import { containsBlockedChatContent, sanitizeText } from "@/lib/textFilter"
@@ -30,7 +30,7 @@ export async function GET() {
 
   try {
     const profile = await getPublicProfile(userId)
-    return NextResponse.json(profile)
+    return NextResponse.json({ ...profile, gender: await getAccountGender(userId) })
   } catch (err) {
     const details = describeDbError(err)
     console.error("profile/me: GET failed", { userId, ...details })
@@ -85,6 +85,9 @@ export async function PUT(request: Request) {
   const updates: { profilePhoto?: string | null; bio?: string } = {}
 
   if ("profilePhoto" in body) {
+    try {
+      if (body.profilePhoto !== null && !await hasRizzPlus(userId)) return NextResponse.json({ error: "subscription_required" }, { status: 402 })
+    } catch { return NextResponse.json({ error: "billing_unavailable" }, { status: 503 }) }
     if (body.profilePhoto === null) {
       updates.profilePhoto = null
     } else if (typeof body.profilePhoto === "string") {

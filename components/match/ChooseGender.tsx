@@ -5,7 +5,7 @@ import { MaleIcon, FemaleIcon } from "@/components/icons"
 import type { Gender } from "@/hooks/useMyProfile"
 
 type ChooseGenderProps = {
-  onChosen: (gender: Gender) => void
+  onChosen: (gender: Gender) => Promise<void>
 }
 
 /**
@@ -16,18 +16,22 @@ type ChooseGenderProps = {
  */
 export function ChooseGender({ onChosen }: ChooseGenderProps) {
   const [selected, setSelected] = useState<Gender | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
-    if (!selected) return
-    onChosen(selected)
+    if (!selected || busy) return
+    setBusy(true); setError(null)
+    try { await onChosen(selected) } catch { setError("Couldn't save your selection. Please try again.") } finally { setBusy(false) }
   }
 
   return (
     <div className="flex h-full w-full flex-col items-center justify-center rounded-2xl bg-background px-7 py-6 sm:px-10">
       <div className="w-full max-w-xs">
         <h1 className="text-[18px] font-semibold text-foreground">Choose your gender</h1>
-        <p className="mt-1.5 text-[13px] text-muted">Shown on your profile. You can change this later.</p>
+        <p className="mt-1.5 text-[13px] text-muted">Your first selection is free. Later changes are included with Rizz+.</p>
+        {error && <p role="alert" className="mt-3 text-[13px] text-danger">{error}</p>}
 
         <form onSubmit={handleSubmit} className="mt-6">
           <div className="grid grid-cols-2 gap-3">
@@ -61,7 +65,7 @@ export function ChooseGender({ onChosen }: ChooseGenderProps) {
 
           <button
             type="submit"
-            disabled={!selected}
+            disabled={!selected || busy}
             className="mt-4 flex h-12 w-full items-center justify-center rounded-xl bg-foreground text-[14px] font-semibold text-background transition-all duration-200 hover:-translate-y-px hover:brightness-95 active:translate-y-0 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:pointer-events-none disabled:opacity-40"
           >
             Continue

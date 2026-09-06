@@ -13,6 +13,8 @@ import { mock } from "node:test"
  * whole process).
  */
 export const dbMockState = {
+  genders: new Map<string, "male" | "female">(),
+  plusEnabled: true,
   bannedUserIds: new Set<string>(),
   suspendedUntil: new Map<string, number>(),
   blockedPairs: new Set<string>(), // "a|b" — checked both directions
@@ -32,6 +34,8 @@ function pairKey(a: string, b: string): string {
 }
 
 export function resetDbMockState() {
+  dbMockState.genders.clear()
+  dbMockState.plusEnabled = true
   dbMockState.bannedUserIds.clear()
   dbMockState.suspendedUntil.clear()
   dbMockState.blockedPairs.clear()
@@ -45,6 +49,15 @@ export function resetDbMockState() {
 
 mock.module("../../lib/db.ts", {
   exports: {
+    getPublicProfile: async () => ({ username: null, profilePhoto: null, bio: "", posts: [] }),
+    hasRizzPlus: async () => dbMockState.plusEnabled,
+    getAccountGender: async (id: string) => dbMockState.genders.get(id) ?? null,
+    claimAccountGender: async (id: string, gender: "male" | "female") => {
+      const previous = dbMockState.genders.get(id)
+      if (previous && previous !== gender && !dbMockState.plusEnabled) return false
+      dbMockState.genders.set(id, gender)
+      return true
+    },
     getUserStatus: async (userId: string) => ({
       id: userId,
       banned: dbMockState.bannedUserIds.has(userId),

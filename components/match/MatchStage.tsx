@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useSession, signIn, signOut } from "next-auth/react"
 import { motion, useReducedMotion } from "motion/react"
 import { useLocalMedia } from "@/hooks/useLocalMedia"
+import { useRizzPlus } from "@/components/RizzPlusProvider"
 import { useMatchmaking } from "@/hooks/useMatchmaking"
 import { useMyProfile } from "@/hooks/useMyProfile"
 import { SwipeStage } from "./SwipeStage"
@@ -77,6 +78,7 @@ const SIGNIN_CHANNEL_NAME = "rizzuno-auth"
 type SignInPopupMessage = { ok: true } | { error: string }
 
 export function MatchStage() {
+  const plus = useRizzPlus()
   const reduceMotion = useReducedMotion()
   const { stream, videoTrack, audioTrack, status, micEnabled, toggleMic } =
     useLocalMedia()
@@ -368,6 +370,12 @@ export function MatchStage() {
 
   function handleUndoSkip() {
     if (!pendingSkip) return
+    if (!plus.requirePlus("undo")) {
+      clearTimeout(pendingSkip.timer)
+      setPendingSkip(null)
+      skip()
+      return
+    }
     clearTimeout(pendingSkip.timer)
     setPendingSkip(null)
   }
@@ -593,7 +601,7 @@ export function MatchStage() {
                   onOpenProfile={() => setMyProfileOpen(true)}
                 />
               </div>
-              <div className={onHomeScreen ? "absolute bottom-3 left-1/2 z-30 flex -translate-x-1/2 items-center justify-center" : "fixed bottom-4 right-4 z-30 flex items-center justify-end md:absolute md:z-10"}>
+              <div className={onHomeScreen ? "absolute bottom-4 right-4 z-30 flex items-center justify-end" : "fixed bottom-4 right-4 z-30 flex items-center justify-end md:absolute md:z-10"}>
                 <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-25"}`}>
                   <ControlBar
                     micEnabled={micEnabled}

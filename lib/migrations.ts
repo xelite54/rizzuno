@@ -253,4 +253,16 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    id: "0008_rizz_plus",
+    sql: `
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT CHECK (gender IN ('male', 'female'));
+      CREATE TABLE IF NOT EXISTS billing_customers (user_id TEXT PRIMARY KEY, customer_id TEXT UNIQUE NOT NULL);
+      CREATE TABLE IF NOT EXISTS billing_subscriptions (
+        subscription_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, status TEXT NOT NULL,
+        paid_until BIGINT NOT NULL, event_created BIGINT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS billing_subscription_user ON billing_subscriptions(user_id);
+    `,
+  },
 ]

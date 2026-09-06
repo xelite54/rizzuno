@@ -1,0 +1,22 @@
+.page {
+  background: radial-gradient(ellipse at 12% 35%, #50364a55, transparent 55%), #100d13;
+}
+
+.emblem {
+  position: relative;
+  width: clamp(10rem, 24vw, 16rem);
+  height: clamp(10rem, 24vw, 16rem);
+  margin-top: 3rem;
+  transform: rotate(-12deg);
+}
+
+.emblem span {
+  position: absolute;
+  inset: 36% 0;
+  border: 1px solid #e9cbe24d;
+  border-radius: 1.5rem;
+  background: linear-gradient(130deg, #be96b6, #604568 50%, #352938);
+  box-shadow: inset 0 1px 0 #ffffff40, 0 24px 70px #00000030;
+}
+
+.emblem span + span { transform: rotate(90deg); }

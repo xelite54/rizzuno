@@ -46,6 +46,57 @@ function requirePool(): Pool {
   return pool
 }
 
+export async function hasRizzPlus(userId: string): Promise<boolean> {
+  const { rows } = await q<{ active: boolean }>(`SELECT EXISTS (SELECT 1 FROM billing_subscriptions WHERE user_id=$1 AND status='active' AND paid_until>$2) AS active`, [userId, Date.now()])
+  return rows[0]?.active ?? false
+}
+
+export async function getBillingCustomer(userId: string): Promise<string | null> {
+  const { rows } = await q<{ customer_id: string }>(`SELECT customer_id FROM billing_customers WHERE user_id=$1`, [userId])
+  return rows[0]?.customer_id ?? null
+}
+
+export async function saveBillingCustomer(userId: string, customerId: string) {
+  await q(`INSERT INTO billing_customers(user_id,customer_id) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING`, [userId, customerId])
+}
+
+export async function saveBillingSubscription(customerId: string, subscriptionId: string, status: string, paidUntil: number, eventCreated: number) {
+  const result = await q(`INSERT INTO billing_subscriptions(subscription_id,user_id,status,paid_until,event_created)
+    SELECT $2,user_id,$3,$4,$5 FROM billing_customers WHERE customer_id=$1
+    ON CONFLICT(subscription_id) DO UPDATE SET status=EXCLUDED.status,paid_until=EXCLUDED.paid_until,event_created=EXCLUDED.event_created
+    WHERE billing_subscriptions.event_created<=EXCLUDED.event_created`, [customerId, subscriptionId, status, paidUntil, eventCreated])
+  return result.rowCount
+}
+
+/** Serializes checkout creation across processes without session-scoped locks. */
+export async function withBillingLock<T>(userId: string, action: () => Promise<T>): Promise<T> {
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`billing:${userId}`])
+    const result = await action()
+    await client.query("COMMIT")
+    return result
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally { client.release() }
+}
+
+export async function getAccountGender(userId: string): Promise<"male" | "female" | null> {
+  const { rows } = await q<{ gender: "male" | "female" | null }>(`SELECT gender FROM users WHERE id=$1`, [userId])
+  return rows[0]?.gender ?? null
+}
+
+export async function claimAccountGender(userId: string, gender: "male" | "female"): Promise<boolean> {
+  await ensureUser(userId)
+  const result = await q(`UPDATE users SET gender=$2 WHERE id=$1 AND (gender IS NULL OR gender=$2 OR EXISTS (
+    SELECT 1 FROM billing_subscriptions WHERE user_id=$1 AND status='active' AND paid_until>$3
+  ))`, [userId, gender, Date.now()])
+  return (result.rowCount ?? 0) > 0
+}
+
 /**
  * Formats a thrown value into the fields actually worth putting in a log
  * line — `code` in particular, since node-postgres puts the real diagnostic

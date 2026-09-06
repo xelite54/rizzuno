@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import { getOrCreateHandle } from "@/lib/guest"
 import type { Gender } from "@/lib/signaling/protocol"
 
@@ -18,7 +19,7 @@ type StoredProfile = {
   serverProfileMigrationVersion?: number
 }
 
-type ServerProfile = { username: string | null; profilePhoto: string | null; bio: string; posts: Post[] }
+type ServerProfile = { username: string | null; profilePhoto: string | null; bio: string; posts: Post[]; gender: Gender | null }
 
 const STORAGE_PREFIX = "rizzuno:profile:"
 
@@ -97,6 +98,7 @@ const CURRENT_MIGRATION_VERSION = 1
  * it exactly the same way, no exceptions.
  */
 export function useMyProfile() {
+  const router = useRouter()
   const { data: session, status: sessionStatus } = useSession()
   const userId = session?.user?.id ?? ""
 
@@ -181,6 +183,11 @@ export function useMyProfile() {
         if (!cancelled && res.ok) {
           const data: ServerProfile = await res.json()
           if (data.username) setUsername(data.username)
+          if (data.gender) setGender(data.gender)
+          else if (cachedGender) {
+            const claimed = await fetch("/api/profile/gender", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gender: cachedGender }) })
+            if (!cancelled) setGender(claimed.ok ? cachedGender : null)
+          } else setGender(null)
           setProfilePhotoState(data.profilePhoto)
           setBio(data.bio)
           setPosts(data.posts)
@@ -389,15 +396,23 @@ export function useMyProfile() {
   // as it was. Removing a photo (`null`) skips moderation server-side
   // (see app/api/profile/me's PUT) and this never throws for that case
   // except on a genuine network/server error.
+  const updateGender = useCallback(async (value: Gender) => {
+    const response = await fetch("/api/profile/gender", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gender: value }) })
+    if (response.status === 402) router.push("/rizz-plus?feature=gender")
+    if (!response.ok) throw new Error("Couldn’t save gender. Please try again.")
+    setGender(value)
+  }, [router])
+
   const updateProfilePhoto = useCallback(async (photo: string | null) => {
     const res = await fetch("/api/profile/me", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profilePhoto: photo }),
     })
+    if (res.status === 402) router.push("/rizz-plus?feature=profile-photo")
     if (!res.ok) await throwForFailedImageUpload(res, "failed to update profile photo")
     setProfilePhotoState(photo)
-  }, [])
+  }, [router])
 
   // Adds a post — persists (and gets moderated) server-side FIRST, so the
   // id is the database's own, not a client-generated one nothing
@@ -412,10 +427,11 @@ export function useMyProfile() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dataUrl }),
     })
+    if (res.status === 402) router.push("/rizz-plus?feature=posts")
     if (!res.ok) await throwForFailedImageUpload(res, "failed to add post")
     const { post }: { post: Post } = await res.json()
     setPosts((prev) => [post, ...prev])
-  }, [])
+  }, [router])
 
   const removePost = useCallback(async (postId: string) => {
     const res = await fetch(`/api/profile/posts/${encodeURIComponent(postId)}`, { method: "DELETE" })
@@ -433,7 +449,7 @@ export function useMyProfile() {
     username,
     setUsername,
     gender,
-    setGender,
+    setGender: updateGender,
     bio,
     setBio,
     posts,

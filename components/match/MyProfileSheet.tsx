@@ -7,6 +7,8 @@ import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIco
 import { resizeImageToDataUrl } from "@/lib/image"
 import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
 import { containsBlockedChatContent } from "@/lib/textFilter"
+import { useRizzPlus } from "@/components/RizzPlusProvider"
+import Link from "next/link"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { PeerProfileSheet } from "./PeerProfileSheet"
@@ -39,7 +41,7 @@ type MyProfileSheetProps = {
   username: string
   setUsername: (value: string) => void
   gender: Gender | null
-  setGender: (value: Gender) => void
+  setGender: (value: Gender) => Promise<void>
   bio: string
   setBio: (value: string) => void
   posts: Post[]
@@ -90,6 +92,7 @@ export function MyProfileSheet({
   const [checkingPhoto, setCheckingPhoto] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [editBioDraft, setEditBioDraft] = useState("")
+  const plus = useRizzPlus()
   const [bioError, setBioError] = useState<string | null>(null)
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
   const [sharingPost, setSharingPost] = useState(false)
@@ -107,6 +110,8 @@ export function MyProfileSheet({
   // fields are. Holds whichever gender was just tapped but not yet
   // confirmed; null means no pending change.
   const [pendingGender, setPendingGender] = useState<Gender | null>(null)
+  const [savingGender, setSavingGender] = useState(false)
+  const [genderError, setGenderError] = useState<string | null>(null)
   // Which blocked-user ids currently have an in-flight unblock request —
   // per-row, so tapping one doesn't disable the whole list, and disabled
   // long enough to prevent a double-tap sending two "unblock"s for the same
@@ -431,6 +436,7 @@ export function MyProfileSheet({
 
                   <p className="mt-3 text-[17px] font-semibold text-foreground">
                     {username ? `@${username}` : handle}
+                    {plus.active && <span aria-label="Rizz+ subscriber" className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e8cedf] align-middle text-[14px] text-[#261b28]">+</span>}
                   </p>
                   <p className="mt-1 max-w-xs text-[13px] leading-relaxed text-muted">
                     {bio || "No bio yet"}
@@ -457,6 +463,7 @@ export function MyProfileSheet({
                   </div>
                 </div>
 
+                <Link href="/rizz-plus" className="mt-6 flex items-center justify-between rounded-xl border border-border px-4 py-3 text-[13px] text-foreground"><span>{plus.active ? "Manage Rizz+" : "Discover Rizz+ · $4.99/month"}</span><span aria-hidden="true">→</span></Link>
                 <div className="mt-8 border-t border-border pt-5">
                   <p className="mb-3 text-[13px] font-semibold text-foreground">
                     Posts{" "}
@@ -470,7 +477,7 @@ export function MyProfileSheet({
                   <div className="grid grid-cols-3 gap-3">
                     <button
                       type="button"
-                      onClick={() => postInputRef.current?.click()}
+                      onClick={() => { if (plus.requirePlus("posts")) postInputRef.current?.click() }}
                       disabled={posts.length >= MAX_POSTS}
                       aria-label={posts.length >= MAX_POSTS ? `Limit of ${MAX_POSTS} posts reached` : "Add a post"}
                       className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border text-muted transition hover:border-foreground/25 hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-muted"
@@ -508,7 +515,7 @@ export function MyProfileSheet({
                 <div className="flex flex-col items-center">
                   <button
                     type="button"
-                    onClick={() => editPhotoInputRef.current?.click()}
+                    onClick={() => { if (plus.requirePlus("profile-photo")) editPhotoInputRef.current?.click() }}
                     aria-label="Change profile photo"
                     className="group relative flex h-24 w-24 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   >
@@ -613,6 +620,7 @@ export function MyProfileSheet({
 
                 <div className="mt-6 border-t border-border pt-4">
                   <p className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">Gender</p>
+                  {genderError && <p role="alert" className="mb-2 text-[12px] text-danger">{genderError}</p>}
                   {pendingGender ? (
                     <div className="rounded-xl bg-surface-2 p-3">
                       <p className="text-[12px] leading-relaxed text-muted">
@@ -629,9 +637,12 @@ export function MyProfileSheet({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            setGender(pendingGender)
-                            setPendingGender(null)
+                          disabled={savingGender}
+                          onClick={async () => {
+                            setSavingGender(true); setGenderError(null)
+                            try { await setGender(pendingGender); setPendingGender(null) }
+                            catch { setGenderError("Couldn't save gender. Please try again.") }
+                            finally { setSavingGender(false) }
                           }}
                           className="flex-1 rounded-lg bg-accent py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
                         >
@@ -648,7 +659,7 @@ export function MyProfileSheet({
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
-                          onClick={() => gender !== "male" && setPendingGender("male")}
+                          onClick={() => { if (gender !== "male" && plus.requirePlus("gender")) setPendingGender("male") }}
                           aria-pressed={gender === "male"}
                           className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
                             gender === "male"
@@ -661,7 +672,7 @@ export function MyProfileSheet({
                         </button>
                         <button
                           type="button"
-                          onClick={() => gender !== "female" && setPendingGender("female")}
+                          onClick={() => { if (gender !== "female" && plus.requirePlus("gender")) setPendingGender("female") }}
                           aria-pressed={gender === "female"}
                           className={`flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-[13px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
                             gender === "female"
