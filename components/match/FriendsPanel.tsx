@@ -492,7 +492,7 @@ export function FriendsPanel({
                                 else sendFriendRequest(person.username)
                               }}
                               disabled={requested && !person.alreadyFriends}
-                              className="shrink-0 min-h-11 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
+                              className="shrink-0 h-8 rounded-lg bg-accent px-2.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
                             >
                               {person.alreadyFriends ? "View profile" : requested ? "Requested" : "Add"}
                             </button>
