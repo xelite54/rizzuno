@@ -4,15 +4,13 @@ import { useCallback, useEffect, useState } from "react"
 
 export type MediaPermissionState = "idle" | "requesting" | "granted" | "denied" | "unavailable"
 
-// 720p at up to 30fps — a real ceiling (`max`), not just a hint, so a
-// camera capable of a much higher rate never captures more than this call
-// actually needs; `ideal` on both dimensions still lets a camera that can't
-// quite hit 1280x720 or 30fps offer its closest match instead of failing
-// outright. See useWebRTC.ts's own MAX_VIDEO_BITRATE_BPS/MAX_VIDEO_FRAMERATE
-// for the matching cap on the encoder's outgoing side.
+// Prefer 1080p for clearer faces in the large matching panels. Dimensions
+// are ideals, not requirements: lower-resolution cameras still work.
+// Keep 30fps as the ceiling to limit capture/encoding cost. The outgoing
+// encoder remains free to reduce resolution and frame rate under pressure.
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
-  width: { ideal: 1280 },
-  height: { ideal: 720 },
+  width: { ideal: 1920 },
+  height: { ideal: 1080 },
   frameRate: { ideal: 30, max: 30 },
   facingMode: "user",
 }

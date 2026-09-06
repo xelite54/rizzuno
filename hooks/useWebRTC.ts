@@ -69,21 +69,15 @@ export function sortUdpFirst(urls: string[]): string[] {
 
 const ICE_SERVERS: RTCIceServer[] = buildIceServers()
 
-// A realistic ceiling for 720p30 realtime video — high enough for a sharp
-// picture on a good connection, low enough to stay a genuinely reasonable
-// "always fine" default rather than something that only behaves on a great
-// network. This is a MAX, not a target: WebRTC's own congestion control
-// (bandwidth estimation via RTCP/TWCC feedback) still reduces the actual
-// send rate — and, via `degradationPreference` below, resolution or
-// framerate too — well below this the moment the network can't sustain it.
-// Setting this ceiling doesn't disable or fight that; it just stops the
-// encoder from using dramatically more bandwidth than a 720p call needs
-// even when the network technically has it to spare.
-const MAX_VIDEO_BITRATE_BPS = 2_500_000
+// Give the preferred 1080p capture more encoding headroom on good networks.
+// This is a ceiling, never a required/forced sending rate. WebRTC congestion
+// control and balanced degradation can still reduce bitrate, resolution,
+// and frame rate when bandwidth or the device cannot sustain them.
+const MAX_VIDEO_BITRATE_BPS = 4_000_000
 const MAX_VIDEO_FRAMERATE = 30
 
 /**
- * Applies a sensible 720p realtime ceiling to the outgoing video sender —
+ * Applies a 1080p-oriented realtime ceiling to the outgoing video sender —
  * called once, right after the video transceiver/sender is created, not
  * re-applied on every camera toggle or device switch (replaceTrack doesn't
  * reset a sender's already-set encoding parameters, so there's nothing to
