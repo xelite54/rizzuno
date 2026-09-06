@@ -2,13 +2,13 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { claimUsername, getUsername, getUserStatus, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
+import { USERNAME_PATTERN } from "@/lib/username"
 
 // Same character set and length ChooseUsername.tsx and MyProfileSheet.tsx's
 // edit view already filter to client-side — re-validated here because a
 // server-side uniqueness guarantee is only as real as the format check
 // backing it; a client is never trusted to have actually applied its own
 // filtering.
-const USERNAME_PATTERN = /^[a-z0-9_.]{3,24}$/
 
 /**
  * Claims a username for the signed-in account, permanently and uniquely —
