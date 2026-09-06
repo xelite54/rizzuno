@@ -20,7 +20,7 @@ import {
   listPendingRequestsSent,
   listBlockedByUserWithUsernames,
 } from "../lib/db"
-import { sanitizeText, containsSevereContent } from "../lib/textFilter"
+import { sanitizeText, containsSevereContent, containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "../lib/textFilter"
 import { moderateImage } from "../lib/imageModeration"
 
 const MAX_HANDLE_LENGTH = 40
@@ -786,8 +786,8 @@ export function createRizzunoWebSocketServer() {
           const content = message.content
           if (content.kind === "text") {
             const text = sanitizeText(content.text, 500)
-            if (!text || containsSevereContent(text)) {
-              send(state.ws, { type: "error", message: "Message blocked." })
+            if (!text || containsBlockedChatContent(text)) {
+              send(state.ws, { type: "error", message: CHAT_BLOCKED_MESSAGE })
               break
             }
             send(partner.ws, {

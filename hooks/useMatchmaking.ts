@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { friendsCacheKey, parseFriendsCache } from "@/lib/friendsCache"
 import { useSignalingSocket } from "./useSignalingSocket"
 import { useWebRTC } from "./useWebRTC"
 import { SignalBacklog } from "@/lib/signalBacklog"
@@ -107,7 +108,8 @@ export function useMatchmaking(
   /** This user's own chosen gender, if any — sent to the server so it can only ever pair opposite genders. */
   myGender?: Gender,
   /** This user's own chosen profile photo, if any — sent to the server so a real match sees it too, not just an initial letter. */
-  myProfilePhoto?: string | null
+  myProfilePhoto?: string | null,
+  accountId?: string
 ) {
   const { connected, send, subscribe } = useSignalingSocket(enabled)
 
@@ -284,6 +286,20 @@ export function useMatchmaking(
   // "friends-snapshot" (sent after every hello, and re-sent after any
   // friends action affects this account), not local-only state.
   const [friends, setFriends] = useState<FriendSummary[]>([])
+  const friendsAccountRef = useRef<string | undefined>(undefined)
+  useLayoutEffect(() => {
+    const previousAccount = friendsAccountRef.current
+    friendsAccountRef.current = accountId
+    let cached: FriendSummary[] = []
+    try {
+      if (previousAccount && previousAccount !== accountId) {
+        sessionStorage.removeItem(friendsCacheKey(previousAccount))
+      }
+      if (accountId) cached = parseFriendsCache(sessionStorage.getItem(friendsCacheKey(accountId)))
+    } catch { /* Storage may be disabled; the live snapshot still works. */ }
+    // Hydrate before paint and never show another account's cached list.
+    setFriends(cached)
+  }, [accountId])
   const [friendRequestsReceived, setFriendRequestsReceived] = useState<ReceivedFriendRequest[]>([])
   const [friendRequestsSent, setFriendRequestsSent] = useState<SentFriendRequest[]>([])
   const [blockedUsers, setBlockedUsers] = useState<BlockedUserSummary[]>([])
@@ -878,6 +894,11 @@ export function useMatchmaking(
           break
         case "friends-snapshot": {
           setFriends(message.friends)
+          if (accountId) {
+            try {
+              sessionStorage.setItem(friendsCacheKey(accountId), JSON.stringify(message.friends))
+            } catch { /* Cache failure must never interrupt realtime updates. */ }
+          }
           setFriendRequestsSent(message.requestsSent)
           setBlockedUsers(message.blocked)
           // Diff against the previous snapshot's received-request ids so
@@ -910,7 +931,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, recordHistory, announce, findMatch])
+  }, [subscribe, recordHistory, announce, findMatch, accountId])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.
@@ -1087,7 +1108,8 @@ export function useMatchmaking(
     setPeerTyping(false)
     setOnlineCount(null)
     setRestriction(null)
-    setFriends([])
+    // Keep the last friends snapshot through temporary realtime teardown.
+    // Account changes/sign-out clear it separately above.
     setFriendRequestsReceived([])
     setFriendRequestsSent([])
     setBlockedUsers([])

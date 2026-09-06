@@ -4,6 +4,31 @@ import { startTestServer, connectAndHello } from "./helpers/wsHarness.mts"
 import { resetDbMockState } from "./helpers/dbMock.mts"
 import { setProviderForTesting } from "../lib/imageModeration/provider.ts"
 import { buildPngDataUrl } from "./helpers/pngFixture.mts"
+import { CHAT_BLOCKED_MESSAGE } from "../lib/textFilter.ts"
+
+test("chat text: server blocks unsafe messages from raw clients but forwards normal text", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, uid("text-m"), { gender: "male" })
+    const b = await connectAndHello(server.url, uid("text-f"), { gender: "female" })
+    a.send({ type: "find" })
+    b.send({ type: "find" })
+    const matched = await a.waitForType("matched")
+    await b.waitForType("matched")
+    for (const text of ["rape", "sex", "murder", "s3x", "nigga", "nigger", "n1gg3r"]) {
+      a.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text } })
+      assert.equal((await a.waitForType("error")).message, CHAT_BLOCKED_MESSAGE)
+    }
+    await assert.rejects(() => b.waitForType("chat", 300), /timed out/)
+    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text: "hello there" } })
+    assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "hello there" })
+    a.close()
+    b.close()
+  } finally {
+    await server.close()
+  }
+})
 
 /**
  * Proves server/ws-server.ts's "chat" image handler actually routes

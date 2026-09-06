@@ -315,6 +315,18 @@ export function FriendsPanel({
   // change it) is unreachable behind that full-screen view.
   const viewingSearchResult = searchResults.find((person) => person.username === viewingSearchResultUsername) ?? null
 
+  function openSearchProfile(username: string) {
+    const friend = friends.find((person) => person.username.toLowerCase() === username.toLowerCase())
+    setSearchResultBlockConfirm(false)
+    if (friend) {
+      setViewingSearchResultUsername(null)
+      setFriendActionConfirm(null)
+      setViewingFriendId(friend.id)
+    } else {
+      setViewingSearchResultUsername(username)
+    }
+  }
+
   // Optimistic — marks "Requested" immediately, the same instant feedback
   // the old local-only stub had — but rolls back if the real request
   // (POST /api/friends/request, resolved server-side from username to a
@@ -437,14 +449,12 @@ export function FriendsPanel({
                             role="button"
                             tabIndex={0}
                             onClick={() => {
-                              setSearchResultBlockConfirm(false)
-                              setViewingSearchResultUsername(person.username)
+                              openSearchProfile(person.username)
                             }}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault()
-                                setSearchResultBlockConfirm(false)
-                                setViewingSearchResultUsername(person.username)
+                                openSearchProfile(person.username)
                               }
                             }}
                             aria-label={`View @${person.username}'s profile`}
@@ -462,12 +472,13 @@ export function FriendsPanel({
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation()
-                                sendFriendRequest(person.username)
+                                if (person.alreadyFriends) openSearchProfile(person.username)
+                                else sendFriendRequest(person.username)
                               }}
-                              disabled={requested || person.alreadyFriends}
+                              disabled={requested && !person.alreadyFriends}
                               className="shrink-0 min-h-11 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50"
                             >
-                              {person.alreadyFriends ? "Friend" : requested ? "Requested" : "Add"}
+                              {person.alreadyFriends ? "View profile" : requested ? "Requested" : "Add"}
                             </button>
                           </div>
                         )
@@ -845,7 +856,7 @@ export function FriendsPanel({
                 </button>
               </div>
 
-              <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
+              <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
                 <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
                   {viewingRequester.displayName.charAt(0)}
                 </span>
@@ -1048,7 +1059,7 @@ export function FriendsPanel({
                 </button>
               </div>
 
-              <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
+              <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
                 <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
                   {viewingSearchResult.username.charAt(0).toUpperCase()}
                 </span>
@@ -1082,16 +1093,16 @@ export function FriendsPanel({
                     <>
                       <button
                         type="button"
-                        onClick={() => sendFriendRequest(viewingSearchResult.username)}
+                        onClick={() => viewingSearchResult.alreadyFriends ? openSearchProfile(viewingSearchResult.username) : sendFriendRequest(viewingSearchResult.username)}
                         disabled={
-                          viewingSearchResult.alreadyFriends ||
-                          viewingSearchResult.alreadyRequested ||
-                          sentUsernames.includes(viewingSearchResult.username)
+                          viewingSearchResult.alreadyFriends
+                            ? !friends.some((friend) => friend.username === viewingSearchResult.username)
+                            : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
                         }
-                        className="w-full rounded-lg bg-accent px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 disabled:opacity-50"
+                        className="h-11 w-full rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background transition hover:opacity-90 disabled:opacity-50"
                       >
                         {viewingSearchResult.alreadyFriends
-                          ? "Friend"
+                          ? "View profile"
                           : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
                             ? "Requested"
                             : "Add friend"}
@@ -1108,7 +1119,7 @@ export function FriendsPanel({
                 </div>
 
                 <div className="mt-8 w-full max-w-lg">
-                  <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
+                  <div className="border-t border-border py-8 text-[13px] text-muted">{viewingSearchResult.alreadyFriends ? "Your friend’s profile is syncing…" : "Add as a friend to see their full profile."}</div>
                 </div>
               </div>
             </motion.div>

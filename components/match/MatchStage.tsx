@@ -117,7 +117,7 @@ export function MatchStage() {
   // refresh where Auth.js is still checking for an existing session cookie
   // — treated as neither signed in nor signed out, so the landing screen
   // doesn't flash on and off for people who are actually already signed in.
-  const { status: sessionStatus, update: updateSession } = useSession()
+  const { data: session, status: sessionStatus, update: updateSession } = useSession()
   const signedIn = sessionStatus === "authenticated"
   const authLoading = sessionStatus === "loading"
 
@@ -190,7 +190,8 @@ export function MatchStage() {
     myProfile.handle,
     myProfile.username,
     myProfile.gender ?? undefined,
-    myProfile.profilePhoto
+    myProfile.profilePhoto,
+    session?.user?.id
   )
 
   // Auth.js lands a failed/cancelled Google sign-in back on this page with

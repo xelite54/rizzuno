@@ -15,10 +15,6 @@ type StatusPillProps = {
   onResume?: () => void
 }
 
-function describeOnlineCount(count: number): string {
-  return count === 1 ? "1 person online" : `${count.toLocaleString()} people online`
-}
-
 // A function rather than a static lookup table — "idle" and "paused" both
 // need a second, camera-dependent answer, not just one label per state.
 function describeState(state: MatchState, cameraOff: boolean): string {
@@ -46,7 +42,7 @@ function describeState(state: MatchState, cameraOff: boolean): string {
     case "connecting":
       return "Connecting…"
     case "peer-left":
-      return "They left — finding someone new…"
+      return "Finding someone…"
     case "paused":
       // The camera-on case never reaches this label at all — see below,
       // where "paused" (like "idle" above) branches to the full
@@ -82,17 +78,8 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   const label = describeState(state, cameraOff)
   if (!label) return null
 
-  // Not shown during "idle"/"queue-pending"/"searching" — just the label on
-  // its own there. Still shown for "peer-left" (about to search again,
-  // same "here's who's around" context "Finding someone…" already gets).
-  // Deliberately NOT shown for "connecting" — a match was already found;
-  // an online count at that point answers a question ("who's around to
-  // match with?") that no longer applies, so "connecting" is just
-  // "Connecting…" and nothing else. "paused" never gets here at all (a
-  // deliberate stop, not a wait, so it doesn't get a label to attach this
-  // to in the first place).
-  const waitingForMatch = state === "peer-left"
-  const onlineCountLabel = waitingForMatch && onlineCount !== null ? describeOnlineCount(onlineCount) : null
+  // All searching phases share one label; only connecting is distinct.
+  // Keep actionable camera/error states instead of hiding a real blocker.
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -102,12 +89,6 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
             fits next to the pill's own text. */}
         <BrandMark size={26} />
         <span className="text-[14px] font-semibold tracking-tight text-foreground">{label}</span>
-        {onlineCountLabel && (
-          <>
-            <span className="h-1 w-1 rounded-full bg-white/30" aria-hidden="true" />
-            <span className="text-[13px] font-medium text-muted">{onlineCountLabel}</span>
-          </>
-        )}
       </div>
       {/* Right away, not delayed — a delay just meant this and the "Finding
           someone…" label it sits under went out of sync with the moment
