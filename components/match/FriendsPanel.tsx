@@ -1,4 +1,5 @@
 "use client"
+import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
@@ -348,7 +349,7 @@ export function FriendsPanel({
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-            className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface md:w-96"
+            className={`${panelStyles.panel} fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface md:w-96`}
           >
             {view === "list" && (
               <>
@@ -821,7 +822,7 @@ export function FriendsPanel({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
               transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-              className="fixed inset-0 z-[60] flex flex-col bg-surface"
+              className={`${panelStyles.panel} fixed inset-0 z-[60] flex flex-col bg-surface`}
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
@@ -884,7 +885,7 @@ export function FriendsPanel({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
               transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-              className="fixed inset-0 z-[60] flex flex-col bg-surface"
+              className={`${panelStyles.panel} fixed inset-0 z-[60] flex flex-col bg-surface`}
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
@@ -1024,7 +1025,7 @@ export function FriendsPanel({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
               transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-              className="fixed inset-0 z-[60] flex flex-col bg-surface"
+              className={`${panelStyles.panel} fixed inset-0 z-[60] flex flex-col bg-surface`}
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>

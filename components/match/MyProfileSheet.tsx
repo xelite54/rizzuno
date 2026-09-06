@@ -1,4 +1,5 @@
 "use client"
+import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
@@ -367,7 +368,7 @@ export function MyProfileSheet({
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: "-100%" }}
           transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-          className="fixed inset-0 z-50 flex flex-col bg-surface"
+          className={`${panelStyles.panel} fixed inset-0 z-50 flex flex-col bg-surface`}
         >
           <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
             {view !== "profile" ? (
