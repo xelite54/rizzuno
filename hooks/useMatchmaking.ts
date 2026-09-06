@@ -9,6 +9,7 @@ import { nextMatchState, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_
 import type { MatchState, MatchStateEvent } from "@/lib/matchStateMachine"
 import type {
   ChatContent,
+  MatchInvitation,
   Gender,
   PublicPeerIdentity,
   ReportCategory,
@@ -286,6 +287,24 @@ export function useMatchmaking(
   // "friends-snapshot" (sent after every hello, and re-sent after any
   // friends action affects this account), not local-only state.
   const [friends, setFriends] = useState<FriendSummary[]>([])
+  const [matchInvitations, setMatchInvitations] = useState<MatchInvitation[]>([])
+  const [matchInviteError, setMatchInviteError] = useState<string | null>(null)
+  const inviteFriendToMatch = useCallback((targetUserId: string) => {
+    setMatchInviteError(null)
+    send({ type: "match-invite", targetUserId })
+  }, [send])
+  const respondToMatchInvitation = useCallback((invitationId: string, accept: boolean) => {
+    setMatchInviteError(null)
+    send({ type: "match-invite-respond", invitationId, accept })
+  }, [send])
+  useEffect(() => {
+    if (!connected || !accountId) {
+      // Pending invitations belong to the live connection, never its cache.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMatchInvitations([])
+      setMatchInviteError(null)
+    }
+  }, [connected, accountId])
   const friendsAccountRef = useRef<string | undefined>(undefined)
   useLayoutEffect(() => {
     const previousAccount = friendsAccountRef.current
@@ -892,6 +911,12 @@ export function useMatchmaking(
             setTimeout(() => announce(), 2000)
           }
           break
+        case "match-invitations":
+          setMatchInvitations(message.invitations)
+          break
+        case "match-invite-error":
+          setMatchInviteError(message.message)
+          break
         case "friends-snapshot": {
           setFriends(message.friends)
           if (accountId) {
@@ -1142,6 +1167,10 @@ export function useMatchmaking(
     // Friends — see the state block above for what each one actually traces back to.
     friends,
     friendRequestsReceived,
+    matchInvitations,
+    matchInviteError,
+    inviteFriendToMatch,
+    respondToMatchInvitation,
     friendRequestsSent,
     blockedUsers,
     friendActionState,

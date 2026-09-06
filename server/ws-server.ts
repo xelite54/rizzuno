@@ -12,6 +12,7 @@ import {
   removeBlock,
   fileReport,
   areFriends,
+  isBlockedEitherWay,
   sendFriendRequest,
   respondToFriendRequest,
   removeFriendship,
@@ -24,6 +25,44 @@ import { sanitizeText, containsSevereContent, containsBlockedChatContent, CHAT_B
 import { moderateImage } from "../lib/imageModeration"
 
 const MAX_HANDLE_LENGTH = 40
+
+type FriendInvitation = { id: string; sender: ConnectionState; recipient: ConnectionState; expiresAt: number; timer: ReturnType<typeof setTimeout> }
+const friendInvitations = new Map<string, FriendInvitation>()
+
+function publishInvitations(state: ConnectionState) {
+  send(state.ws, { type: "match-invitations", invitations: [...friendInvitations.values()]
+    .filter((invite) => invite.sender === state || invite.recipient === state)
+    .map((invite) => {
+      const incoming = invite.recipient === state
+      const other = incoming ? invite.sender : invite.recipient
+      return { id: invite.id, userId: other.userId, username: other.username ?? other.handle, expiresAt: invite.expiresAt, direction: incoming ? "incoming" : "outgoing" }
+    }) })
+}
+
+function removeInvitation(invite: FriendInvitation) {
+  clearTimeout(invite.timer)
+  friendInvitations.delete(invite.id)
+  publishInvitations(invite.sender)
+  publishInvitations(invite.recipient)
+}
+
+function cancelInvitations(state: ConnectionState) {
+  for (const invite of friendInvitations.values()) {
+    if (invite.sender === state || invite.recipient === state) removeInvitation(invite)
+  }
+}
+
+function availableForInvitation(state: ConnectionState): boolean {
+  return connections.get(state.userId) === state && state.ws.readyState === WebSocket.OPEN && !state.roomId && !state.seeking
+}
+
+async function friendsMayCall(a: ConnectionState, b: ConnectionState): Promise<boolean> {
+  const [friends, blocked, aStatus, bStatus] = await Promise.all([
+    areFriends(a.userId, b.userId), isBlockedEitherWay(a.userId, b.userId), getUserStatus(a.userId), getUserStatus(b.userId),
+  ])
+  return friends && !blocked && [aStatus, bStatus].every((status) => !status.banned && !status.deleted && !(status.suspendedUntil && status.suspendedUntil > Date.now()))
+}
+
 const MAX_USERNAME_LENGTH = 24
 const MAX_REPORT_DETAILS_LENGTH = 500
 const DATA_URL_IMAGE_PATTERN = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i
@@ -451,6 +490,7 @@ function cleanUpAccount(oldState: ConnectionState) {
     return
   }
   leaveCurrentRoom(oldState, true)
+  cancelInvitations(oldState)
   matchmaker.removeFromQueue(oldState.userId)
   oldState.seeking = false
   oldState.searchGeneration += 1
@@ -541,10 +581,12 @@ export function createRizzunoWebSocketServer() {
       let capturedGeneration: number | undefined
       if (state) {
         if (message.type === "find" || message.type === "skip") {
+          cancelInvitations(state)
           state.seeking = true
           state.searchGeneration += 1
           capturedGeneration = state.searchGeneration
         } else if (message.type === "leave") {
+          cancelInvitations(state)
           state.seeking = false
           state.searchGeneration += 1
         }
@@ -575,6 +617,9 @@ export function createRizzunoWebSocketServer() {
             displayId: state?.displayId,
             ...describeErr(err),
           })
+          if (message.type === "match-invite" || message.type === "match-invite-respond") {
+            send(ws, { type: "match-invite-error", message: "Couldn't process the invitation. Please try again." })
+          }
           if (state && (message.type === "find" || message.type === "skip")) {
             send(state.ws, { type: "error", message: "Couldn't find a match right now. Retrying…", context: "find" })
           } else if (message.type === "hello") {
@@ -975,6 +1020,56 @@ export function createRizzunoWebSocketServer() {
               console.error("ws-server: notifying friends of a profile change failed", { displayId, ...describeErr(err) })
             )
           }
+          break
+        }
+        case "match-invite": {
+          const fail = () => send(state!.ws, { type: "match-invite-error", message: "Invite unavailable. Both friends must be online and not matching or in a call." })
+          if (typeof message.targetUserId !== "string" || message.targetUserId.length > 200) { fail(); break }
+          const target = connections.get(message.targetUserId)
+          if (!target || target === state || !availableForInvitation(state) || !availableForInvitation(target)) { fail(); break }
+          const generation = state.searchGeneration
+          const targetGeneration = target.searchGeneration
+          const allowed = await friendsMayCall(state, target)
+          if (!allowed || !availableForInvitation(state) || !availableForInvitation(target) || state.searchGeneration !== generation || target.searchGeneration !== targetGeneration) { fail(); break }
+          // One pending invitation per sender, and no duplicate/crossed pair.
+          if ([...friendInvitations.values()].some((invite) => invite.sender === state || (invite.sender === target && invite.recipient === state))) {
+            send(state.ws, { type: "match-invite-error", message: "You already have a pending invitation. Check Requests or wait for it to expire." })
+            break
+          }
+          const id = randomUUID()
+          const timer = setTimeout(() => { const invite = friendInvitations.get(id); if (invite) removeInvitation(invite) }, 60_000)
+          timer.unref()
+          friendInvitations.set(id, { id, sender: state, recipient: target, expiresAt: Date.now() + 60_000, timer })
+          publishInvitations(state)
+          publishInvitations(target)
+          break
+        }
+        case "match-invite-respond": {
+          if (typeof message.invitationId !== "string" || typeof message.accept !== "boolean") break
+          const invite = friendInvitations.get(message.invitationId)
+          if (!invite || invite.recipient !== state) {
+            send(state.ws, { type: "match-invite-error", message: "That invitation is no longer available." })
+            break
+          }
+          if (!message.accept) { removeInvitation(invite); break }
+          const senderGeneration = invite.sender.searchGeneration
+          const recipientGeneration = state.searchGeneration
+          const allowed = await friendsMayCall(invite.sender, state)
+          if (friendInvitations.get(invite.id) !== invite || invite.expiresAt <= Date.now() || !allowed || !availableForInvitation(invite.sender) || !availableForInvitation(state) || senderGeneration !== invite.sender.searchGeneration || recipientGeneration !== state.searchGeneration) {
+            removeInvitation(invite)
+            send(state.ws, { type: "match-invite-error", message: "This friend is no longer available. Please send a new invitation." })
+            break
+          }
+          const sender = invite.sender
+          const room = matchmaker.createDirectRoom(sender.userId, state.userId, senderGeneration, recipientGeneration)
+          if (!room) { removeInvitation(invite); break }
+          sender.roomId = room.id
+          state.roomId = room.id
+          cancelInvitations(sender)
+          cancelInvitations(state)
+          send(sender.ws, { type: "matched", roomId: room.id, initiator: true, peer: toPublicIdentity(state), alreadyFriends: true })
+          send(state.ws, { type: "matched", roomId: room.id, initiator: false, peer: toPublicIdentity(sender), alreadyFriends: true })
+          matchmaker.commitMatch(room.id)
           break
         }
         case "friend-request": {

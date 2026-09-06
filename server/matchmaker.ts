@@ -131,6 +131,20 @@ export class Matchmaker {
     return this.rooms.get(roomId)
   }
 
+  /** Only for mutually accepted friend invitations, validated by the server.
+   * Explicit friend calls bypass random-search gender and recent-pair rules.
+   */
+  createDirectRoom(a: string, b: string, aGeneration: number, bGeneration: number): Room | null {
+    if (a === b || this.roomByGuest.has(a) || this.roomByGuest.has(b)) return null
+    this.removeFromQueue(a)
+    this.removeFromQueue(b)
+    const room = { id: randomUUID(), a, b, aGeneration, bGeneration, createdAt: Date.now() }
+    this.rooms.set(room.id, room)
+    this.roomByGuest.set(a, room.id)
+    this.roomByGuest.set(b, room.id)
+    return room
+  }
+
   private isRecentPartner(a: string, b: string): boolean {
     const seenAt = this.recentPartners.get(a)?.get(b)
     if (!seenAt) return false

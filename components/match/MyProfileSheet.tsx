@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl } from "@/lib/image"
 import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
+import { containsBlockedChatContent } from "@/lib/textFilter"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { PeerProfileSheet } from "./PeerProfileSheet"
@@ -89,6 +90,7 @@ export function MyProfileSheet({
   const [checkingPhoto, setCheckingPhoto] = useState(false)
   const [photoError, setPhotoError] = useState<string | null>(null)
   const [editBioDraft, setEditBioDraft] = useState("")
+  const [bioError, setBioError] = useState<string | null>(null)
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
   const [sharingPost, setSharingPost] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
@@ -171,6 +173,7 @@ export function MyProfileSheet({
     setEditPhotoDraft(profilePhoto)
     setEditUsernameDraft(username)
     setEditBioDraft(bio)
+    setBioError(null)
     setUsernameError(null)
     setPhotoError(null)
     setView("edit")
@@ -196,6 +199,11 @@ export function MyProfileSheet({
   // already own.
   async function saveEdit() {
     if (savingEdit || checkingPhoto) return
+    setBioError(null)
+    if (containsBlockedChatContent(editBioDraft)) {
+      setBioError("Please remove sexual, violent, or hateful language from your bio.")
+      return
+    }
     const trimmed = editUsernameDraft.trim().toLowerCase()
     setUsernameError(null)
     setPhotoError(null)
@@ -428,12 +436,12 @@ export function MyProfileSheet({
                     {bio || "No bio yet"}
                   </p>
 
-                  <div className="mt-6 w-full max-w-xs">
-                    <div className="grid grid-cols-[1fr_auto] gap-3">
+                  <div className="mt-6 w-full">
+                    <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-3">
                       <button
                         type="button"
                         onClick={startEditing}
-                        className="flex h-11 items-center justify-center rounded-xl bg-foreground px-5 text-[14px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                        className="col-start-2 flex h-11 w-full max-w-52 justify-self-center items-center justify-center rounded-xl bg-foreground px-5 text-[14px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         Edit profile
                       </button>
@@ -552,13 +560,16 @@ export function MyProfileSheet({
                   <label htmlFor="edit-bio" className="mb-2 block text-[13px] font-medium text-foreground">Bio</label>
                   <textarea
                     id="edit-bio"
+                    aria-invalid={!!bioError}
+                    aria-describedby={bioError ? "edit-bio-error" : undefined}
                     value={editBioDraft}
-                    onChange={(event) => setEditBioDraft(event.target.value.slice(0, 200))}
+                    onChange={(event) => { setEditBioDraft(event.target.value.slice(0, 200)); setBioError(null) }}
                     placeholder="Tell people a little about yourself"
                     rows={4}
                     className="w-full resize-none rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-[13px] text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   />
                   <p className="mt-1 text-right text-[11px] text-muted">{editBioDraft.length}/200</p>
+                  {bioError && <p id="edit-bio-error" role="alert" className="mt-2 text-[12px] text-danger">{bioError}</p>}
                 </div>
 
                 <div className="mt-8 grid grid-cols-2 gap-3 border-t border-border pt-5">

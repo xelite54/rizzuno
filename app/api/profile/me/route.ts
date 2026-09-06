@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { getPublicProfile, updateOwnProfile, getUserStatus, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { moderateImage } from "@/lib/imageModeration"
+import { containsBlockedChatContent, sanitizeText } from "@/lib/textFilter"
 
 const MAX_BIO_LENGTH = 200
 
@@ -110,7 +111,10 @@ export async function PUT(request: Request) {
     if (typeof body.bio !== "string") {
       return NextResponse.json({ error: "invalid_bio" }, { status: 400 })
     }
-    updates.bio = body.bio.slice(0, MAX_BIO_LENGTH)
+    updates.bio = sanitizeText(body.bio, MAX_BIO_LENGTH)
+    if (containsBlockedChatContent(updates.bio)) {
+      return NextResponse.json({ error: "bio_blocked" }, { status: 400 })
+    }
   }
 
   if (Object.keys(updates).length === 0) {

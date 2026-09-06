@@ -2,6 +2,7 @@
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useState } from "react"
+import type { MatchInvitation } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
@@ -35,6 +36,11 @@ type FriendsPanelProps = {
   onClose: () => void
   friends: DemoFriend[]
   requests: PendingRequest[]
+  matchInvitations: MatchInvitation[]
+  matchInviteError: string | null
+  canInviteToMatch: boolean
+  onInviteToMatch: (userId: string) => void
+  onRespondToMatchInvitation: (id: string, accept: boolean) => void
   onAcceptRequest: (id: string) => void
   onDeclineRequest: (id: string) => void
   onRemoveFriend: (id: string) => void
@@ -50,6 +56,11 @@ export function FriendsPanel({
   onClose,
   friends,
   requests,
+  matchInvitations,
+  matchInviteError,
+  canInviteToMatch,
+  onInviteToMatch,
+  onRespondToMatchInvitation,
   onAcceptRequest,
   onDeclineRequest,
   onRemoveFriend,
@@ -59,6 +70,8 @@ export function FriendsPanel({
   const [unread, setUnread] = useState<Record<string, number>>({})
   const [messages, setMessages] = useState<Record<string, FriendMessage[]>>({})
   const [view, setView] = useState<View>("list")
+  const incomingMatchInvitations = matchInvitations.filter((invite) => invite.direction === "incoming")
+  const requestCount = requests.length + incomingMatchInvitations.length
   const [activeId, setActiveId] = useState<string | null>(null)
   const [viewingRequesterId, setViewingRequesterId] = useState<string | null>(null)
   const [viewingFriendId, setViewingFriendId] = useState<string | null>(null)
@@ -410,12 +423,12 @@ export function FriendsPanel({
                           <button
                             type="button"
                             onClick={() => setView("requests")}
-                            aria-label={`${requests.length} friend request${requests.length === 1 ? "" : "s"}`}
+                            aria-label={`${requestCount} requests`}
                             className="relative flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             <MailIcon className="h-4 w-4" />
-                            {requests.length > 0 && <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-accent-foreground">
-                              {requests.length}
+                            {requestCount > 0 && <span className="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-accent-foreground">
+                              {requestCount}
                             </span>}
                           </button>
                         )}
@@ -432,6 +445,8 @@ export function FriendsPanel({
                   )}
                 </div>
 
+                {matchInviteError && <p role="alert" className="px-5 py-3 text-[12px] text-danger">{matchInviteError}</p>}
+                {!canInviteToMatch && <p className="px-5 pt-3 text-[12px] text-muted">To invite a friend, turn on your camera and pause matching.</p>}
                 {searchActive && trimmedQuery && (
                   <div className="absolute inset-x-3 top-[68px] z-10 max-h-80 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-xl">
                     {searchLoading ? (
@@ -532,6 +547,12 @@ export function FriendsPanel({
                             </span>
                           </span>
                         </button>
+                        {friend.online && (
+                          <button type="button" onClick={() => onInviteToMatch(friend.userId)} disabled={!canInviteToMatch || matchInvitations.some((invite) => invite.direction === "outgoing")}
+                            className="h-11 shrink-0 rounded-xl border border-border px-3 text-[12px] font-medium text-foreground transition hover:bg-surface-2 disabled:opacity-40">
+                            {matchInvitations.some((invite) => invite.userId === friend.userId && invite.direction === "outgoing") ? "Invited" : "Match"}
+                          </button>
+                        )}
                         {(unread[friend.id] ?? 0) > 0 && (
                           <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-accent-foreground">
                             {unread[friend.id]}
@@ -753,7 +774,7 @@ export function FriendsPanel({
                     >
                       <ChevronLeftIcon className="h-4 w-4" />
                     </button>
-                    <h2 className="text-[15px] font-semibold text-foreground">Friend requests</h2>
+                    <h2 className="text-[15px] font-semibold text-foreground">Requests</h2>
                   </div>
                   <button
                     type="button"
@@ -765,14 +786,31 @@ export function FriendsPanel({
                   </button>
                 </div>
 
-                {requests.length === 0 ? (
+                {matchInviteError && <p role="alert" className="px-5 py-3 text-[12px] text-danger">{matchInviteError}</p>}
+                {incomingMatchInvitations.length > 0 && (
+                  <div className="max-h-[50%] shrink-0 overflow-y-auto px-3 pt-3">
+                    <h3 className="px-1 pb-2 text-[12px] font-medium text-muted">Match invitations · expire after 1 minute</h3>
+                    {incomingMatchInvitations.map((invite) => (
+                      <div key={invite.id} className="mb-3 rounded-2xl border border-border p-4">
+                        <p className="truncate text-[14px] font-semibold text-foreground">@{invite.username}</p>
+                        <p className="mt-1 text-[12px] text-muted">Wants to match with you</p>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => onRespondToMatchInvitation(invite.id, false)} className="h-11 rounded-xl border border-border text-[13px] text-muted hover:bg-surface-2">Decline</button>
+                          <button type="button" disabled={!canInviteToMatch} onClick={() => onRespondToMatchInvitation(invite.id, true)} className="h-11 rounded-xl bg-foreground text-[13px] font-semibold text-background disabled:opacity-40">Accept & match</button>
+                        </div>
+                        {!canInviteToMatch && <p className="mt-2 text-[12px] text-muted">Turn on your camera and pause matching to accept.</p>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {requests.length === 0 ? (incomingMatchInvitations.length > 0 ? null : (
                   <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
                     <div className="flex h-14 w-14 items-center justify-center rounded-full bg-surface-2">
                       <MailIcon className="h-6 w-6 text-muted" />
                     </div>
                     <p className="text-[14px] font-medium text-foreground">No pending requests</p>
                   </div>
-                ) : (
+                )) : (
                   <div className="flex-1 overflow-y-auto py-2">
                     {requests.map((request) => (
                       <div

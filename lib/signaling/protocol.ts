@@ -97,6 +97,8 @@ export type SentFriendRequest = { id: string; recipientId: string; createdAt: nu
 
 export type BlockedUserSummary = { userId: string; username: string | null }
 
+export type MatchInvitation = { id: string; userId: string; username: string; expiresAt: number; direction: "incoming" | "outgoing" }
+
 export type FriendRequestResult =
   | "sent"
   | "auto_accepted"
@@ -106,6 +108,8 @@ export type FriendRequestResult =
   | "peer_offline"
 
 export type ClientMessage =
+  | { type: "match-invite"; targetUserId: string }
+  | { type: "match-invite-respond"; invitationId: string; accept: boolean }
   | {
       type: "hello"
       /** Minted by app/api/realtime/ticket — proves who this connection is on behalf of. The server verifies it and derives userId itself; nothing here is trusted at face value (see server/ws-server.ts). */
@@ -155,6 +159,8 @@ export type ClientMessage =
   | { type: "friend-block"; targetUserId: string }
 
 export type ServerMessage =
+  | { type: "match-invitations"; invitations: MatchInvitation[] }
+  | { type: "match-invite-error"; message: string }
   /**
    * Explicit hello-accepted acknowledgement — sent once, right after a
    * "hello" is verified and this connection's state/friends-snapshot are

@@ -182,6 +182,10 @@ export function MatchStage() {
     unfriend,
     blockFriendAccount,
     dismissFriendToast,
+    matchInvitations,
+    matchInviteError,
+    inviteFriendToMatch,
+    respondToMatchInvitation,
   } = useMatchmaking(
     realtimeEnabled,
     videoTrack,
@@ -479,7 +483,7 @@ export function MatchStage() {
   }))
 
   const [unreadMessages, setUnreadMessages] = useState(0)
-  const friendsNotifications = requests.length + unreadMessages
+  const friendsNotifications = requests.length + unreadMessages + matchInvitations.filter((invite) => invite.direction === "incoming").length
   const toastRequest = requests.find((request) => request.id === friendToastRequestId) ?? null
   // Set when "View profile" is tapped on the live toast — shows the request's
   // full-screen profile (Decline/Accept) directly, separate from opening the
@@ -520,6 +524,14 @@ export function MatchStage() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [myProfileOpen, setMyProfileOpen] = useState(false)
+
+  useEffect(() => {
+    if (state === "connecting" || state === "active") {
+      // A friend accepted a direct invitation; reveal the existing call UI.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFriendsOpen(false)
+    }
+  }, [state])
 
   return (
     <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-home-glow" : "bg-background"}`}>
@@ -683,6 +695,11 @@ export function MatchStage() {
             onClose={() => setFriendsOpen(false)}
             friends={friends}
             requests={requests}
+            matchInvitations={matchInvitations}
+            matchInviteError={matchInviteError}
+            canInviteToMatch={realtimeReady && !cameraOff && (state === "idle" || state === "paused")}
+            onInviteToMatch={inviteFriendToMatch}
+            onRespondToMatchInvitation={respondToMatchInvitation}
             onAcceptRequest={(id) => respondToFriendRequest(id, true)}
             onDeclineRequest={(id) => respondToFriendRequest(id, false)}
             onRemoveFriend={unfriend}
