@@ -447,7 +447,7 @@ export function FriendsPanel({
                 </div>
 
                 {matchInviteError && <p role="alert" className="px-5 py-3 text-[12px] text-danger">{matchInviteError}</p>}
-                {!canInviteToMatch && <p className="px-5 pt-3 text-[12px] text-muted">To invite a friend, turn on your camera and pause matching.</p>}
+                {!canInviteToMatch && <p className="px-5 pt-3 text-[12px] text-muted">Return home with video available to invite a friend.</p>}
                 {searchActive && trimmedQuery && (
                   <div className="absolute inset-x-3 top-[68px] z-10 max-h-80 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-xl">
                     {searchLoading ? (
@@ -799,7 +799,7 @@ export function FriendsPanel({
                           <button type="button" onClick={() => onRespondToMatchInvitation(invite.id, false)} className="h-11 rounded-xl border border-border text-[13px] text-muted hover:bg-surface-2">Decline</button>
                           <button type="button" disabled={!canInviteToMatch} onClick={() => onRespondToMatchInvitation(invite.id, true)} className="h-11 rounded-xl bg-foreground text-[13px] font-semibold text-background disabled:opacity-40">Accept & match</button>
                         </div>
-                        {!canInviteToMatch && <p className="mt-2 text-[12px] text-muted">Turn on your camera and pause matching to accept.</p>}
+                        {!canInviteToMatch && <p className="mt-2 text-[12px] text-muted">Return home with video available to accept.</p>}
                       </div>
                     ))}
                   </div>

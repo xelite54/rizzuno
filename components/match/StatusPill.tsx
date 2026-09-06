@@ -7,7 +7,7 @@ import type { MatchState } from "@/hooks/useMatchmaking"
 type StatusPillProps = {
   state: MatchState
   /** No live camera track right now — matching can't start (or resume) until there is one. Changes the idle/paused copy to say so, rather than a generic message that gives no indication anything's actually blocking it. */
-  cameraOff?: boolean
+  cameraUnavailable?: boolean
   onPauseMatching?: () => void
   /** How many accounts currently have a live connection — `null` until the server's first "online-count" arrives. Shown alongside the waiting-state label so "Finding someone…" isn't just a spinner with no sense of whether anyone else is even around. */
   onlineCount?: number | null
@@ -17,7 +17,7 @@ type StatusPillProps = {
 
 // A function rather than a static lookup table — "idle" and "paused" both
 // need a second, camera-dependent answer, not just one label per state.
-function describeState(state: MatchState, cameraOff: boolean): string {
+function describeState(state: MatchState, cameraUnavailable: boolean): string {
   switch (state) {
     case "idle":
       // Matching is never auto-started (see MatchStage.tsx) — a first
@@ -25,7 +25,7 @@ function describeState(state: MatchState, cameraOff: boolean): string {
       // swipes. The camera-on case never reaches this label at all — see
       // below, where "idle" branches to the same PausedNotice treatment
       // "paused" gets, before any of this pill markup is even considered.
-      return cameraOff ? "Turn on your camera to start matching" : ""
+      return cameraUnavailable ? "Camera access is required to start matching" : ""
     case "queue-pending":
       // "find"/"skip" was sent, but the server hasn't confirmed queue
       // membership ("queued") or found a match yet — see useMatchmaking's
@@ -48,7 +48,7 @@ function describeState(state: MatchState, cameraOff: boolean): string {
       // where "paused" (like "idle" above) branches to the full
       // PausedNotice treatment before any of this pill markup is even
       // considered.
-      return cameraOff ? "Turn on your camera to resume matching" : ""
+      return cameraUnavailable ? "Camera access is required to resume matching" : ""
     case "active":
       return ""
     case "error":
@@ -59,7 +59,7 @@ function describeState(state: MatchState, cameraOff: boolean): string {
   }
 }
 
-export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCount = null, onResume }: StatusPillProps) {
+export function StatusPill({ state, cameraUnavailable = false, onPauseMatching, onlineCount = null, onResume }: StatusPillProps) {
   // "idle" and "paused" both get the full branded PausedNotice treatment
   // when the camera is on — matching is never auto-started (see
   // MatchStage.tsx), so a first visit ("idle") and a deliberate pause
@@ -71,11 +71,11 @@ export function StatusPill({ state, cameraOff = false, onPauseMatching, onlineCo
   // and empty video reads as broken rather than restful — see
   // PausedNotice's own comment). This is still the one place that decision
   // gets made — nothing above this component chooses between the two.
-  if ((state === "idle" || state === "paused") && !cameraOff) {
+  if ((state === "idle" || state === "paused") && !cameraUnavailable) {
     return <PausedNotice onlineCount={onlineCount} paused={state === "paused"} />
   }
 
-  const label = describeState(state, cameraOff)
+  const label = describeState(state, cameraUnavailable)
   if (!label) return null
 
   // All searching phases share one label; only connecting is distinct.

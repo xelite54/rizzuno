@@ -78,7 +78,7 @@ type SignInPopupMessage = { ok: true } | { error: string }
 
 export function MatchStage() {
   const reduceMotion = useReducedMotion()
-  const { stream, videoTrack, audioTrack, status, micEnabled, cameraEnabled, toggleMic, toggleCamera } =
+  const { stream, videoTrack, audioTrack, status, micEnabled, toggleMic } =
     useLocalMedia()
 
   // Guards the self-camera's home-screen grow/shrink layout animation
@@ -297,16 +297,8 @@ export function MatchStage() {
     }
   }
 
-  // A live camera track is required to start matching — a match with no
-  // video on your end isn't the product this is, and there's no point
-  // burning through the queue (and showing up as a candidate to other
-  // people) while your own camera is off, blocked, or not yet granted.
-  // `videoTrack` (not just `cameraEnabled`, which stays `true` even while
-  // permission is denied or still pending) is null in every one of those
-  // cases and only set once a real track exists — see SelfPanel.tsx, which
-  // already uses the same fields to explain each of those states to the
-  // person themselves.
-  const cameraOff = !videoTrack
+  // Require a real capture track, including after permission/device failure.
+  const cameraUnavailable = !videoTrack
 
   // Deliberately NOT auto-started. A first visit (or a refresh) lands in
   // "idle" and stays there — SwipeStage/StatusPill show the same calm
@@ -324,37 +316,29 @@ export function MatchStage() {
   // `wantsMatchingRef` (which only ever becomes true once the guest has
   // actually swiped at least once), not by anything in this file.
 
-  // CAMERA MUST CONTROL QUEUE MEMBERSHIP — turning the camera off while
-  // actively searching used to only change local UI; it never actually
-  // removed this account from the real server-side queue (server/
-  // matchmaker.ts's `waiting`), so a camera-off guest kept showing up as a
-  // live match candidate to other people with nothing to actually show
-  // them. `leaveQueueOnly` (unlike
-  // pauseMatching) doesn't touch `wantsMatching` — the guest hasn't changed
-  // their mind about wanting to match, the camera just makes it temporarily
-  // impossible — so turning it back on resumes automatically here, exactly
-  // once per off/on cycle, without needing a manual "start" step again.
-  const leftQueueForCameraOff = useRef(false)
+  // Preserve queue safety if capture becomes unavailable. Restoring a
+  // device resumes an existing search intent, never a fresh homepage visit.
+  const leftQueueForUnavailableCamera = useRef(false)
   useEffect(() => {
-    if (cameraOff) {
+    if (cameraUnavailable) {
       // Either stage counts — "queue-pending" (find/skip sent, not yet
       // confirmed) is just as real a queue attempt as "searching" (confirmed
       // via "queued") from the camera's point of view; both need leaving.
-      if ((state === "searching" || state === "queue-pending") && !leftQueueForCameraOff.current) {
-        leftQueueForCameraOff.current = true
-        console.log("matchmaking: camera turned off while searching — leaving the real queue")
+      if ((state === "searching" || state === "queue-pending") && !leftQueueForUnavailableCamera.current) {
+        leftQueueForUnavailableCamera.current = true
+        console.log("matchmaking: camera unavailable while searching — leaving the real queue")
         leaveQueueOnly()
       }
       return
     }
-    if (leftQueueForCameraOff.current) {
-      leftQueueForCameraOff.current = false
+    if (leftQueueForUnavailableCamera.current) {
+      leftQueueForUnavailableCamera.current = false
       if (realtimeReady && !restriction) {
-        console.log("matchmaking: camera back on — sending exactly one fresh find")
+        console.log("matchmaking: camera available again — sending exactly one fresh find")
         findMatch()
       }
     }
-  }, [cameraOff, state, realtimeReady, restriction, findMatch, leaveQueueOnly])
+  }, [cameraUnavailable, state, realtimeReady, restriction, findMatch, leaveQueueOnly])
 
   // A completed skip doesn't tear down the connection right away — it waits
   // out a short undo window first. The match stays genuinely live behind the
@@ -431,7 +415,7 @@ export function MatchStage() {
     legalAccepted &&
     onboarded &&
     !restriction &&
-    !cameraOff &&
+    !cameraUnavailable &&
     (swipeMatchState === "idle" || swipeMatchState === "paused")
 
   // Keep the structural home split independent from async session/profile/
@@ -527,7 +511,7 @@ export function MatchStage() {
   const [myProfileOpen, setMyProfileOpen] = useState(false)
   const [dismissedMatchInvitations, setDismissedMatchInvitations] = useState<Set<string>>(new Set())
   const incomingMatchInvitation = matchInvitations.find((invite) => invite.direction === "incoming" && !dismissedMatchInvitations.has(invite.id)) ?? null
-  const canAcceptMatchInvitation = realtimeReady && !cameraOff && (state === "idle" || state === "paused")
+  const canAcceptMatchInvitation = realtimeReady && !cameraUnavailable && (state === "idle" || state === "paused")
 
   useEffect(() => {
     if (state === "connecting" || state === "active") {
@@ -576,7 +560,6 @@ export function MatchStage() {
           <SelfPanel
             stream={stream}
             status={status}
-            cameraEnabled={cameraEnabled}
             flushDesktop={useHomeSplit}
           />
           {/* Every personal control is anchored to the self-video itself.
@@ -614,9 +597,7 @@ export function MatchStage() {
                 <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-25"}`}>
                   <ControlBar
                     micEnabled={micEnabled}
-                    cameraEnabled={cameraEnabled}
                     onToggleMic={toggleMic}
-                    onToggleCamera={toggleCamera}
                   />
                   <div className="h-5 w-px shrink-0 bg-white/20" />
                   <CompactChat disabled={!inCall} onOpenChat={() => setChatOpen(true)} />
@@ -672,8 +653,8 @@ export function MatchStage() {
                 onSwipeComplete={handleSwipeComplete}
                 locked={pendingSkip !== null}
                 onPauseMatching={handlePauseMatching}
-                onResume={cameraOff ? undefined : findMatch}
-                cameraOff={cameraOff}
+                onResume={cameraUnavailable ? undefined : findMatch}
+                cameraUnavailable={cameraUnavailable}
                 onlineCount={onlineCount}
               />
               <SafetyMenu

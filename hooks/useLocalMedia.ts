@@ -18,7 +18,6 @@ const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
 export function useLocalMedia() {
   const [status, setStatus] = useState<MediaPermissionState>("idle")
   const [micEnabled, setMicEnabled] = useState(true)
-  const [cameraEnabled, setCameraEnabled] = useState(true)
   const [videoTrack, setVideoTrack] = useState<MediaStreamTrack | null>(null)
   const [audioTrack, setAudioTrack] = useState<MediaStreamTrack | null>(null)
 
@@ -84,34 +83,13 @@ export function useLocalMedia() {
     setMicEnabled((prev) => !prev)
   }, [])
 
-  // Camera "off" really releases the hardware — stop() + remove the track,
-  // not just enabled = false — so the device's camera indicator light
-  // actually goes out. Turning it back on re-acquires a fresh track.
-  const toggleCamera = useCallback(async () => {
-    if (!stream) return
-
-    if (cameraEnabled) {
-      const track = stream.getVideoTracks()[0]
-      if (track) {
-        stream.removeTrack(track)
-        track.stop()
-      }
-      setVideoTrack(null)
-      setCameraEnabled(false)
-      return
-    }
-
-    try {
-      const media = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS })
-      const track = media.getVideoTracks()[0]
-      if (!track) return
-      stream.addTrack(track)
-      setVideoTrack(track)
-      setCameraEnabled(true)
-    } catch {
-      // Camera unavailable or permission revoked — stay off rather than crash.
-    }
-  }, [stream, cameraEnabled])
+  // Hardware disconnection or revoked permission still invalidates capture.
+  useEffect(() => {
+    if (!videoTrack) return
+    const ended = () => { setVideoTrack(null); setStatus("unavailable") }
+    videoTrack.addEventListener("ended", ended)
+    return () => videoTrack.removeEventListener("ended", ended)
+  }, [videoTrack])
 
   const selectCamera = useCallback(
     async (deviceId: string) => {
@@ -129,7 +107,7 @@ export function useLocalMedia() {
         }
         stream.addTrack(track)
         setVideoTrack(track)
-        setCameraEnabled(true)
+        setStatus("granted")
       } catch {
         // Keep the previous camera if switching fails.
       }
@@ -165,9 +143,7 @@ export function useLocalMedia() {
     audioTrack,
     status,
     micEnabled,
-    cameraEnabled,
     toggleMic,
-    toggleCamera,
     selectCamera,
     selectMic,
   }

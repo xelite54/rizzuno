@@ -44,7 +44,7 @@ export function IncomingMatchInvitationToast({ invitation, canAccept, error, onR
             <button type="button" onClick={() => onRespond(invitation.id, false)} className="h-11 rounded-xl border border-border text-[13px] font-medium text-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2">Decline</button>
             <button type="button" disabled={!canAccept} onClick={() => onRespond(invitation.id, true)} className="h-11 rounded-xl bg-foreground text-[13px] font-semibold text-background hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40">Accept &amp; match</button>
           </div>
-          {!canAccept && <p className="mt-3 text-[12px] text-muted">Turn on your camera and pause matching to accept.</p>}
+          {!canAccept && <p className="mt-3 text-[12px] text-muted">Return home with video available to accept.</p>}
           {error && <p className="mt-3 text-[12px] text-danger">{error}</p>}
         </motion.div>
       )}

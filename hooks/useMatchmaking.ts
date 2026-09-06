@@ -413,7 +413,7 @@ export function useMatchmaking(
   // see MatchStage.tsx's camera-controls-queue-membership effect), where
   // the guest hasn't actually changed their mind about wanting to match.
   // `serverState` goes back to "idle" specifically so StatusPill's existing
-  // camera-aware copy ("Turn on your camera to start matching") is what
+  // camera-access guidance ("Camera access is required to start matching") is what
   // shows, instead of "Finding someone…" over a queue entry that doesn't
   // actually exist server-side anymore. Cancels either
   // "searching" (confirmed queued) or "queue-pending" (asked, not yet

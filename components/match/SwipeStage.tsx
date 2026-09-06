@@ -30,7 +30,7 @@ type SwipeStageProps = {
   /** Resuming from the paused state isn't a button — it's the same swipe-left gesture used to skip someone, so this fires off the end of that gesture instead. Left undefined (by MatchStage, whenever there's no live camera track) to disable that gesture entirely rather than let it silently no-op. */
   onResume?: () => void
   /** No live camera track right now — passed through to StatusPill so the idle/paused copy explains why nothing's happening instead of a generic message. */
-  cameraOff?: boolean
+  cameraUnavailable?: boolean
   /** How many accounts are currently online — passed through to StatusPill so anyone sitting in a waiting state (idle/searching/connecting/peer-left) can see it, not just a static "Finding someone…". `null`/`undefined` until the server's first count arrives. */
   onlineCount?: number | null
 }
@@ -46,7 +46,7 @@ export function SwipeStage({
   locked = false,
   onPauseMatching,
   onResume,
-  cameraOff = false,
+  cameraUnavailable = false,
   onlineCount = null,
 }: SwipeStageProps) {
   const reduceMotion = useReducedMotion()
@@ -193,11 +193,11 @@ export function SwipeStage({
             : matchState === "paused"
               ? onResume
                 ? "Matching paused. Press left arrow to resume."
-                : "Matching paused. Turn on your camera to resume."
+                : "Matching paused. Camera access is required."
               : matchState === "idle"
                 ? onResume
                   ? "Press left arrow to start matching."
-                  : "Turn on your camera to start matching."
+                  : "Camera access is required to start matching."
                 : "Waiting for a match"
         }
         className="absolute inset-0 origin-bottom cursor-grab touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-accent-2 active:cursor-grabbing"
@@ -249,13 +249,13 @@ export function SwipeStage({
               className="absolute inset-0 flex items-center justify-center"
             >
               {/* StatusPill is the one authoritative status display — it
-                  decides on its own (from `state`/`cameraOff` alone) whether
+                  decides on its own (from `state`/`cameraUnavailable` alone) whether
                   that means the compact pill or the full paused-branded
                   screen; nothing here branches between two components for
                   the same state. */}
               <StatusPill
                 state={matchState}
-                cameraOff={cameraOff}
+                cameraUnavailable={cameraUnavailable}
                 onPauseMatching={onPauseMatching}
                 onlineCount={onlineCount}
                 onResume={onResume}
