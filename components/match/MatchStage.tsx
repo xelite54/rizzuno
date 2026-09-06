@@ -14,6 +14,7 @@ import { ProfileMenu } from "./ProfileMenu"
 import { ControlBar } from "./ControlBar"
 import { FriendsPanel } from "./FriendsPanel"
 import { IncomingFriendRequestToast } from "./IncomingFriendRequestToast"
+import { IncomingMatchInvitationToast } from "./IncomingMatchInvitationToast"
 import { RequestProfileSheet } from "./RequestProfileSheet"
 import { SignInLanding } from "./SignInLanding"
 import { AgeGate } from "./AgeGate"
@@ -524,6 +525,9 @@ export function MatchStage() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [myProfileOpen, setMyProfileOpen] = useState(false)
+  const [dismissedMatchInvitations, setDismissedMatchInvitations] = useState<Set<string>>(new Set())
+  const incomingMatchInvitation = matchInvitations.find((invite) => invite.direction === "incoming" && !dismissedMatchInvitations.has(invite.id)) ?? null
+  const canAcceptMatchInvitation = realtimeReady && !cameraOff && (state === "idle" || state === "paused")
 
   useEffect(() => {
     if (state === "connecting" || state === "active") {
@@ -697,7 +701,7 @@ export function MatchStage() {
             requests={requests}
             matchInvitations={matchInvitations}
             matchInviteError={matchInviteError}
-            canInviteToMatch={realtimeReady && !cameraOff && (state === "idle" || state === "paused")}
+            canInviteToMatch={canAcceptMatchInvitation}
             onInviteToMatch={inviteFriendToMatch}
             onRespondToMatchInvitation={respondToMatchInvitation}
             onAcceptRequest={(id) => respondToFriendRequest(id, true)}
@@ -707,11 +711,18 @@ export function MatchStage() {
             onUnreadMessagesChange={setUnreadMessages}
           />
           <IncomingFriendRequestToast
-            request={toastRequest}
+            request={incomingMatchInvitation ? null : toastRequest}
             onAccept={(id) => respondToFriendRequest(id, true)}
             onDecline={(id) => respondToFriendRequest(id, false)}
             onDismiss={dismissFriendToast}
             onViewProfile={() => setViewingToastRequest(toastRequest)}
+          />
+          <IncomingMatchInvitationToast
+            invitation={incomingMatchInvitation}
+            canAccept={canAcceptMatchInvitation}
+            error={matchInviteError}
+            onRespond={respondToMatchInvitation}
+            onDismiss={(id) => setDismissedMatchInvitations((previous) => new Set([...previous, id]))}
           />
           <RequestProfileSheet
             request={viewingToastRequest}
