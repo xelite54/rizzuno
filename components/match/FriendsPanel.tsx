@@ -513,10 +513,10 @@ export function FriendsPanel({
                               <img
                                 src={friend.profilePhoto}
                                 alt=""
-                                className="h-11 w-11 rounded-full object-cover"
+                                className="h-9 w-9 rounded-full object-cover"
                               />
                             ) : (
-                              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent-2 text-[14px] font-semibold text-accent-foreground">
+                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
                                 {friend.displayName.charAt(0)}
                               </span>
                             )}
@@ -651,9 +651,9 @@ export function FriendsPanel({
                   >
                     {active.profilePhoto ? (
                       // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
-                      <img src={active.profilePhoto} alt="" className="h-11 w-11 shrink-0 rounded-full object-cover" />
+                      <img src={active.profilePhoto} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
                     ) : (
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[11px] font-semibold text-accent-foreground">
                         {active.displayName.charAt(0)}
                       </span>
                     )}
