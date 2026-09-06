@@ -2,6 +2,7 @@
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useState } from "react"
+import { PostGallery } from "./PostGallery"
 import type { MatchInvitation } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { createPortal } from "react-dom"
@@ -1055,14 +1056,7 @@ export function FriendsPanel({
                       ))}
                     </div>
                   ) : friendProfile && friendProfile.posts.length > 0 ? (
-                    <div className="grid grid-cols-3 gap-3">
-                      {friendProfile.posts.map((post) => (
-                        <div key={post.id} className="aspect-square overflow-hidden rounded-xl border border-border bg-surface-2 shadow-sm">
-                          {/* eslint-disable-next-line @next/next/no-img-element -- data-URL post image, not a static asset */}
-                          <img src={post.dataUrl} alt="Post" className="h-full w-full object-cover" />
-                        </div>
-                      ))}
-                    </div>
+                    <PostGallery key={viewingFriend.id} posts={friendProfile.posts} owner={friendProfile.username ? `@${friendProfile.username}` : friendName} />
                   ) : (
                     <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
                   )}
