@@ -2,6 +2,7 @@
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useState } from "react"
+import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, DotsIcon, MailIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
@@ -80,6 +81,7 @@ export function FriendsPanel({
   const [friendActionConfirm, setFriendActionConfirm] = useState<"unfriend" | "block" | null>(null)
   const [rowMenuConfirm, setRowMenuConfirm] = useState<"unfriend" | "block" | null>(null)
   const [draft, setDraft] = useState("")
+  const [chatBlocked, setChatBlocked] = useState(false)
 
   // Per-row "•••" menu on a friend in the list (View profile / Unfriend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
@@ -230,6 +232,7 @@ export function FriendsPanel({
   const activeMessages = active ? (messages[active.id] ?? []) : []
 
   function openChat(id: string) {
+    setChatBlocked(false)
     setActiveId(id)
     setView("chat")
     setUnread((prev) => ({ ...prev, [id]: 0 }))
@@ -238,6 +241,11 @@ export function FriendsPanel({
   function sendMessage() {
     if (!active || !draft.trim()) return
     const text = draft.trim()
+    if (containsBlockedChatContent(text)) {
+      setChatBlocked(true)
+      return
+    }
+    setChatBlocked(false)
     const friendId = active.id
     const messageId = crypto.randomUUID()
     setDraft("")
@@ -695,6 +703,7 @@ export function FriendsPanel({
                   })}
                 </div>
 
+                {chatBlocked && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{CHAT_BLOCKED_MESSAGE}</p>}
                 <form
                   onSubmit={(event) => {
                     event.preventDefault()
@@ -704,7 +713,7 @@ export function FriendsPanel({
                 >
                   <input
                     value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
+                    onChange={(event) => { setDraft(event.target.value); setChatBlocked(false) }}
                     placeholder="Message"
                     maxLength={500}
                     className="min-w-0 flex-1 rounded-xl border border-border bg-surface-2 px-3.5 py-2 text-[13px] text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"

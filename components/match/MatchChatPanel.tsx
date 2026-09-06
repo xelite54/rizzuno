@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { AnimatePresence, motion } from "motion/react"
 import { CloseIcon, SendIcon } from "@/components/icons"
 import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
@@ -51,6 +52,7 @@ export function MatchChatPanel({
   onNotifyTyping,
 }: MatchChatPanelProps) {
   const [draft, setDraft] = useState("")
+  const [blocked, setBlocked] = useState(false)
   const listRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -59,6 +61,11 @@ export function MatchChatPanel({
 
   function submit() {
     if (disabled || !draft.trim()) return
+    if (containsBlockedChatContent(draft)) {
+      setBlocked(true)
+      return
+    }
+    setBlocked(false)
     onSend(draft)
     setDraft("")
   }
@@ -146,6 +153,7 @@ export function MatchChatPanel({
               {peerTyping && <TypingDots />}
             </div>
 
+            {blocked && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{CHAT_BLOCKED_MESSAGE}</p>}
             <form
               onSubmit={(event) => {
                 event.preventDefault()
@@ -157,6 +165,7 @@ export function MatchChatPanel({
                 value={draft}
                 onChange={(event) => {
                   setDraft(event.target.value)
+                  setBlocked(false)
                   if (event.target.value) onNotifyTyping()
                 }}
                 placeholder={disabled ? "Chat opens once you're matched" : "Message"}
