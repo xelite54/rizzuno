@@ -444,24 +444,22 @@ export function MyProfileSheet({
                     {bio || "A few words can start a connection. Add your bio."}
                   </p>
 
-                  <div className="mt-6 w-full">
-                    <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={startEditing}
-                        className="col-start-2 flex h-11 w-full max-w-52 justify-self-center items-center justify-center rounded-full bg-[#e5d5e1] px-4 text-[13px] font-semibold text-[#261d2b] transition hover:bg-[#f4e7f0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                      >
-                        Edit profile
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setView("settings")}
-                        aria-label="Settings"
-                        className="flex h-11 w-11 items-center justify-center rounded-full border border-white/15 text-muted transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                      >
-                        <SettingsIcon className="h-4 w-4" />
-                      </button>
-                    </div>
+                  <div className="mt-6 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      className="flex h-11 items-center justify-center rounded-full bg-[#e5d5e1] px-5 text-[13px] font-semibold text-[#261d2b] transition hover:bg-[#f4e7f0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    >
+                      Edit profile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setView("settings")}
+                      aria-label="Settings"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 text-muted transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    >
+                      <SettingsIcon className="h-4 w-4" />
+                    </button>
                   </div>
                 <Link href="/rizz-plus" className={styles.membership}>
                   <span aria-hidden="true" className="text-3xl font-light">+</span>
