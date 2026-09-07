@@ -68,7 +68,13 @@ export default function RizzPlusPage() {
           </ul>
           {returned && !active && <p role="status" className="mt-3 text-[13px] text-[#ddb8d2]">{waiting ? "Confirming your subscription…" : "Confirmation is taking longer than expected. Refresh your status below before trying another payment."}</p>}
           {error && <p role="alert" className="mt-3 text-[13px] text-[#f2a4b7]">{error}</p>}
-          <button disabled={busy || loading || (returned && !active)} onClick={() => void openBilling(active)} className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? "Opening Stripe…" : loading ? "Checking membership…" : active ? "Manage subscription" : "Get Rizz+"}</span></button>
+          {/* A free grant (see grantFreeRizzPlus in lib/db.ts) has no real
+              Stripe customer behind it, so there's nothing for the billing
+              portal to manage — canManage stays false for it. Only a real
+              paid subscription gets the "Manage subscription" action;
+              a free member just sees their status here instead of a button
+              that would otherwise 404 against the portal route. */}
+          <button disabled={busy || loading || (returned && !active) || (active && !canManage)} onClick={() => void openBilling(active)} className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? "Opening Stripe…" : loading ? "Checking membership…" : active ? (canManage ? "Manage subscription" : "You’re a Rizz+ member") : "Get Rizz+"}</span></button>
           {!active && canManage && <button onClick={() => void openBilling(true)} disabled={busy} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Manage existing billing</button>}
           {returned && !active && <button onClick={() => void refresh()} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Refresh membership status</button>}
           <p className="mt-3 text-[11px] leading-relaxed text-white/40">Renews automatically at US$4.99/month until canceled. Cancel through Manage subscription; access continues until the paid period ends. Taxes, if applicable, are shown at checkout. Secure payment through Stripe.</p>

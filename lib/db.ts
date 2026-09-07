@@ -51,6 +51,26 @@ export async function hasRizzPlus(userId: string): Promise<boolean> {
   return rows[0]?.active ?? false
 }
 
+/**
+ * TEMPORARY — Rizz+ is being given away free while real billing isn't
+ * wired up (see the checkout route, which calls this instead of creating a
+ * Stripe session). Writes straight into billing_subscriptions with a
+ * synthetic, non-Stripe subscription id (never collides with a real Stripe
+ * `sub_...` id) so hasRizzPlus() reads it exactly like a paid one. No row
+ * is added to billing_customers, since there's no real Stripe customer
+ * behind it — that's also how the portal route tells a free grant apart
+ * from a real subscription and skips offering a billing portal for it.
+ */
+export async function grantFreeRizzPlus(userId: string) {
+  const subscriptionId = `free:${userId}`
+  const farFuture = Date.UTC(2099, 0, 1)
+  await q(
+    `INSERT INTO billing_subscriptions(subscription_id,user_id,status,paid_until,event_created) VALUES($1,$2,'active',$3,$4)
+     ON CONFLICT(subscription_id) DO UPDATE SET status='active',paid_until=EXCLUDED.paid_until`,
+    [subscriptionId, userId, farFuture, now()]
+  )
+}
+
 export async function getBillingCustomer(userId: string): Promise<string | null> {
   const { rows } = await q<{ customer_id: string }>(`SELECT customer_id FROM billing_customers WHERE user_id=$1`, [userId])
   return rows[0]?.customer_id ?? null
