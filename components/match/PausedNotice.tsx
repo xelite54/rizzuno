@@ -3,8 +3,6 @@
 import { BrandMark } from "./BrandMark"
 import { ChevronLeftIcon } from "@/components/icons"
 import styles from "./PausedNotice.module.css"
-import Link from "next/link"
-import { useRizzPlus } from "@/components/RizzPlusProvider"
 
 type PausedNoticeProps = {
   /** Current live connections, shown beside the brand when available. */
@@ -18,7 +16,6 @@ type PausedNoticeProps = {
  * target: dragging it left moves this page away and starts the real search.
  */
 export function PausedNotice({ onlineCount = null, paused = false }: PausedNoticeProps) {
-  const plus = useRizzPlus()
   return (
     <div className={`${styles.background} pointer-events-none absolute inset-0 isolate overflow-hidden text-left`}>
       <header className="absolute inset-x-6 top-6 z-20 flex flex-wrap items-center justify-between gap-4 md:inset-x-10 md:top-8 xl:inset-x-14">
@@ -33,10 +30,6 @@ export function PausedNotice({ onlineCount = null, paused = false }: PausedNotic
           </div>
         )}
       </header>
-      <Link href="/rizz-plus" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} className="pointer-events-auto absolute bottom-6 right-6 z-20 rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-[13px] font-medium text-[#ead2e2] backdrop-blur-sm transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 md:bottom-8 md:right-10">
-        {plus.active ? "Rizz+ member" : "Rizz+"} <span className="ml-2" aria-hidden="true">→</span>
-      </Link>
-
       <div className="relative z-10 flex h-full items-end justify-center px-6 pb-10 pt-24 md:items-center md:px-10 md:pb-12 xl:px-14">
         <section className="w-full max-w-[38rem] text-center">
           <h1 className="text-[clamp(2rem,6.2vw,4.5rem)] font-semibold leading-[1.08] tracking-[-0.045em] text-white/95 md:text-[clamp(2rem,4.6vw,4.75rem)]">
