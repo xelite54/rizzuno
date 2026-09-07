@@ -59,7 +59,7 @@ export default function RizzPlusPage() {
         </section>
         <section className={styles.details} aria-labelledby="membership-heading">
           <div className={styles.planHeading}><h2 id="membership-heading">{active ? "Your membership" : "One plan. All yours."}</h2><span>{active ? "ACTIVE +" : "RIZZ+"}</span></div>
-          <div className={styles.price}><span>Free</span><p>No charge<br /><span>For a limited time</span></p></div>
+          <div className={styles.price}><span>$4.99</span><p>USD / month<br /><span>Cancel anytime</span></p></div>
           <p className={styles.included}>THE EXTRA, INCLUDED</p>
           <ul className={styles.benefits}>
             {benefits.map(([number, title, description]) => <li key={number}><span className={styles.benefitNumber}>{number}</span><div><h3>{title}</h3><p>{description}</p></div></li>)}
@@ -75,7 +75,7 @@ export default function RizzPlusPage() {
           <button disabled={busy || loading || (returned && !active) || (active && !canManage)} onClick={() => void openBilling(active)} className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? "Opening Stripe…" : loading ? "Checking membership…" : active ? (canManage ? "Manage subscription" : "You’re a Rizz+ member") : "Get Rizz+"}</span></button>
           {!active && canManage && <button onClick={() => void openBilling(true)} disabled={busy} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Manage existing billing</button>}
           {returned && !active && <button onClick={() => void refresh()} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Refresh membership status</button>}
-          <p className="mt-3 text-[11px] leading-relaxed text-white/40">Rizz+ is free right now, for a limited time — no payment method required and nothing is charged. Pricing may change in the future.</p>
+          <p className="mt-3 text-[11px] leading-relaxed text-white/40">Renews automatically at US$4.99/month until canceled. Cancel through Manage subscription; access continues until the paid period ends. Taxes, if applicable, are shown at checkout. Secure payment through Stripe.</p>
           <p className="mt-2 text-[11px] text-white/30">Rizzuno currently has no ads for any users. Membership does not bypass content moderation.</p>
           <div className="mt-3 flex gap-4 text-[11px] text-white/45"><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link></div>
         </section>
