@@ -49,20 +49,25 @@ export default function RizzPlusPage() {
         <Link href="/" className="text-[17px] font-semibold tracking-tight">Rizzuno<span className="text-white/40">.com</span></Link>
         <Link href="/" className="rounded-full border border-white/15 px-4 py-2 text-[13px] text-white/70 hover:bg-white/5">Back to home ↗</Link>
       </nav>
-      <div className="mx-auto grid max-w-6xl gap-12 px-6 pb-16 pt-8 sm:px-10 lg:grid-cols-[1.15fr_1fr] lg:gap-20 lg:pt-16">
-        <section className="relative">
-          <p className="text-[11px] font-medium uppercase tracking-[0.28em] text-[#c8adc5]">A little more possibility</p>
-          <h1 className="mt-6 text-[clamp(4.5rem,12vw,8rem)] font-semibold leading-none tracking-[-0.08em]">Rizz<span className="text-[#ddb8d2]">+</span></h1>
-          <p className="mt-5 max-w-sm text-[clamp(1.5rem,3vw,2.2rem)] leading-tight tracking-[-0.04em] text-white/80">Same moment.<br />More ways to make it yours.</p>
-          <div className={styles.emblem} aria-hidden="true"><span /><span /></div>
-          <p className="mt-6 max-w-xs text-[12px] leading-relaxed text-white/40">One membership. All five features.<br />A small + on your profile makes it official.</p>
-        </section>
-        <section className="self-center rounded-[28px] border border-white/12 bg-[#17121b]/85 p-6 sm:p-8">
-          <div className="flex items-center justify-between gap-4"><h2 className="text-[18px] font-medium">{active ? "You’re Rizz+" : "Make room for more"}</h2><span className="rounded-full border border-[#c69abc]/30 px-3 py-1 text-[11px] text-[#ddb8d2]">{active ? "Member +" : "Monthly"}</span></div>
-          <div className="mt-6 flex items-baseline gap-2"><span className="text-[56px] font-medium leading-none tracking-[-0.06em]">$4.99</span><span className="text-[13px] text-white/45">USD / month</span></div>
-          <div className="mt-8 divide-y divide-white/8">
-            {benefits.map(([number, title, description]) => <div key={number} className="flex gap-4 py-4"><span className="pt-0.5 text-[10px] tabular-nums text-[#b796b2]">{number}</span><div><h3 className="text-[14px] font-medium">{title}</h3><p className="mt-1 text-[12px] leading-relaxed text-white/45">{description}</p></div></div>)}
+      <div className={styles.layout}>
+        <section className={styles.story}>
+          <p className={styles.eyebrow}>Rizzuno / Membership</p>
+          <h1 className={styles.headline}>Good connections.<br /><span>A little extra.</span></h1>
+          <p className={styles.intro}>More room to express yourself.<br />More chances to stay in the moment.</p>
+          <div className={styles.pass} aria-label="Rizz+ membership pass preview">
+            <div className={styles.passTop}><span>Rizzuno.com</span><span>MEMBERSHIP</span></div>
+            <div className={styles.passName}>Rizz<span>+</span></div>
+            <div className={styles.passBottom}><span>{active ? "YOU’RE ONE OF US" : "A LITTLE MORE POSSIBILITY"}</span><span aria-hidden="true">↗</span></div>
           </div>
+          <div className={styles.signature}><span aria-hidden="true">+</span><p>A quiet detail. A little distinction.<br /><span>Your membership badge appears on your profile.</span></p></div>
+        </section>
+        <section className={styles.details} aria-labelledby="membership-heading">
+          <div className={styles.planHeading}><h2 id="membership-heading">{active ? "Your membership" : "One plan. All yours."}</h2><span>{active ? "ACTIVE +" : "RIZZ+"}</span></div>
+          <div className={styles.price}><span>$4.99</span><p>USD / month<br /><span>Cancel anytime</span></p></div>
+          <p className={styles.included}>THE EXTRA, INCLUDED</p>
+          <ul className={styles.benefits}>
+            {benefits.map(([number, title, description]) => <li key={number}><span className={styles.benefitNumber}>{number}</span><div><h3>{title}</h3><p>{description}</p></div><span className={styles.check} aria-hidden="true">↗</span></li>)}
+          </ul>
           {returned && !active && <p role="status" className="mt-4 text-[13px] text-[#ddb8d2]">{waiting ? "Confirming your subscription…" : "Confirmation is taking longer than expected. Refresh your status below before trying another payment."}</p>}
           {error && <p role="alert" className="mt-4 text-[13px] text-[#f2a4b7]">{error}</p>}
           <button disabled={busy || loading || (returned && !active)} onClick={() => void openBilling(active)} className="mt-6 flex h-13 w-full items-center justify-between rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? "Opening Stripe…" : loading ? "Checking membership…" : active ? "Manage subscription" : "Get Rizz+"}</span><span aria-hidden="true">↗</span></button>

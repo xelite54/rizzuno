@@ -1,5 +1,6 @@
 "use client"
 import panelStyles from "./SocialPanel.module.css"
+import styles from "./MyProfileSheet.module.css"
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
@@ -381,9 +382,9 @@ export function MyProfileSheet({
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: "-100%" }}
           transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-          className={`${panelStyles.panel} fixed inset-0 z-50 flex flex-col bg-surface`}
+          className={`${panelStyles.panel} ${styles.shell} fixed inset-0 z-50 flex flex-col`}
         >
-          <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
+          <div className={`${styles.header} flex h-18 shrink-0 items-center gap-3 border-b border-white/8`}>
             {view !== "profile" ? (
               <button
                 type="button"
@@ -421,9 +422,10 @@ export function MyProfileSheet({
 
           <div className="flex-1 overflow-y-auto">
             {view === "profile" && (
-              <div className="mx-auto w-full max-w-lg px-6 py-6">
-                <div className="flex flex-col items-center text-center">
-                  <span className="flex h-24 w-24 items-center justify-center rounded-full">
+              <div className={styles.layout}>
+                <section className={styles.identity} aria-label="Your identity">
+                  <p className="mb-6 text-[10px] font-medium uppercase tracking-[0.22em] text-[#b39aac]">Your corner of Rizzuno</p>
+                  <span className={styles.avatar}>
                     {profilePhoto ? (
                       // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
                       <img src={profilePhoto} alt="Your profile" className="h-full w-full rounded-full object-cover" />
@@ -434,12 +436,12 @@ export function MyProfileSheet({
                     )}
                   </span>
 
-                  <p className="mt-3 text-[17px] font-semibold text-foreground">
+                  <h1 className="mt-5 break-words text-[25px] font-medium tracking-[-0.04em] text-foreground">
                     {username ? `@${username}` : handle}
                     {plus.active && <span aria-label="Rizz+ subscriber" className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e8cedf] align-middle text-[14px] text-[#261b28]">+</span>}
-                  </p>
-                  <p className="mt-1 max-w-xs text-[13px] leading-relaxed text-muted">
-                    {bio || "No bio yet"}
+                  </h1>
+                  <p className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed text-[#b7abb9] [overflow-wrap:anywhere]">
+                    {bio || "A few words can start a connection. Add your bio."}
                   </p>
 
                   <div className="mt-6 w-full">
@@ -447,7 +449,7 @@ export function MyProfileSheet({
                       <button
                         type="button"
                         onClick={startEditing}
-                        className="col-start-2 flex h-11 w-full max-w-52 justify-self-center items-center justify-center rounded-xl bg-foreground px-5 text-[14px] font-semibold text-background transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                        className="col-start-2 flex h-11 w-full max-w-52 justify-self-center items-center justify-center rounded-full bg-[#e5d5e1] px-4 text-[13px] font-semibold text-[#261d2b] transition hover:bg-[#f4e7f0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         Edit profile
                       </button>
@@ -455,34 +457,36 @@ export function MyProfileSheet({
                         type="button"
                         onClick={() => setView("settings")}
                         aria-label="Settings"
-                        className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                        className="flex h-11 w-11 items-center justify-center rounded-full border border-white/15 text-muted transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         <SettingsIcon className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
-                </div>
-
-                <Link href="/rizz-plus" className="mt-6 flex items-center justify-between rounded-xl border border-border px-4 py-3 text-[13px] text-foreground"><span>{plus.active ? "Manage Rizz+" : "Discover Rizz+ · $4.99/month"}</span><span aria-hidden="true">→</span></Link>
-                <div className="mt-8 border-t border-border pt-5">
-                  <p className="mb-3 text-[13px] font-semibold text-foreground">
-                    Posts{" "}
-                    {posts.length > 0 && (
-                      <span className="font-normal text-muted">· {posts.length}/{MAX_POSTS}</span>
-                    )}
-                  </p>
+                <Link href="/rizz-plus" className={styles.membership}>
+                  <span aria-hidden="true" className="text-3xl font-light">+</span>
+                  <span className="flex-1"><span className="block text-[13px] font-medium">{plus.active ? "Your Rizz+ membership" : "A little more you. Rizz+"}</span><span className="mt-1 block text-[11px] text-[#ac9eae]">{plus.active ? "Manage your subscription" : "$4.99 USD / month"}</span></span>
+                  <span aria-hidden="true">↗</span>
+                </Link>
+                </section>
+                <section className={styles.gallery} aria-label="Your posts">
+                  <div className="mb-6 flex items-end justify-between gap-3 border-b border-white/10 pb-5">
+                    <div><p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#ab94a7]">Photo journal</p><h2 className="text-[26px] font-medium tracking-[-0.04em]">Little pieces of you.</h2></div>
+                    <span className="shrink-0 pb-1 text-[11px] tabular-nums text-muted">{posts.length} / {MAX_POSTS}</span>
+                  </div>
                   {/* Three across — the add tile always leads, with your
                       most recent post right after it, so that post lands in
                       the middle of the row rather than off to a side. */}
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className={styles.galleryGrid}>
                     <button
                       type="button"
                       onClick={() => { if (plus.requirePlus("posts")) postInputRef.current?.click() }}
                       disabled={posts.length >= MAX_POSTS}
                       aria-label={posts.length >= MAX_POSTS ? `Limit of ${MAX_POSTS} posts reached` : "Add a post"}
-                      className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-border text-muted transition hover:border-foreground/25 hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-muted"
+                      className="flex aspect-[4/5] flex-col items-center justify-center gap-3 rounded-[16px] border border-[#c8a6bf]/25 bg-[#211925] text-[#d0b8c9] transition hover:border-[#c8a6bf]/60 hover:bg-[#2b2030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40"
                     >
-                      <PlusIcon className="h-7 w-7" />
+                      <PlusIcon className="h-5 w-5" />
+                      <span className="text-[11px]">Add photo</span>
                     </button>
                     {posts.map((post) => (
                       <button
@@ -494,7 +498,7 @@ export function MyProfileSheet({
                           setView("viewPost")
                         }}
                         aria-label="View post"
-                        className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-surface-2 shadow-sm transition hover:border-foreground/20"
+                        className="group relative aspect-[4/5] overflow-hidden rounded-[16px] border border-border bg-surface-2 transition hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL post image, not a static asset */}
                         <img
@@ -506,12 +510,15 @@ export function MyProfileSheet({
                     ))}
                   </div>
                   <input ref={postInputRef} type="file" accept="image/*" onChange={handleNewPostPicked} className="hidden" />
-                </div>
+                  {posts.length === 0 && <p className="mt-5 max-w-sm text-xs leading-relaxed text-[#ac9eae]">The places, faces, and small things that feel like you. Your photos will live here.</p>}
+                </section>
               </div>
             )}
 
             {view === "edit" && (
-              <div className="mx-auto w-full max-w-lg px-6 py-6">
+              <div className={styles.edit}>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-[#b39aac]">The introduction</p>
+                <h2 className="mb-8 mt-2 text-3xl font-medium tracking-[-0.04em]">Make it yours.</h2>
                 <div className="flex flex-col items-center">
                   <button
                     type="button"
