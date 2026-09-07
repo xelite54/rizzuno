@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     if (status.banned || status.deleted || (status.suspendedUntil && status.suspendedUntil > Date.now())) return Response.json({ error: "account_unavailable" }, { status: 403 })
     return await withBillingLock(userId, async () => {
       await grantFreeRizzPlus(userId)
-      return Response.json({ url: `${origin}/rizz-plus?checkout=success` })
+      return Response.json({ active: true, testMode: true }, { headers: { "Cache-Control": "no-store" } })
     })
   } catch (error) {
     console.error("billing checkout failed", error instanceof Error ? error.message : "unknown")
