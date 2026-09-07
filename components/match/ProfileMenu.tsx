@@ -1,6 +1,4 @@
 "use client"
-import { useRizzPlus } from "@/components/RizzPlusProvider"
-import { RizzPlusBadge } from "@/components/RizzPlusBadge"
 
 type ProfileMenuProps = {
   /** Cosmetic fallback display name — see lib/guest.ts. */
@@ -14,14 +12,13 @@ type ProfileMenuProps = {
 
 /** No dropdown — tapping the avatar goes straight to the full My Profile screen. */
 export function ProfileMenu({ handle, username, profilePhoto, onOpenProfile }: ProfileMenuProps) {
-  const plus = useRizzPlus()
   const initial = username ? username.charAt(0).toUpperCase() : handle ? handle.charAt(0) : "?"
 
   return (
     <button
       type="button"
       onClick={onOpenProfile}
-      aria-label={plus.active ? "My profile — Rizz+ subscriber" : "My profile"}
+      aria-label="My profile"
       className="relative pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {profilePhoto ? (
@@ -30,7 +27,6 @@ export function ProfileMenu({ handle, username, profilePhoto, onOpenProfile }: P
       ) : (
         initial
       )}
-      {plus.active && <RizzPlusBadge compact className="absolute -bottom-1 -right-1" />}
     </button>
   )
 }
