@@ -93,13 +93,15 @@ export default function RizzPlusPage() {
         <section className={styles.story}>
           <div className={styles.pass} aria-label="Rizz+ membership pass preview">
             <div className={styles.passTop}><span>Rizzuno.com</span><span>MEMBERSHIP</span></div>
-            <div className={styles.passName}>Rizz<span>+</span></div>
+            <div className={styles.passMain}>
+              <div className={styles.passName}>Rizz<span>+</span></div>
+              <div className={styles.price}><span>$4.99</span><p>USD / month at launch<br /><span>Free during testing</span></p></div>
+            </div>
             <div className={styles.passBottom}><span>{active ? "YOU’RE ONE OF US" : "A LITTLE MORE POSSIBILITY"}</span></div>
           </div>
         </section>
         <section className={styles.details} aria-labelledby="membership-heading">
           <div className={styles.planHeading}><h2 id="membership-heading">{active ? "Your membership" : "One plan. All yours."}</h2>{active ? <RizzPlusBadge /> : <span>RIZZ+</span>}</div>
-          <div className={styles.price}><span>$4.99</span><p>USD / month at launch<br /><span>Free during testing</span></p></div>
           <p className={styles.included}>THE EXTRA, INCLUDED</p>
           <ul className={styles.benefits}>
             {benefits.map(([number, title, description]) => <li key={number}><span className={styles.benefitNumber}>{number}</span><div><h3>{title}</h3><p>{description}</p></div></li>)}
