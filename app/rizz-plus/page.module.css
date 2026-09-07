@@ -46,3 +46,31 @@
   .passMain { align-items: flex-start; flex-direction: column; gap: 20px; }
   .passName { font-size: 72px; }
 }
+
+/* One compact composition. Keep overflow reachable only if the viewport
+   or enlarged text cannot accommodate the full card. */
+.page { display: flex; flex-direction: column; }
+.page > nav { width: 100%; flex-shrink: 0; }
+.back { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 6px 2px 6px 10px; color: #c8b9c7; font-size: 13px; transition: color 160ms ease; }
+.back svg { width: 20px; height: 20px; }
+.back:hover { color: #fff; }
+.layout { flex-shrink: 1; min-height: 0; max-width: 800px; margin: auto auto 24px; overflow-y: auto; scrollbar-width: thin; }
+.pass { padding: 22px 30px; }
+.passMain { margin: 0; gap: 16px; flex-wrap: nowrap; }
+.passName { font-size: clamp(48px, 7vw, 72px); }
+.price { flex-direction: column; align-items: flex-end; gap: 6px; flex-wrap: nowrap; }
+.price > span { font-size: clamp(36px, 5vw, 52px); }
+.price p { font-size: 11px; white-space: nowrap; }
+.details { padding: 16px 30px 20px; }
+.benefits { gap: 0 24px; }
+.benefits li { padding: 10px 0; gap: 10px; }
+@media (max-width: 560px) {
+  .layout { margin-bottom: 12px; }
+  .pass { padding: 18px 20px; }
+  .passMain { flex-direction: row; align-items: center; }
+  .details { padding: 10px 20px 16px; }
+  .benefits { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+  .benefits li { gap: 6px; padding: 9px 0; }
+  .benefits h3 { font-size: 12px; }
+  .benefits p { font-size: 10px; }
+}
