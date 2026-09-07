@@ -456,7 +456,6 @@ export function MyProfileSheet({
 
                   <h1 className="mt-5 break-words text-[25px] font-medium tracking-[-0.04em] text-foreground">
                     {username ? `@${username}` : handle}
-                    {plus.active && <RizzPlusBadge className="ml-2" />}
                   </h1>
                   <p className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed text-[#b7abb9] [overflow-wrap:anywhere]">
                     {bio || "A few words can start a connection. Add your bio."}
