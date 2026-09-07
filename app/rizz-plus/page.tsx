@@ -84,10 +84,11 @@ export default function RizzPlusPage() {
 
   return (
     <main className={`${styles.page} h-dvh overflow-hidden text-[#f5eff5]`}>
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4 sm:px-10">
-        <Link href="/" className="text-[17px] font-semibold tracking-tight">Rizzuno<span className="text-white/40">.com</span></Link>
+      <nav className={styles.nav}>
         <Link href={returnTo} className={styles.back} aria-label="Go back"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg><span>Back</span></Link>
+        <Link href="/" className="text-[15px] font-medium tracking-tight text-white/60">Rizzuno<span className="text-white/40">.com</span></Link>
       </nav>
+      <div className={styles.stage}>
       <div className={styles.layout}>
         <section className={styles.story}>
           <div className={styles.pass} aria-label="Rizz+ membership pass preview">
@@ -118,6 +119,7 @@ export default function RizzPlusPage() {
           <p className="mt-2 text-[11px] text-white/30">Rizzuno currently has no ads for any users. Membership does not bypass content moderation.</p>
           <div className="mt-3 flex gap-4 text-[11px] text-white/45"><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link></div>
         </section>
+      </div>
       </div>
     </main>
   )
