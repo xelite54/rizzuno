@@ -62,7 +62,6 @@ export type AccountRestriction =
 /** Per-displayId outcome of a friend request sent *this session* — not persisted client-side (there's nothing to persist: the server's friends-snapshot is the actual source of truth for confirmed friends/pending state; this is only for "I just clicked Add on this specific match/history row, what happened"). */
 export type FriendRequestOutcome = "requested" | "friends" | "failed"
 
-const STUCK_CONNECTION_GRACE_MS = 6000
 const MAX_HISTORY = 30
 // How many "invalid_ticket" rejections in a row (with no successful "ready"
 // in between) before giving up on the tight immediate-retry loop and
@@ -273,7 +272,6 @@ export function useMatchmaking(
     if (wantsMatchingRef.current) setServerState("queue-pending")
   }, [connected, roomId, recordHistory])
 
-  const failedSince = useRef<number | null>(null)
   const signalListeners = useRef(new Set<(roomId: string, data: RtcSignal) => void>())
   // Ordered per-room backlog for "signal" messages that arrive before
   // useWebRTC has actually subscribed yet — see lib/signalBacklog.ts for
@@ -765,7 +763,6 @@ export function useMatchmaking(
           setMessages([])
           setPeerMicEnabled(true) // unknown until they tell us — assume on until we hear otherwise
           setPeerTyping(false)
-          failedSince.current = null
           // Wins outright regardless of prior state — including straight
           // from "queue-pending" when the server pairs you before a
           // "queued" ack would even be worth sending (see
@@ -1085,23 +1082,8 @@ export function useMatchmaking(
     return () => clearTimeout(timer)
   }, [serverState, queuePendingAttempt, realtimeReady, sendFind])
 
-  // Track how long a connection has been stuck in "failed" (a ref, not state).
-  useEffect(() => {
-    if (rtcStatus === "connected") {
-      failedSince.current = null
-    } else if (rtcStatus === "failed" && !failedSince.current) {
-      failedSince.current = Date.now()
-    }
-  }, [rtcStatus])
-
-  // If a connection stays failed too long even after an ICE restart, give up gracefully (spec §55).
-  useEffect(() => {
-    if (rtcStatus !== "failed") return
-    const timer = setTimeout(() => {
-      if (failedSince.current) skip()
-    }, STUCK_CONNECTION_GRACE_MS)
-    return () => clearTimeout(timer)
-  }, [rtcStatus, skip])
+  // A media failure must not choose a different person. useWebRTC attempts
+  // ICE recovery in this same room; the user can still explicitly skip.
 
   // Full teardown when realtime is disabled — sign-out, session expiry,
   // legal becoming invalid, an account switch, or plain unmount-adjacent

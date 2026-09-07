@@ -1,5 +1,6 @@
 "use client"
 import panelStyles from "./SocialPanel.module.css"
+import { PublicProfilePosts } from "./PublicProfilePosts"
 
 import { AnimatePresence, motion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
@@ -72,7 +73,7 @@ export function PeerProfileSheet({ peer, open, friendState, onAddFriend, onClose
               </div>
 
               <div className="mt-8">
-                <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
+                {open && <PublicProfilePosts key={peer.username} username={peer.username} />}
               </div>
             </div>
           </div>

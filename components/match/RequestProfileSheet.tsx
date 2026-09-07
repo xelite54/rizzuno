@@ -1,5 +1,6 @@
 "use client"
 import panelStyles from "./SocialPanel.module.css"
+import { PublicProfilePosts } from "./PublicProfilePosts"
 
 import { AnimatePresence, motion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
@@ -44,7 +45,7 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onClose }: R
             </button>
           </div>
 
-          <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
+          <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
             <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
               {request.displayName.charAt(0)}
             </span>
@@ -69,7 +70,7 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onClose }: R
             </div>
 
             <div className="mt-8 w-full max-w-lg">
-              <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
+              <PublicProfilePosts key={request.username} username={request.username} />
             </div>
           </div>
         </motion.div>

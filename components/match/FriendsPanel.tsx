@@ -1,4 +1,5 @@
 "use client"
+import { PublicProfilePosts } from "./PublicProfilePosts"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 import panelStyles from "./SocialPanel.module.css"
 
@@ -936,7 +937,7 @@ export function FriendsPanel({
                 </div>
 
                 <div className="mt-8 w-full max-w-lg">
-                  <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
+                  <PublicProfilePosts key={viewingRequester.username} username={viewingRequester.username} />
                 </div>
               </div>
             </motion.div>
@@ -1167,7 +1168,7 @@ export function FriendsPanel({
                 </div>
 
                 <div className="mt-8 w-full max-w-lg">
-                  <div className="border-t border-border py-8 text-[13px] text-muted">{viewingSearchResult.alreadyFriends ? "Your friend’s profile is syncing…" : "Add as a friend to see their full profile."}</div>
+                  <PublicProfilePosts key={viewingSearchResult.username} username={viewingSearchResult.username} />
                 </div>
               </div>
             </motion.div>
