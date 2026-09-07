@@ -53,13 +53,11 @@ export default function RizzPlusPage() {
         <section className={styles.story}>
           <p className={styles.eyebrow}>Rizzuno / Membership</p>
           <h1 className={styles.headline}>Good connections.<br /><span>A little extra.</span></h1>
-          <p className={styles.intro}>More room to express yourself.<br />More chances to stay in the moment.</p>
           <div className={styles.pass} aria-label="Rizz+ membership pass preview">
             <div className={styles.passTop}><span>Rizzuno.com</span><span>MEMBERSHIP</span></div>
             <div className={styles.passName}>Rizz<span>+</span></div>
             <div className={styles.passBottom}><span>{active ? "YOU’RE ONE OF US" : "A LITTLE MORE POSSIBILITY"}</span><span aria-hidden="true">↗</span></div>
           </div>
-          <div className={styles.signature}><span aria-hidden="true">+</span><p>A quiet detail. A little distinction.<br /><span>Your membership badge appears on your profile.</span></p></div>
         </section>
         <section className={styles.details} aria-labelledby="membership-heading">
           <div className={styles.planHeading}><h2 id="membership-heading">{active ? "Your membership" : "One plan. All yours."}</h2><span>{active ? "ACTIVE +" : "RIZZ+"}</span></div>
