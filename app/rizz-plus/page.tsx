@@ -8,12 +8,12 @@ import styles from "./page.module.css"
 import { safeUpgradeReturn } from "@/lib/upgradeNavigation"
 
 const benefits = [
-  ["01", "Stay in the moment", "An ad-free experience."],
-  ["02", "More of you", "Post photos to your profile."],
-  ["03", "Your choice", "Change your gender selection anytime."],
-  ["04", "A second chance", "Undo a skip during the undo window, while the other person is still connected."],
-  ["05", "Make it personal", "Change your profile photo."],
-  ["06", "Keep the connection", "Send friend requests. The other person can accept without Rizz+."],
+  "No ads",
+  "Post photos",
+  "Change gender",
+  "Undo recent skips",
+  "Change profile photo",
+  "Send friend requests",
 ]
 
 export default function RizzPlusPage() {
@@ -100,7 +100,7 @@ export default function RizzPlusPage() {
         </section>
         <section className={styles.details} aria-label="Membership benefits">
           <ul className={styles.benefits}>
-            {benefits.map(([number, title, description]) => <li key={number}><span className={styles.benefitNumber}>{number}</span><div><h3>{title}</h3><p>{description}</p></div></li>)}
+            {benefits.map((benefit) => <li key={benefit}><span className={styles.benefitNumber} aria-hidden="true">–</span><span>{benefit}</span></li>)}
           </ul>
           {returned && !active && <p role="status" className="mt-3 text-[13px] text-[#ddb8d2]">{waiting ? "Confirming your membership…" : "Refresh your membership status below to confirm activation."}</p>}
           {returned && active && <p role="status" className="mt-3 text-[13px] text-[#ddb8d2]">Rizz+ is active. Your features are unlocked.</p>}
