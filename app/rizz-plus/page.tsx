@@ -51,8 +51,6 @@ export default function RizzPlusPage() {
       </nav>
       <div className={styles.layout}>
         <section className={styles.story}>
-          <p className={styles.eyebrow}>Rizzuno / Membership</p>
-          <h1 className={styles.headline}>Good connections.<br /><span>A little extra.</span></h1>
           <div className={styles.pass} aria-label="Rizz+ membership pass preview">
             <div className={styles.passTop}><span>Rizzuno.com</span><span>MEMBERSHIP</span></div>
             <div className={styles.passName}>Rizz<span>+</span></div>
