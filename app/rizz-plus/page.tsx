@@ -38,7 +38,18 @@ export default function RizzPlusPage() {
     try {
       const response = await fetch(`/api/billing/${manage ? "portal" : "checkout"}`, { method: "POST" })
       const data = await response.json()
-      if (!response.ok) throw new Error()
+      if (!response.ok) {
+        const messages: Record<string, string> = {
+          not_authenticated: "Your session expired. Sign in again, then activate Rizz+.",
+          rate_limited: "Too many attempts. Wait a minute, then try again.",
+          invalid_origin: "The request was rejected. Reload this page and try again from the same website.",
+          account_unavailable: "Rizz+ cannot be activated while your account is restricted.",
+          billing_unavailable: "Membership could not be saved. Please try again; if this continues, the server’s database connection needs checking.",
+        }
+        setError(messages[data.error] ?? "Couldn’t activate Rizz+. Please try again shortly.")
+        setBusy(false)
+        return
+      }
       if (data.active === true && data.testMode === true) {
         await refresh()
         setReturned(true)
