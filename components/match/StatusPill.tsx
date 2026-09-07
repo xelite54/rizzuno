@@ -27,22 +27,16 @@ function describeState(state: MatchState, cameraUnavailable: boolean): string {
       // "paused" gets, before any of this pill markup is even considered.
       return cameraUnavailable ? "Camera access is required to start matching" : ""
     case "queue-pending":
-      // "find"/"skip" was sent, but the server hasn't confirmed queue
-      // membership ("queued") or found a match yet — see useMatchmaking's
-      // own doc comment on this state. Used to show its own "Getting
-      // ready…" label here, distinct from "searching"'s "Finding
-      // someone…" — but the gap between the two is normally sub-second,
-      // so in practice that just meant a visible flicker from one label to
-      // the other almost immediately. Same label as "searching" now, so
-      // there's nothing to flicker between; queue-pending resolving to a
-      // real queue entry a moment later is invisible instead of announced.
-      return "Finding someone…"
     case "searching":
-      return "Finding someone…"
+    case "peer-left":
+      // No label while waiting for a match — just the bare logo (see the
+      // render below, which shows BrandMark alone whenever this returns
+      // ""). "connecting" is the one waiting phase that still gets an
+      // actual word, since it's a distinct, shorter beat once someone's
+      // actually been found and the call is coming together.
+      return ""
     case "connecting":
       return "Connecting…"
-    case "peer-left":
-      return "Finding someone…"
     case "paused":
       // The camera-on case never reaches this label at all — see below,
       // where "paused" (like "idle" above) branches to the full
@@ -76,19 +70,21 @@ export function StatusPill({ state, cameraUnavailable = false, onPauseMatching, 
   }
 
   const label = describeState(state, cameraUnavailable)
-  if (!label) return null
-
-  // All searching phases share one label; only connecting is distinct.
-  // Keep actionable camera/error states instead of hiding a real blocker.
+  // Waiting for a match is a bare logo, not empty — see describeState.
+  // "active" (mid-call) is the one truly label-less state that renders
+  // nothing at all here, since PersonBadge/the wordmark on the peer's own
+  // tile already cover that moment.
+  const logoOnly = !label && (state === "queue-pending" || state === "searching" || state === "peer-left")
+  if (!label && !logoOnly) return null
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="flex items-center gap-3 rounded-full bg-black/60 py-3 pl-3 pr-5">
+      <div className={`flex items-center rounded-full bg-black/60 ${label ? "gap-3 py-3 pl-3 pr-5" : "p-3"}`}>
         {/* The same mark the login page uses — not a separate
             reimplementation of it, just this component at a size that
             fits next to the pill's own text. */}
         <BrandMark size={26} />
-        <span className="text-[14px] font-semibold tracking-tight text-foreground">{label}</span>
+        {label && <span className="text-[14px] font-semibold tracking-tight text-foreground">{label}</span>}
       </div>
       {/* Right away, not delayed — a delay just meant this and the "Finding
           someone…" label it sits under went out of sync with the moment
