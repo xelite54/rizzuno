@@ -44,10 +44,10 @@ export default function RizzPlusPage() {
   }
 
   return (
-    <main className={`${styles.page} h-dvh overflow-y-auto text-[#f5eff5]`}>
-      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6 sm:px-10">
+    <main className={`${styles.page} h-dvh overflow-hidden text-[#f5eff5]`}>
+      <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4 sm:px-10">
         <Link href="/" className="text-[17px] font-semibold tracking-tight">Rizzuno<span className="text-white/40">.com</span></Link>
-        <Link href="/" className="rounded-full border border-white/15 px-4 py-2 text-[13px] text-white/70 hover:bg-white/5">Back to home ↗</Link>
+        <Link href="/" className="rounded-full border border-white/15 px-4 py-2 text-[13px] text-white/70 hover:bg-white/5">Back to home</Link>
       </nav>
       <div className={styles.layout}>
         <section className={styles.story}>
@@ -56,7 +56,7 @@ export default function RizzPlusPage() {
           <div className={styles.pass} aria-label="Rizz+ membership pass preview">
             <div className={styles.passTop}><span>Rizzuno.com</span><span>MEMBERSHIP</span></div>
             <div className={styles.passName}>Rizz<span>+</span></div>
-            <div className={styles.passBottom}><span>{active ? "YOU’RE ONE OF US" : "A LITTLE MORE POSSIBILITY"}</span><span aria-hidden="true">↗</span></div>
+            <div className={styles.passBottom}><span>{active ? "YOU’RE ONE OF US" : "A LITTLE MORE POSSIBILITY"}</span></div>
           </div>
         </section>
         <section className={styles.details} aria-labelledby="membership-heading">
@@ -64,16 +64,16 @@ export default function RizzPlusPage() {
           <div className={styles.price}><span>$4.99</span><p>USD / month<br /><span>Cancel anytime</span></p></div>
           <p className={styles.included}>THE EXTRA, INCLUDED</p>
           <ul className={styles.benefits}>
-            {benefits.map(([number, title, description]) => <li key={number}><span className={styles.benefitNumber}>{number}</span><div><h3>{title}</h3><p>{description}</p></div><span className={styles.check} aria-hidden="true">↗</span></li>)}
+            {benefits.map(([number, title, description]) => <li key={number}><span className={styles.benefitNumber}>{number}</span><div><h3>{title}</h3><p>{description}</p></div></li>)}
           </ul>
-          {returned && !active && <p role="status" className="mt-4 text-[13px] text-[#ddb8d2]">{waiting ? "Confirming your subscription…" : "Confirmation is taking longer than expected. Refresh your status below before trying another payment."}</p>}
-          {error && <p role="alert" className="mt-4 text-[13px] text-[#f2a4b7]">{error}</p>}
-          <button disabled={busy || loading || (returned && !active)} onClick={() => void openBilling(active)} className="mt-6 flex h-13 w-full items-center justify-between rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? "Opening Stripe…" : loading ? "Checking membership…" : active ? "Manage subscription" : "Get Rizz+"}</span><span aria-hidden="true">↗</span></button>
-          {!active && canManage && <button onClick={() => void openBilling(true)} disabled={busy} className="mt-3 w-full text-[12px] text-white/60 underline underline-offset-4">Manage existing billing</button>}
-          {returned && !active && <button onClick={() => void refresh()} className="mt-3 w-full text-[12px] text-white/60 underline underline-offset-4">Refresh membership status</button>}
-          <p className="mt-4 text-[11px] leading-relaxed text-white/40">Renews automatically at US$4.99/month until canceled. Cancel through Manage subscription; access continues until the paid period ends. Taxes, if applicable, are shown at checkout. Secure payment through Stripe.</p>
-          <p className="mt-3 text-[11px] text-white/30">Rizzuno currently has no ads for any users. Membership does not bypass content moderation.</p>
-          <div className="mt-4 flex gap-4 text-[11px] text-white/45"><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link></div>
+          {returned && !active && <p role="status" className="mt-3 text-[13px] text-[#ddb8d2]">{waiting ? "Confirming your subscription…" : "Confirmation is taking longer than expected. Refresh your status below before trying another payment."}</p>}
+          {error && <p role="alert" className="mt-3 text-[13px] text-[#f2a4b7]">{error}</p>}
+          <button disabled={busy || loading || (returned && !active)} onClick={() => void openBilling(active)} className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? "Opening Stripe…" : loading ? "Checking membership…" : active ? "Manage subscription" : "Get Rizz+"}</span></button>
+          {!active && canManage && <button onClick={() => void openBilling(true)} disabled={busy} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Manage existing billing</button>}
+          {returned && !active && <button onClick={() => void refresh()} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Refresh membership status</button>}
+          <p className="mt-3 text-[11px] leading-relaxed text-white/40">Renews automatically at US$4.99/month until canceled. Cancel through Manage subscription; access continues until the paid period ends. Taxes, if applicable, are shown at checkout. Secure payment through Stripe.</p>
+          <p className="mt-2 text-[11px] text-white/30">Rizzuno currently has no ads for any users. Membership does not bypass content moderation.</p>
+          <div className="mt-3 flex gap-4 text-[11px] text-white/45"><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link></div>
         </section>
       </div>
     </main>
