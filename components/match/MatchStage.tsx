@@ -532,6 +532,8 @@ export function MatchStage() {
       // A friend accepted a direct invitation; reveal the existing call UI.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFriendsOpen(false)
+      setMyProfileOpen(false)
+      setProfileOpen(false)
     }
   }, [state])
 

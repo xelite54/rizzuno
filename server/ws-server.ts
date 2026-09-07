@@ -706,6 +706,10 @@ export function createRizzunoWebSocketServer() {
         // preserve any room they're currently in rather than assuming this
         // is a fresh reconnect with nothing left to carry forward.
         const existing = connections.get(userId)
+        // Invitations hold connection objects, not just account IDs. A
+        // fresh hello replaces that object, so retire its invitations now
+        // instead of leaving the other friend with an unacceptably stale one.
+        if (existing) cancelInvitations(existing)
         // A second "hello" for the same account on a *different* socket
         // means the old one is superseded (e.g. a duplicated tab, or a
         // reconnect that raced with the old socket's own close) — close it

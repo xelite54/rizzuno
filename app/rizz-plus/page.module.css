@@ -23,7 +23,7 @@
 .details { min-width: 0; border-top: 1px solid #b99aaf66; padding-top: 16px; }
 .planHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .planHeading h2 { font-size: 16px; font-weight: 500; letter-spacing: -.02em; }
-.planHeading > span { font-size: 9px; letter-spacing: .15em; color: #d6b7cb; }
+.planHeading > span:not([role="img"]) { font-size: 9px; letter-spacing: .15em; color: #d6b7cb; }
 .price { display: flex; align-items: center; gap: 20px; margin-top: 14px; }
 .price > span { font-size: 48px; line-height: 1; font-weight: 500; letter-spacing: -.07em; }
 .price p { color: #ded1dc; font-size: 12px; line-height: 1.8; }

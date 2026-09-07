@@ -1,5 +1,6 @@
 "use client"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
+import { RizzPlusBadge } from "@/components/RizzPlusBadge"
 
 type ProfileMenuProps = {
   /** Cosmetic fallback display name — see lib/guest.ts. */
@@ -29,7 +30,7 @@ export function ProfileMenu({ handle, username, profilePhoto, onOpenProfile }: P
       ) : (
         initial
       )}
-      {plus.active && <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-surface bg-[#e8cedf] text-[12px] text-[#261b28]" aria-hidden="true">+</span>}
+      {plus.active && <RizzPlusBadge compact className="absolute -bottom-1 -right-1" />}
     </button>
   )
 }

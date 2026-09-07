@@ -9,6 +9,7 @@ import { resizeImageToDataUrl } from "@/lib/image"
 import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
 import { containsBlockedChatContent } from "@/lib/textFilter"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
+import { RizzPlusBadge } from "@/components/RizzPlusBadge"
 import Link from "next/link"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
@@ -455,7 +456,7 @@ export function MyProfileSheet({
 
                   <h1 className="mt-5 break-words text-[25px] font-medium tracking-[-0.04em] text-foreground">
                     {username ? `@${username}` : handle}
-                    {plus.active && <span aria-label="Rizz+ subscriber" className="ml-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#e8cedf] align-middle text-[14px] text-[#261b28]">+</span>}
+                    {plus.active && <RizzPlusBadge className="ml-2" />}
                   </h1>
                   <p className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed text-[#b7abb9] [overflow-wrap:anywhere]">
                     {bio || "A few words can start a connection. Add your bio."}
@@ -479,7 +480,7 @@ export function MyProfileSheet({
                     </button>
                   </div>
                 <Link href="/rizz-plus" className={styles.membership}>
-                  <span aria-hidden="true" className="text-3xl font-light">+</span>
+                  {plus.active ? <RizzPlusBadge compact /> : <span aria-hidden="true" className="text-3xl font-light">+</span>}
                   <span className="flex-1"><span className="block text-[13px] font-medium">{plus.active ? "Your Rizz+ membership" : "A little more you. Rizz+"}</span><span className="mt-1 block text-[11px] text-[#ac9eae]">{plus.active ? "Manage your subscription" : "$4.99 USD / month"}</span></span>
                   <span aria-hidden="true">↗</span>
                 </Link>

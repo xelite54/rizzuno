@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 import { signIn, useSession } from "next-auth/react"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
+import { RizzPlusBadge } from "@/components/RizzPlusBadge"
 import styles from "./page.module.css"
 import { safeUpgradeReturn } from "@/lib/upgradeNavigation"
 
@@ -97,7 +98,7 @@ export default function RizzPlusPage() {
           </div>
         </section>
         <section className={styles.details} aria-labelledby="membership-heading">
-          <div className={styles.planHeading}><h2 id="membership-heading">{active ? "Your membership" : "One plan. All yours."}</h2><span>{active ? "ACTIVE +" : "RIZZ+"}</span></div>
+          <div className={styles.planHeading}><h2 id="membership-heading">{active ? "Your membership" : "One plan. All yours."}</h2>{active ? <RizzPlusBadge /> : <span>RIZZ+</span>}</div>
           <div className={styles.price}><span>$4.99</span><p>USD / month at launch<br /><span>Free during testing</span></p></div>
           <p className={styles.included}>THE EXTRA, INCLUDED</p>
           <ul className={styles.benefits}>
