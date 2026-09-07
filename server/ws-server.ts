@@ -705,7 +705,7 @@ export function createRizzunoWebSocketServer() {
         // Also re-sent whenever the user reconnects the same account —
         // preserve any room they're currently in rather than assuming this
         // is a fresh reconnect with nothing left to carry forward.
-        const existing = connections.get(userId)
+        let existing = connections.get(userId)
         // Invitations hold connection objects, not just account IDs. A
         // fresh hello replaces that object, so retire its invitations now
         // instead of leaving the other friend with an unacceptably stale one.
@@ -715,8 +715,13 @@ export function createRizzunoWebSocketServer() {
         // reconnect that raced with the old socket's own close) — close it
         // rather than leaving it dangling in memory with no room and no
         // future messages.
-        if (existing && existing.ws !== ws && existing.ws.readyState === WebSocket.OPEN) {
+        if (existing && existing.ws !== ws) {
+          // A new transport has no surviving WebRTC session. Retire the
+          // old room before any async profile reads, not in its delayed
+          // close callback (which races with registering this connection).
+          cleanUpAccount(existing)
           existing.ws.close()
+          existing = undefined
         }
 
         const handle = sanitizeText(message.handle, MAX_HANDLE_LENGTH) || "Someone"
@@ -745,7 +750,7 @@ export function createRizzunoWebSocketServer() {
           profilePhoto: (await getPublicProfile(userId)).profilePhoto,
           countryCode: verified.countryCode,
           roomId: existing?.roomId ?? null,
-          seeking: false,
+          seeking: existing?.seeking ?? false,
           searchGeneration: existing?.searchGeneration ?? 0,
           profileRevision: 0,
         }
@@ -803,6 +808,9 @@ export function createRizzunoWebSocketServer() {
       }
 
       switch (message.type) {
+        case "friends-refresh":
+          await trySendFriendsSnapshot(state)
+          break
         case "find":
         case "skip": {
           console.log("ws-server: find received", { displayId: state.displayId, type: message.type })

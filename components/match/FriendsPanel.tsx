@@ -119,6 +119,7 @@ export function FriendsPanel({
   const [searchResults, setSearchResults] = useState<SearchResultPerson[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchErrored, setSearchErrored] = useState(false)
+  const [requestError, setRequestError] = useState<string | null>(null)
   const [sentUsernames, setSentUsernames] = useState<string[]>([])
   const [viewingSearchResultUsername, setViewingSearchResultUsername] = useState<string | null>(null)
   const [searchResultBlockConfirm, setSearchResultBlockConfirm] = useState(false)
@@ -184,7 +185,6 @@ export function FriendsPanel({
     setFriendProfile(null)
     fetch(`/api/friends/profile/${encodeURIComponent(viewingFriendId)}`)
       .then((res) => {
-        if (res.status === 402) window.location.assign(subscriptionHref("friends"))
         if (!res.ok) throw new Error(`friend profile fetch failed: ${res.status}`)
         return res.json()
       })
@@ -358,17 +358,21 @@ export function FriendsPanel({
   // limit or a since-deleted account doesn't silently claim success.
   function sendFriendRequest(username: string) {
     if (sentUsernames.includes(username)) return
+    setRequestError(null)
     setSentUsernames((prev) => [...prev, username])
     fetch("/api/friends/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username }),
     })
-      .then((res) => {
-        if (!res.ok) setSentUsernames((prev) => prev.filter((u) => u !== username))
+      .then(async (res) => {
+        const data = await res.json()
+        if (res.status === 402) window.location.assign(subscriptionHref("friends"))
+        if (!res.ok || data.result === "blocked") throw new Error("request_failed")
       })
       .catch(() => {
         setSentUsernames((prev) => prev.filter((u) => u !== username))
+        setRequestError("Couldn’t send the friend request. Please try again.")
       })
   }
 
@@ -396,6 +400,7 @@ export function FriendsPanel({
             className={`${panelStyles.panel} fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface md:w-96`}
             data-upgrade-return={`/?panel=friends&search=${encodeURIComponent(searchQuery)}`}
           >
+            {requestError && <p role="alert" className="px-5 py-3 text-xs text-danger">{requestError}</p>}
             {view === "list" && (
               <>
                 <div className="flex h-16 shrink-0 items-center justify-between gap-2 border-b border-border px-5">

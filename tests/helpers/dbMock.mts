@@ -13,6 +13,7 @@ import { mock } from "node:test"
  * whole process).
  */
 export const dbMockState = {
+  incomingRequests: [] as { requestId: string; senderId: string; username: string; createdAt: number }[],
   genders: new Map<string, "male" | "female">(),
   plusEnabled: true,
   bannedUserIds: new Set<string>(),
@@ -34,6 +35,7 @@ function pairKey(a: string, b: string): string {
 }
 
 export function resetDbMockState() {
+  dbMockState.incomingRequests = []
   dbMockState.genders.clear()
   dbMockState.plusEnabled = true
   dbMockState.bannedUserIds.clear()
@@ -93,7 +95,7 @@ mock.module("../../lib/db.ts", {
     },
     listPendingRequestsReceived: async () => {
       if (dbMockState.friendsSnapshotShouldThrow) throw new Error("simulated friends DB failure")
-      return []
+      return dbMockState.incomingRequests
     },
     listPendingRequestsSent: async () => {
       if (dbMockState.friendsSnapshotShouldThrow) throw new Error("simulated friends DB failure")

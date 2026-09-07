@@ -128,6 +128,17 @@ export function useMatchmaking(
   // disconnect and every fresh "hello" attempt, so it never gets ahead of
   // what the server actually has registered for us.
   const [realtimeReady, setRealtimeReady] = useState(false)
+  useEffect(() => {
+    if (!realtimeReady) return
+    // Search requests are persisted by the separate HTTP deployment.
+    // Refresh here so the recipient receives them without reconnecting.
+    const refresh = () => {
+      if (document.visibilityState === "visible") send({ type: "friends-refresh" })
+    }
+    const timer = setInterval(refresh, 5000)
+    document.addEventListener("visibilitychange", refresh)
+    return () => { clearInterval(timer); document.removeEventListener("visibilitychange", refresh) }
+  }, [realtimeReady, send])
 
   // `serverState` tracks what the signaling server has told us (queued,
   // matched, peer left). Whether the call is actually "active" is a
@@ -942,7 +953,7 @@ export function useMatchmaking(
         case "friend-request-result": {
           if (message.result === "subscription_required") window.location.assign(subscriptionHref("friends"))
           const outcome: FriendRequestOutcome =
-            message.result === "sent"
+            message.result === "sent" || message.result === "already_requested"
               ? "requested"
               : message.result === "auto_accepted" || message.result === "already_friends"
                 ? "friends"

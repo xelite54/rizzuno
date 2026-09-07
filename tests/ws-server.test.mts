@@ -4,6 +4,51 @@ import { startTestServer, connectAndHello, TestClient } from "./helpers/wsHarnes
 import { dbMockState, resetDbMockState } from "./helpers/dbMock.mts"
 
 let counter = 0
+test("friends refresh delivers externally persisted requests without reconnecting", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const receiver = await connectAndHello(server.url, "http-recipient", { gender: "female" })
+    assert.deepEqual((await receiver.waitForType("friends-snapshot")).requestsReceived, [])
+    dbMockState.incomingRequests = [{ requestId: "http-request", senderId: "sender", username: "alex", createdAt: 1 }]
+    receiver.send({ type: "friends-refresh" })
+    assert.equal((await receiver.waitForType("friends-snapshot")).requestsReceived[0].id, "http-request")
+    receiver.close()
+  } finally { await server.close() }
+})
+test("refreshing hello while queued preserves matching intent", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, "hello-queue-a", { gender: "male" })
+    a.send({ type: "find" })
+    await a.waitForType("queued")
+    const { mintTicket } = await import("../lib/realtimeTicket")
+    a.send({ type: "hello", ticket: mintTicket("hello-queue-a"), handle: "a", gender: "male" })
+    await a.waitForType("ready")
+    const b = await connectAndHello(server.url, "hello-queue-b", { gender: "female" })
+    b.send({ type: "find" })
+    assert.equal((await a.waitForType("matched")).roomId, (await b.waitForType("matched")).roomId)
+    a.close(); b.close()
+  } finally { await server.close() }
+})
+
+test("a replacement socket can search again after its old call is retired", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, "replace-a", { gender: "male" })
+    const b = await connectAndHello(server.url, "replace-b", { gender: "female" })
+    a.send({ type: "find" }); b.send({ type: "find" })
+    await a.waitForType("matched"); await b.waitForType("matched")
+    const replacement = await connectAndHello(server.url, "replace-a", { gender: "male" })
+    await b.waitForType("peer-left")
+    const c = await connectAndHello(server.url, "replace-c", { gender: "female" })
+    replacement.send({ type: "find" }); c.send({ type: "find" })
+    assert.equal((await replacement.waitForType("matched")).roomId, (await c.waitForType("matched")).roomId)
+    replacement.close(); b.close(); c.close()
+  } finally { await server.close() }
+})
 function uid(label: string): string {
   counter += 1
   return `${label}-${counter}`

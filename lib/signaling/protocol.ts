@@ -109,6 +109,7 @@ export type FriendRequestResult =
   | "peer_offline"
 
 export type ClientMessage =
+  | { type: "friends-refresh" }
   | { type: "match-invite"; targetUserId: string }
   | { type: "match-invite-respond"; invitationId: string; accept: boolean }
   | {
