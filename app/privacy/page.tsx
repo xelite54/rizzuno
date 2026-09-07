@@ -245,7 +245,10 @@ export default function PrivacyPolicyPage() {
               service, these providers may automatically process technical information as a normal part of
               operating that infrastructure — for example, your IP address, request timestamps, and basic
               browser/device information may appear in server or platform logs. Rizzuno&apos;s own application code
-              does not deliberately log or store your IP address in its database, but we do not claim our
+              displays an approximate country flag to your match using the hosting platform’s IP-country lookup.
+              Only the country code is included in the short-lived signed connection ticket and match identity;
+              this feature does not save the IP address or country in your profile. VPNs may change the country shown.
+              Rizzuno does not deliberately log or store your IP address in its database, but we do not claim our
               infrastructure providers never see or process it, and we do not claim Rizzuno never processes an IP
               address anywhere in its stack — that would be inaccurate for any hosted web service handling live
               network connections.

@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
+import { normalizeCountry } from "./country"
 
 /**
  * Bridges an authenticated Auth.js session into the realtime WebSocket
@@ -35,14 +36,14 @@ function ticketKey(): Buffer {
   return createHmac("sha256", secret).update("rizzuno:realtime-ticket:v1").digest()
 }
 
-export function mintTicket(userId: string): string {
-  const payload = JSON.stringify({ sub: userId, exp: Date.now() + TICKET_TTL_MS })
+export function mintTicket(userId: string, countryCode?: string | null): string {
+  const payload = JSON.stringify({ sub: userId, exp: Date.now() + TICKET_TTL_MS, countryCode: normalizeCountry(countryCode) })
   const encodedPayload = Buffer.from(payload, "utf8").toString("base64url")
   const signature = createHmac("sha256", ticketKey()).update(encodedPayload).digest("base64url")
   return `${encodedPayload}.${signature}`
 }
 
-export function verifyTicket(ticket: string): { userId: string } | null {
+export function verifyTicket(ticket: string): { userId: string; countryCode?: string } | null {
   if (typeof ticket !== "string" || !ticket.includes(".")) return null
   const [encodedPayload, signature] = ticket.split(".")
   if (!encodedPayload || !signature) return null
@@ -59,10 +60,11 @@ export function verifyTicket(ticket: string): { userId: string } | null {
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
 
   try {
-    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as { sub?: unknown; exp?: unknown }
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as { sub?: unknown; exp?: unknown; countryCode?: unknown }
     if (typeof payload.sub !== "string" || !payload.sub) return null
     if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null
-    return { userId: payload.sub }
+    const countryCode = normalizeCountry(payload.countryCode)
+    return { userId: payload.sub, ...(countryCode ? { countryCode } : {}) }
   } catch {
     return null
   }

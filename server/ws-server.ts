@@ -80,6 +80,7 @@ type ConnectionState = {
   username?: string
   gender?: Gender
   profilePhoto?: string | null
+  countryCode?: string
   roomId: string | null
   /**
    * Authoritative server-side matching INTENT — true exactly when this
@@ -151,6 +152,7 @@ function toPublicIdentity(state: ConnectionState): PublicPeerIdentity {
     username: state.username,
     gender: state.gender,
     profilePhoto: state.profilePhoto,
+    countryCode: state.countryCode,
   }
 }
 
@@ -737,6 +739,7 @@ export function createRizzunoWebSocketServer() {
           username,
           gender,
           profilePhoto: (await getPublicProfile(userId)).profilePhoto,
+          countryCode: verified.countryCode,
           roomId: existing?.roomId ?? null,
           seeking: false,
           searchGeneration: existing?.searchGeneration ?? 0,

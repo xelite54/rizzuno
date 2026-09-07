@@ -55,6 +55,7 @@ export async function POST(request: Request) {
     }
 
     const result = await sendFriendRequest(userId, targetId)
+    if (result.status === "subscription_required") return NextResponse.json({ error: "subscription_required" }, { status: 402 })
     return NextResponse.json({ result: result.status })
   } catch (err) {
     const details = describeDbError(err)

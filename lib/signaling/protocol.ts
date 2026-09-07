@@ -39,7 +39,7 @@ export type PeerIdentity = {
  * only thing that ever resolves a displayId to the real account behind it,
  * exactly like block/report already do for room membership.
  */
-export type PublicPeerIdentity = Omit<PeerIdentity, "userId"> & { displayId: string }
+export type PublicPeerIdentity = Omit<PeerIdentity, "userId"> & { displayId: string; countryCode?: string }
 
 /** Mirrors the browser's RTCIceCandidateInit shape without depending on DOM lib types. */
 export type IceCandidateInit = {
@@ -100,6 +100,7 @@ export type BlockedUserSummary = { userId: string; username: string | null }
 export type MatchInvitation = { id: string; userId: string; username: string; expiresAt: number; direction: "incoming" | "outgoing" }
 
 export type FriendRequestResult =
+  | "subscription_required"
   | "sent"
   | "auto_accepted"
   | "already_friends"

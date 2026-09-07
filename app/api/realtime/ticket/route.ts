@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { mintTicket } from "@/lib/realtimeTicket"
 import { getUserStatus, hasAcceptedCurrent } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
+import { requestCountry } from "@/lib/country"
 
 /**
  * The only bridge between an authenticated Auth.js session and the
@@ -18,7 +19,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * server/ws-server.ts) as defense in depth against a ticket minted just
  * before a ban took effect.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth()
   const userId = session?.user?.id
   if (!userId) {
@@ -45,5 +46,5 @@ export async function GET() {
     return NextResponse.json({ error: "acceptance_required" }, { status: 403 })
   }
 
-  return NextResponse.json({ ticket: mintTicket(userId) })
+  return NextResponse.json({ ticket: mintTicket(userId, requestCountry(request)) }, { headers: { "Cache-Control": "no-store" } })
 }

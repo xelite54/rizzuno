@@ -1,4 +1,5 @@
 "use client"
+import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { friendsCacheKey, parseFriendsCache } from "@/lib/friendsCache"
@@ -939,6 +940,7 @@ export function useMatchmaking(
           break
         }
         case "friend-request-result": {
+          if (message.result === "subscription_required") window.location.assign(subscriptionHref("friends"))
           const outcome: FriendRequestOutcome =
             message.result === "sent"
               ? "requested"

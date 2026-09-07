@@ -517,6 +517,12 @@ export function MatchStage() {
   const [profileOpen, setProfileOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [myProfileOpen, setMyProfileOpen] = useState(false)
+  useEffect(() => {
+    const panel = new URLSearchParams(window.location.search).get("panel")
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- restore homepage overlays from the return route
+    if (panel === "profile") setMyProfileOpen(true)
+    if (panel === "friends") setFriendsOpen(true)
+  }, [])
   const [dismissedMatchInvitations, setDismissedMatchInvitations] = useState<Set<string>>(new Set())
   const incomingMatchInvitation = matchInvitations.find((invite) => invite.direction === "incoming" && !dismissedMatchInvitations.has(invite.id)) ?? null
   const canAcceptMatchInvitation = realtimeReady && !cameraUnavailable && (state === "idle" || state === "paused")
@@ -735,6 +741,7 @@ export function MatchStage() {
         onClose={() => setProfileOpen(false)}
       />
       <MyProfileSheet
+        profileReady={myProfile.profileHydrated}
         handle={myProfile.handle}
         history={history}
         blockedUsers={blockedUsers}

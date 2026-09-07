@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
+import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 type PlusState = { active: boolean; loading: boolean; canManage: boolean; refresh: () => Promise<void>; requirePlus: (feature: string) => boolean }
 const PlusContext = createContext<PlusState>({ active: false, loading: true, canManage: false, refresh: async () => {}, requirePlus: () => false })
@@ -32,7 +33,7 @@ export function RizzPlusProvider({ children }: { children: React.ReactNode }) {
   const active = !!userId && state.owner === userId && state.active
   const requirePlus = useCallback((feature: string) => {
     if (active) return true
-    router.push(`/rizz-plus?feature=${encodeURIComponent(feature)}`)
+    router.push(subscriptionHref(feature))
     return false
   }, [active, router])
   return <PlusContext.Provider value={{ active, loading: status === "loading" || (status === "authenticated" && (state.owner !== userId || state.loading)), canManage: !!userId && state.owner === userId && state.canManage, refresh, requirePlus }}>{children}</PlusContext.Provider>

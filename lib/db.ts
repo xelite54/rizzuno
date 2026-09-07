@@ -76,6 +76,10 @@ export async function getBillingCustomer(userId: string): Promise<string | null>
   return rows[0]?.customer_id ?? null
 }
 
+export async function cancelFreeRizzPlus(userId: string) {
+  await q(`UPDATE billing_subscriptions SET status='canceled',paid_until=$2 WHERE subscription_id=$1 AND user_id=$3`, [`free:${userId}`, now(), userId])
+}
+
 export async function saveBillingCustomer(userId: string, customerId: string) {
   await q(`INSERT INTO billing_customers(user_id,customer_id) VALUES($1,$2) ON CONFLICT(user_id) DO NOTHING`, [userId, customerId])
 }
@@ -470,6 +474,7 @@ export async function areFriends(a: string, b: string): Promise<boolean> {
 }
 
 export type SendFriendRequestResult =
+  | { status: "subscription_required" }
   | { status: "sent"; requestId: string }
   | { status: "auto_accepted" }
   | { status: "already_friends" }
@@ -532,6 +537,14 @@ export async function sendFriendRequest(senderId: string, recipientId: string): 
       return { status: "auto_accepted" }
     }
 
+    const membership = await client.query(
+      `SELECT 1 FROM billing_subscriptions WHERE user_id=$1 AND status='active' AND paid_until>$2 LIMIT 1`,
+      [senderId, now()]
+    )
+    if (membership.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return { status: "subscription_required" }
+    }
     const id = randomUUID()
     await client.query(
       `INSERT INTO friend_requests (id, sender_id, recipient_id, status, created_at) VALUES ($1, $2, $3, 'pending', $4)`,

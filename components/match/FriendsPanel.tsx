@@ -1,4 +1,5 @@
 "use client"
+import { subscriptionHref } from "@/lib/upgradeNavigation"
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useState } from "react"
@@ -107,6 +108,14 @@ export function FriendsPanel({
   // person's full profile is currently open.
   const [searchActive, setSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search)
+    if (query.get("panel") === "friends" && query.has("search")) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore search after returning from membership
+      setSearchQuery(query.get("search") ?? "")
+      setSearchActive(true)
+    }
+  }, [])
   const [searchResults, setSearchResults] = useState<SearchResultPerson[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchErrored, setSearchErrored] = useState(false)
@@ -175,6 +184,7 @@ export function FriendsPanel({
     setFriendProfile(null)
     fetch(`/api/friends/profile/${encodeURIComponent(viewingFriendId)}`)
       .then((res) => {
+        if (res.status === 402) window.location.assign(subscriptionHref("friends"))
         if (!res.ok) throw new Error(`friend profile fetch failed: ${res.status}`)
         return res.json()
       })
@@ -384,6 +394,7 @@ export function FriendsPanel({
             exit={{ x: "100%" }}
             transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
             className={`${panelStyles.panel} fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-surface md:w-96`}
+            data-upgrade-return={`/?panel=friends&search=${encodeURIComponent(searchQuery)}`}
           >
             {view === "list" && (
               <>

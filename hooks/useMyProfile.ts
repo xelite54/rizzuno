@@ -1,4 +1,5 @@
 "use client"
+import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
@@ -398,7 +399,7 @@ export function useMyProfile() {
   // except on a genuine network/server error.
   const updateGender = useCallback(async (value: Gender) => {
     const response = await fetch("/api/profile/gender", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ gender: value }) })
-    if (response.status === 402) router.push("/rizz-plus?feature=gender")
+    if (response.status === 402) router.push(subscriptionHref("gender"))
     if (!response.ok) throw new Error("Couldn’t save gender. Please try again.")
     setGender(value)
   }, [router])
@@ -409,7 +410,7 @@ export function useMyProfile() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ profilePhoto: photo }),
     })
-    if (res.status === 402) router.push("/rizz-plus?feature=profile-photo")
+    if (res.status === 402) router.push(subscriptionHref("profile-photo"))
     if (!res.ok) await throwForFailedImageUpload(res, "failed to update profile photo")
     setProfilePhotoState(photo)
   }, [router])
@@ -427,7 +428,7 @@ export function useMyProfile() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dataUrl }),
     })
-    if (res.status === 402) router.push("/rizz-plus?feature=posts")
+    if (res.status === 402) router.push(subscriptionHref("posts"))
     if (!res.ok) await throwForFailedImageUpload(res, "failed to add post")
     const { post }: { post: Post } = await res.json()
     setPosts((prev) => [post, ...prev])

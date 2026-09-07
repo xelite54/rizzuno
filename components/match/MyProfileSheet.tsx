@@ -19,6 +19,7 @@ import { ImageModerationRejectedError, type Post, type Gender } from "@/hooks/us
 import type { BlockedUser } from "@/hooks/useFriends"
 
 type MyProfileSheetProps = {
+  profileReady: boolean
   /** Cosmetic fallback display name, shown until a real username is chosen — see lib/guest.ts. */
   handle: string
   history: PeerProfile[]
@@ -59,6 +60,7 @@ const MAX_POSTS = 20
 // useMyProfile) — everything else here (which view is open, in-progress
 // drafts, confirm states) is genuinely transient UI state and doesn't need to.
 export function MyProfileSheet({
+  profileReady,
   handle,
   history,
   blockedUsers,
@@ -81,6 +83,20 @@ export function MyProfileSheet({
   onRemovePost,
 }: MyProfileSheetProps) {
   const [view, setView] = useState<View>("profile")
+  const restoredView = useRef(false)
+  useEffect(() => {
+    if (!open || !profileReady || restoredView.current) return
+    restoredView.current = true
+    const query = new URLSearchParams(window.location.search)
+    const restored = query.get("view")
+    if (query.get("panel") === "profile" && ["profile", "edit", "settings", "history", "blocked"].includes(restored ?? "")) {
+      if (restored === "edit") startEditing()
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- restore the requested route panel
+      else setView(restored as View)
+    }
+    // Restore only on mount; later edits remain local drafts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, profileReady])
   const [editPhotoDraft, setEditPhotoDraft] = useState<string | null>(null)
   const [editUsernameDraft, setEditUsernameDraft] = useState("")
   const [usernameError, setUsernameError] = useState<string | null>(null)
@@ -383,6 +399,7 @@ export function MyProfileSheet({
           exit={{ opacity: 0, x: "-100%" }}
           transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
           className={`${panelStyles.panel} ${styles.shell} fixed inset-0 z-50 flex flex-col`}
+          data-upgrade-return={`/?panel=profile&view=${view}`}
         >
           <div className={`${styles.header} flex h-18 shrink-0 items-center gap-3 border-b border-white/8`}>
             {view !== "profile" ? (

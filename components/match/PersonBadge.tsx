@@ -4,6 +4,7 @@ import { FriendButton } from "./FriendButton"
 import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
+import { countryLabel } from "@/lib/country"
 
 type PersonBadgeProps = {
   peer: PeerProfile | null
@@ -19,6 +20,7 @@ export function PersonBadge({ peer, friendState, onAddFriend }: PersonBadgeProps
   // the design plain. The full profile (one tap away) keeps it just as
   // minimal.
   const identity = peer.username ?? peer.handle
+  const country = countryLabel(peer.countryCode)
 
   return (
     <div className="pointer-events-auto absolute left-5 top-5 max-w-[220px]">
@@ -27,6 +29,7 @@ export function PersonBadge({ peer, friendState, onAddFriend }: PersonBadgeProps
           screen, so it shouldn't compete with their actual face. */}
       <div className="flex items-center gap-1.5 rounded-full bg-black/35 py-1.5 pl-3 pr-1.5 opacity-55 transition-opacity duration-300 hover:opacity-100 focus-within:opacity-100">
         <span className="truncate text-[13px] font-semibold text-foreground">{identity}</span>
+        {country && <span title={`${country.name} · approximate IP location`} aria-label={country.name} className="shrink-0 text-base">{country.flag}</span>}
         {FRIENDS_ENABLED && <FriendButton state={friendState} onAdd={onAddFriend} />}
       </div>
     </div>

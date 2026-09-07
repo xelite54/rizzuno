@@ -5,14 +5,24 @@ let userId: string | null = "tester"
 let banned = false
 let failGrant = false
 const grants: string[] = []
+const cancellations: string[] = []
 mock.module("../auth.ts", { namedExports: { auth: async () => userId ? { user: { id: userId } } : null } })
 mock.module("../lib/db.ts", { namedExports: {
   getUserStatus: async () => ({ banned, deleted: false, suspendedUntil: null }),
   grantFreeRizzPlus: async (id: string) => { if (failGrant) throw new Error("test_db_unavailable"); grants.push(id) },
+  cancelFreeRizzPlus: async (id: string) => { cancellations.push(id) },
 } })
 mock.module("../lib/apiRateLimit.ts", { namedExports: { isRateLimited: () => false } })
 const { POST } = await import("../app/api/billing/checkout/route.ts")
+const { POST: cancel } = await import("../app/api/billing/cancel/route.ts")
 const request = (origin = "https://rizzuno.com") => new Request("https://rizzuno.com/api/billing/checkout", { method: "POST", headers: { origin } })
+
+test("cancel only affects the authenticated account and rejects foreign origins", async () => {
+  assert.equal((await cancel(request("https://other.example"))).status, 403)
+  assert.equal(cancellations.length, 0)
+  assert.equal((await cancel(request())).status, 200)
+  assert.deepEqual(cancellations, ["tester"])
+})
 
 test("free Rizz+ activation grants the signed-in account without a Stripe redirect", async () => {
   const response = await POST(request())
