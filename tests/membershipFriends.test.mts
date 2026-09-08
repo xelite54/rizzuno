@@ -4,8 +4,10 @@ import assert from "node:assert/strict"
 
 let member = false
 let incoming = false
+let resolvedRequestExists = false
 const writes: string[] = []
 async function query(sql: string) {
+  if (resolvedRequestExists && sql.includes("INSERT INTO friend_requests") && !sql.includes("ON CONFLICT (sender_id, recipient_id)")) throw new Error("duplicate key violates friend_requests_sender_id_recipient_id_key")
   if (sql.includes("FROM billing_subscriptions")) return { rows: member ? [{}] : [] }
   if (sql.includes("SELECT id FROM friend_requests") && sql.includes("FOR UPDATE")) return { rows: incoming ? [{ id: "request" }] : [] }
   if (sql.includes("SELECT sender_id FROM friend_requests")) return { rows: [{ sender_id: "plus-sender" }] }
@@ -33,4 +35,13 @@ test("a free recipient can accept a request, including mutual Add", async () => 
   incoming = true
   assert.equal((await sendFriendRequest("free", "plus-sender")).status, "auto_accepted")
   assert.equal((await respondToFriendRequest("free", "request", true)).status, "accepted")
+})
+
+test("a resolved request can be sent again without violating the pair unique constraint", async () => {
+  member = true; incoming = false; resolvedRequestExists = true
+  const result = await sendFriendRequest("plus", "previous-recipient")
+  assert.equal(result.status, "sent")
+  assert.match(writes.at(-1)!, /resolved_at=NULL/)
+  assert.match(writes.at(-1)!, /id=EXCLUDED.id/)
+  resolvedRequestExists = false
 })

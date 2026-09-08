@@ -498,6 +498,9 @@ export async function sendFriendRequest(senderId: string, recipientId: string): 
     await client.query("BEGIN")
 
     const [a, b] = pairKey(senderId, recipientId)
+    // Serialize both directions of this pair before checking requests.
+    // Two simultaneous Add clicks must not create crossed pending rows.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [JSON.stringify([a, b])])
     const existingFriendship = await client.query(
       `SELECT 1 FROM friendships WHERE user_a_id = $1 AND user_b_id = $2`,
       [a, b]
@@ -547,7 +550,9 @@ export async function sendFriendRequest(senderId: string, recipientId: string): 
     }
     const id = randomUUID()
     await client.query(
-      `INSERT INTO friend_requests (id, sender_id, recipient_id, status, created_at) VALUES ($1, $2, $3, 'pending', $4)`,
+      `INSERT INTO friend_requests (id, sender_id, recipient_id, status, created_at) VALUES ($1, $2, $3, 'pending', $4)
+       ON CONFLICT (sender_id, recipient_id) DO UPDATE
+       SET id=EXCLUDED.id, status='pending', created_at=EXCLUDED.created_at, resolved_at=NULL`,
       [id, senderId, recipientId, now()]
     )
     await client.query("COMMIT")
@@ -888,7 +893,7 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`)
 }
 
-export type UserSearchResult = { username: string; alreadyRequested: boolean; alreadyFriends: boolean }
+export type UserSearchResult = { username: string; profilePhoto: string | null; alreadyRequested: boolean; alreadyFriends: boolean }
 
 /**
  * Real account search by username — case-insensitive, partial-match (see
@@ -918,8 +923,8 @@ export async function searchUsersByUsername(
 ): Promise<UserSearchResult[]> {
   const trimmed = query.trim()
   if (!trimmed) return []
-  const { rows } = await q<{ username: string; already_requested: boolean; already_friends: boolean }>(
-    `SELECT u.username,
+  const { rows } = await q<{ username: string; profile_photo: string | null; already_requested: boolean; already_friends: boolean }>(
+    `SELECT u.username, u.profile_photo,
             EXISTS (
               SELECT 1 FROM friend_requests fr
                WHERE fr.sender_id = $2 AND fr.recipient_id = u.id AND fr.status = 'pending'
@@ -943,7 +948,7 @@ export async function searchUsersByUsername(
       LIMIT $3`,
     [escapeLikePattern(trimmed.toLowerCase()), excludeUserId, limit]
   )
-  return rows.map((r) => ({ username: r.username, alreadyRequested: r.already_requested, alreadyFriends: r.already_friends }))
+  return rows.map((r) => ({ username: r.username, profilePhoto: r.profile_photo, alreadyRequested: r.already_requested, alreadyFriends: r.already_friends }))
 }
 
 // ---------------------------------------------------------------------------

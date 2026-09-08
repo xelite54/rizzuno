@@ -26,7 +26,7 @@ type FriendMessage = { id: string; from: "me" | "them"; content: MessageContent;
 // alreadyRequested/alreadyFriends are real database state (see
 // searchUsersByUsername's own doc comment) — checked so the row's own
 // button reflects reality after a refresh, not just this session's clicks.
-type SearchResultPerson = { username: string; alreadyRequested: boolean; alreadyFriends: boolean }
+type SearchResultPerson = { username: string; profilePhoto?: string | null; alreadyRequested: boolean; alreadyFriends: boolean }
 
 // How long to wait after the last keystroke before actually querying —
 // long enough that fast typing doesn't fire a request per character, short
@@ -368,12 +368,27 @@ export function FriendsPanel({
     })
       .then(async (res) => {
         const data = await res.json()
-        if (res.status === 402) window.location.assign(subscriptionHref("friends"))
-        if (!res.ok || data.result === "blocked") throw new Error("request_failed")
+        if (res.status === 402) {
+          window.location.assign(subscriptionHref("friends"))
+          return
+        }
+        if (!res.ok || data.result === "blocked") {
+          const messages: Record<string, string> = {
+            not_authenticated: "Sign in again to send a friend request.",
+            rate_limited: "Too many requests. Wait a minute and try again.",
+            not_found: "This profile is no longer available.",
+            blocked: "A friend request can’t be sent to this account.",
+            account_unavailable: "Your account can’t send requests right now.",
+          }
+          throw new Error(messages[data.error ?? data.result] ?? "Couldn’t save the friend request. Please try again.")
+        }
+        if (data.result === "already_friends" || data.result === "auto_accepted") {
+          setSearchResults((previous) => previous.map((person) => person.username === username ? { ...person, alreadyFriends: true } : person))
+        }
       })
-      .catch(() => {
+      .catch((error: Error) => {
         setSentUsernames((prev) => prev.filter((u) => u !== username))
-        setRequestError("Couldn’t send the friend request. Please try again.")
+        setRequestError(error.message || "Couldn’t send the friend request. Please try again.")
       })
   }
 
@@ -494,7 +509,10 @@ export function FriendsPanel({
                             className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 transition hover:bg-surface-2"
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
-                              {person.username.charAt(0).toUpperCase()}
+                              {person.profilePhoto ? (
+                                // eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo
+                                <img src={person.profilePhoto} alt="" className="h-full w-full rounded-full object-cover" />
+                              ) : person.username.charAt(0).toUpperCase()}
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[13px] font-medium text-foreground">
@@ -1110,7 +1128,10 @@ export function FriendsPanel({
 
               <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
                 <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                  {viewingSearchResult.username.charAt(0).toUpperCase()}
+                  {viewingSearchResult.profilePhoto ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo
+                    <img src={viewingSearchResult.profilePhoto} alt="" className="h-full w-full rounded-full object-cover" />
+                  ) : viewingSearchResult.username.charAt(0).toUpperCase()}
                 </span>
                 <p className="mt-4 text-[18px] font-semibold text-foreground">@{viewingSearchResult.username}</p>
 
