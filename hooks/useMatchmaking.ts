@@ -758,6 +758,9 @@ export function useMatchmaking(
         case "matched":
           console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator })
           setRoomId(message.roomId)
+          // Direct friend calls start from idle/paused, without a find.
+          // Record their accepted intent just like a random match.
+          wantsMatchingRef.current = true
           setInitiator(message.initiator)
           setPeer(message.peer)
           setMessages([])

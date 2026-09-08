@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 // "error" is distinct from "required" on purpose: "required" means Rizzuno
 // successfully checked and this account genuinely hasn't accepted the
@@ -32,7 +32,9 @@ export type AcceptanceStatus = "checking" | "required" | "accepted" | "error"
  * session. If the session turns out to still be valid (a transient 401),
  * the status check is retried once with a fresh request.
  */
-export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => Promise<unknown>) {
+export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => Promise<unknown>, accountId?: string) {
+  const revalidateRef = useRef(revalidateSession)
+  useEffect(() => { revalidateRef.current = revalidateSession }, [revalidateSession])
   const [status, setStatus] = useState<AcceptanceStatus>("checking")
   // The real error code from a failed check — e.g. "database_error" or
   // "auth_error" from app/api/legal/status/route.ts's JSON body, or
@@ -73,7 +75,7 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
       if (res.status === 401 && !alreadyRevalidated) {
         // signedIn is true (checked above) but the server says otherwise —
         // revalidate once before treating this as a real failure.
-        await revalidateSession()
+        await revalidateRef.current()
         if (!cancelled) await check(true)
         return
       }
@@ -98,7 +100,7 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
     return () => {
       cancelled = true
     }
-  }, [signedIn, attempt, revalidateSession])
+  }, [signedIn, attempt, accountId])
 
   const accept = useCallback(async () => {
     try {

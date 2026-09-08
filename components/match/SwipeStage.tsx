@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { motion, useMotionValue, useTransform, animate, AnimatePresence, useReducedMotion } from "motion/react"
 import { VideoTile } from "./VideoTile"
 import { PersonBadge } from "./PersonBadge"
@@ -61,6 +61,16 @@ export function SwipeStage({
   const wheelAccum = useRef(0)
   const wheelResetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const interactionKey = `${peer?.displayId ?? "none"}:${matchState}`
+  const liveInteraction = useRef(interactionKey)
+  const lastWheelAt = useRef(0)
+  const wheelLocked = useRef(false)
+  useLayoutEffect(() => {
+    liveInteraction.current = interactionKey
+    wheelAccum.current = 0
+    wheelLocked.current = true
+    clearTimeout(wheelResetTimer.current)
+  }, [interactionKey])
 
   // Matching is never auto-started (see MatchStage.tsx) — "idle" (never
   // started, or just refreshed) and "paused" (deliberately stopped) are
@@ -89,12 +99,18 @@ export function SwipeStage({
   }, [matchState, x])
 
   function finishExit() {
+    const startedFor = interactionKey
     animate(x, -stageWidth * 1.15, {
       type: reduceMotion ? "tween" : "spring",
       stiffness: 280,
       damping: 32,
       duration: reduceMotion ? 0.12 : undefined,
       onComplete: () => {
+        if (liveInteraction.current !== startedFor) {
+          x.set(0)
+          setIsExiting(false)
+          return
+        }
         // Same gesture, two different meanings depending on what's on
         // screen: skip the person you're with, or start/resume looking for
         // one (whether this is the very first search or a resumed one —
@@ -137,6 +153,13 @@ export function SwipeStage({
   }
 
   function handleWheel(event: React.WheelEvent) {
+    const now = Date.now()
+    const freshGesture = now - lastWheelAt.current > 250
+    lastWheelAt.current = now
+    if (wheelLocked.current) {
+      if (!freshGesture) return
+      wheelLocked.current = false
+    }
     if (!canSwipe) return
     if (Math.abs(event.deltaX) < Math.abs(event.deltaY)) return
 

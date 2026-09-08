@@ -130,7 +130,7 @@ export function MatchStage() {
   // `updateSession` lets the hook revalidate a possibly-stale session once
   // if its own status check ever comes back 401 despite `signedIn` here
   // still reading true.
-  const legal = useLegalAcceptance(signedIn, updateSession)
+  const legal = useLegalAcceptance(signedIn, updateSession, session?.user?.id)
   const legalAccepted = legal.status === "accepted"
 
   // Choosing a username, then a gender, is required right after signing in,
@@ -349,6 +349,15 @@ export function MatchStage() {
   const [pendingSkip, setPendingSkip] = useState<{ peer: PeerProfile; timer: ReturnType<typeof setTimeout> } | null>(
     null
   )
+  const currentPeerId = useRef(peer?.displayId)
+  useEffect(() => {
+    currentPeerId.current = peer?.displayId
+    if (pendingSkip && pendingSkip.peer.displayId !== peer?.displayId) {
+      clearTimeout(pendingSkip.timer)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- retire the old room's pending action
+      setPendingSkip(null)
+    }
+  }, [peer?.displayId, pendingSkip])
 
   useEffect(() => {
     if (!pendingSkip) return
@@ -363,6 +372,7 @@ export function MatchStage() {
     const skippedPeer = peer
     const timer = setTimeout(() => {
       setPendingSkip(null)
+      if (currentPeerId.current !== skippedPeer.displayId) return
       skip()
     }, UNDO_SKIP_WINDOW_MS)
     setPendingSkip({ peer: skippedPeer, timer })
