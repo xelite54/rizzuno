@@ -361,6 +361,7 @@ function broadcastOnlineCount() {
  * confirmed-OPEN sockets — never before.
  */
 async function tryMatch(state: ConnectionState, expectedGeneration: number) {
+  if (state.roomId) return
   if (state.searchGeneration !== expectedGeneration) {
     console.log("ws-server: find superseded before it could even start — aborting", {
       displayId: state.displayId,
@@ -461,9 +462,12 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   matchmaker.commitMatch(room.id)
 }
 
-function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean) {
+type RoomEndReason = "user_skip" | "user_leave" | "blocked" | "socket_closed" | "account_changed" | "socket_replaced"
+
+function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason: RoomEndReason) {
   if (!state.roomId) return
   const roomId = state.roomId
+  console.info("ws-server: room destroyed", { roomId, reason })
   const partner = roomPartner(state)
   matchmaker.leaveRoom(state.userId)
   state.roomId = null
@@ -488,13 +492,13 @@ function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean) {
  * stale/superseded state object calling this must never clobber whatever's
  * actually live now for that same userId).
  */
-function cleanUpAccount(oldState: ConnectionState, preserveInvitations = false) {
+function cleanUpAccount(oldState: ConnectionState, reason: RoomEndReason, preserveInvitations = false) {
   const wasCurrent = connections.get(oldState.userId) === oldState
   if (!wasCurrent) {
     console.log("ws-server: cleanup skipped — this state was already superseded", { displayId: oldState.displayId })
     return
   }
-  leaveCurrentRoom(oldState, true)
+  leaveCurrentRoom(oldState, true, reason)
   if (!preserveInvitations) cancelInvitations(oldState)
   matchmaker.removeFromQueue(oldState.userId)
   oldState.seeking = false
@@ -587,7 +591,10 @@ export function createRizzunoWebSocketServer() {
       if (state) {
         // Retries/resumes are not skips. Never let a delayed find command
         // abandon an established room (including a direct friend call).
-        if (message.type === "find" && state.roomId) return
+        if (message.type === "find" && state.roomId) {
+          console.debug("ws-server: find ignored", { roomId: state.roomId, reason: "already_matched" })
+          return
+        }
         if (message.type === "find" || message.type === "skip") {
           cancelInvitations(state)
           state.seeking = true
@@ -702,7 +709,7 @@ export function createRizzunoWebSocketServer() {
           console.log("ws-server: hello for a new account on an already-authenticated socket — cleaning up the old one first", {
             oldDisplayId: state.displayId,
           })
-          cleanUpAccount(state)
+          cleanUpAccount(state, "account_changed")
         }
 
         // Also re-sent whenever the user reconnects the same account —
@@ -720,7 +727,7 @@ export function createRizzunoWebSocketServer() {
           // A new transport has no surviving WebRTC session. Retire the
           // old room before any async profile reads, not in its delayed
           // close callback (which races with registering this connection).
-          cleanUpAccount(existing, true)
+          cleanUpAccount(existing, "socket_replaced", true)
           existing.ws.close()
           existing = undefined
         }
@@ -823,7 +830,7 @@ export function createRizzunoWebSocketServer() {
         case "skip": {
           if (message.type === "find" && state.roomId) break
           console.log("ws-server: find received", { displayId: state.displayId, type: message.type })
-          leaveCurrentRoom(state, true)
+          if (message.type === "skip") leaveCurrentRoom(state, true, "user_skip")
           // capturedGeneration was set synchronously at message-receipt
           // time, above — always defined here (state existed then too,
           // since it still exists now and nothing removes it except a
@@ -833,7 +840,7 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "leave": {
-          leaveCurrentRoom(state, true)
+          leaveCurrentRoom(state, true, "user_leave")
           matchmaker.removeFromQueue(state.userId)
           // seeking/searchGeneration were already invalidated synchronously
           // at message-receipt time, above — nothing left to do for them
@@ -949,7 +956,7 @@ export function createRizzunoWebSocketServer() {
             // *permanent* record depends on that succeeding, and `ok` below
             // tells the client honestly which one actually happened rather
             // than pretending it always persists.
-            leaveCurrentRoom(state, true)
+            leaveCurrentRoom(state, true, "blocked")
             if (ok) {
               await trySendFriendsSnapshot(state)
               await refreshSnapshotIfOnline(partner.userId)
@@ -1161,7 +1168,7 @@ export function createRizzunoWebSocketServer() {
       console.log("ws-server: peer disconnected", { displayId: state.displayId })
       // Keep the short-lived invitation until its original expiry so a
       // transient socket loss does not erase it from the friend's Requests.
-      cleanUpAccount(state, true)
+      cleanUpAccount(state, "socket_closed", true)
     })
   })
 

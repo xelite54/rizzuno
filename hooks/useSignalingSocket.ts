@@ -77,7 +77,7 @@ function normalizeWsUrl(configuredUrl: string): string {
  * effect's own cleanup (below) closes it and cancels any pending retry the
  * instant `enabled` flips.
  */
-export function useSignalingSocket(enabled: boolean) {
+export function useSignalingSocket(enabled: boolean, accountId?: string) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const listenersRef = useRef(new Set<Listener>())
@@ -110,8 +110,10 @@ export function useSignalingSocket(enabled: boolean) {
       const url = configuredUrl ? normalizeWsUrl(configuredUrl) : `${protocol}://${window.location.host}${WS_PATH}`
       socket = new WebSocket(url)
       wsRef.current = socket
+      const currentSocket = socket
 
       socket.onopen = () => {
+        if (cancelled || wsRef.current !== currentSocket) return
         // Transport-connected only — NOT the same as "the realtime server
         // has processed our hello and is ready for 'find'" (see
         // useMatchmaking.ts's `realtimeReady`, which waits for the server's
@@ -125,6 +127,7 @@ export function useSignalingSocket(enabled: boolean) {
       }
 
       socket.onmessage = (event) => {
+        if (cancelled || wsRef.current !== currentSocket) return
         try {
           const message = JSON.parse(event.data) as ServerMessage
           listenersRef.current.forEach((listener) => listener(message))
@@ -133,8 +136,9 @@ export function useSignalingSocket(enabled: boolean) {
         }
       }
 
-      socket.onclose = () => {
-        console.log("signaling: transport closed", { willRetryInMs: cancelled ? null : retryDelay })
+      socket.onclose = (event) => {
+        if (cancelled || wsRef.current !== currentSocket) return
+        console.debug("signaling: transport closed", { reason: "socket_closed", code: event.code, wasClean: event.wasClean, willRetryInMs: retryDelay })
         setConnected(false)
         if (cancelled) return
         retryTimer = setTimeout(connect, retryDelay)
@@ -142,7 +146,7 @@ export function useSignalingSocket(enabled: boolean) {
       }
 
       socket.onerror = () => {
-        socket?.close()
+        currentSocket.close()
       }
     }
 
@@ -151,9 +155,12 @@ export function useSignalingSocket(enabled: boolean) {
     return () => {
       cancelled = true
       clearTimeout(retryTimer)
+      console.debug("signaling: transport cleanup", { reason: "disabled_or_unmounted" })
+      if (wsRef.current === socket) wsRef.current = null
+      setConnected(false)
       socket?.close()
     }
-  }, [enabled])
+  }, [enabled, accountId])
 
   const send = useCallback((message: ClientMessage) => {
     const socket = wsRef.current

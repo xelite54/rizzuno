@@ -3,6 +3,27 @@ import assert from "node:assert/strict"
 import { SignalBacklog, MAX_BUFFERED_SIGNALS_PER_ROOM } from "../lib/signalBacklog"
 import type { RtcSignal } from "../lib/signaling/protocol"
 
+test("ICE backlog overflow does not discard the offer needed to negotiate", () => {
+  const backlog = new SignalBacklog()
+  backlog.push("room", { kind: "offer", sdp: "required-offer" })
+  for (let i = 0; i < 100; i++) backlog.push("room", { kind: "ice", candidate: {} })
+  const delivered: RtcSignal[] = []
+  backlog.drain("room", (_, signal) => delivered.push(signal))
+  assert.equal(delivered.length, MAX_BUFFERED_SIGNALS_PER_ROOM)
+  assert.deepEqual(delivered[0], { kind: "offer", sdp: "required-offer" })
+})
+
+test("room-specific subscription preserves another room's early SDP and ICE", () => {
+  const backlog = new SignalBacklog()
+  const signals: RtcSignal[] = [{ kind: "offer", sdp: "offer" }, { kind: "answer", sdp: "answer" }, { kind: "ice", candidate: {} }]
+  for (const signal of signals) backlog.push("new-room", signal)
+  backlog.drain("old-room", () => assert.fail("wrong room subscriber"))
+  const received: RtcSignal[] = []
+  backlog.drain("new-room", (_, signal) => received.push(signal))
+  assert.deepEqual(received, signals)
+  assert.equal(backlog.sizeFor("new-room"), 0)
+})
+
 // Test 8 — "offer arrives before useWebRTC listener → stored → delivered".
 test("signal arriving before a listener subscribes is buffered, then delivered in order once one does", () => {
   const backlog = new SignalBacklog()

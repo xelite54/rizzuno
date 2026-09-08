@@ -1,4 +1,6 @@
 "use client"
+import { useRealtimeAccount } from "@/hooks/useRealtimeAccount"
+import { retainRealtime } from "@/lib/realtimeLifecycle"
 
 import { useEffect, useRef, useState } from "react"
 import { useSession, signIn, signOut } from "next-auth/react"
@@ -123,7 +125,8 @@ export function MatchStage() {
   const { data: session, status: sessionStatus, update: updateSession } = useSession()
   // Session refresh may briefly report loading while retaining the same
   // authenticated account. Do not tear down its call during that refresh.
-  const signedIn = Boolean(session?.user?.id) && sessionStatus !== "unauthenticated"
+  const realtimeAccount = useRealtimeAccount(session?.user?.id, sessionStatus)
+  const signedIn = Boolean(realtimeAccount)
   const authLoading = sessionStatus === "loading" && !signedIn
 
   // 18+ affirmation + Terms/Privacy acceptance, recorded server-side against
@@ -132,7 +135,7 @@ export function MatchStage() {
   // `updateSession` lets the hook revalidate a possibly-stale session once
   // if its own status check ever comes back 401 despite `signedIn` here
   // still reading true.
-  const legal = useLegalAcceptance(signedIn, updateSession, session?.user?.id)
+  const legal = useLegalAcceptance(signedIn, updateSession, realtimeAccount)
   const legalAccepted = legal.status === "accepted"
 
   // Choosing a username, then a gender, is required right after signing in,
@@ -155,7 +158,12 @@ export function MatchStage() {
   // as `enabled` — see its own doc comment for everything that resets the
   // instant this goes false (sign-out, session expiry, legal becoming
   // invalid, an account switch, or teardown).
-  const realtimeEnabled = signedIn && legalAccepted && myProfile.profileHydrated && hasUsername && hasGender
+  const [admittedAccount, setAdmittedAccount] = useState<string | undefined>(undefined)
+  const realtimeEnabled = retainRealtime(admittedAccount, realtimeAccount, legal.status, myProfile.profileHydrated, onboarded)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAdmittedAccount(realtimeEnabled ? realtimeAccount : undefined)
+  }, [realtimeEnabled, realtimeAccount])
 
   const {
     realtimeReady,
@@ -200,7 +208,7 @@ export function MatchStage() {
     myProfile.username,
     myProfile.gender ?? undefined,
     myProfile.profilePhoto,
-    session?.user?.id
+    realtimeAccount
   )
 
   // Auth.js lands a failed/cancelled Google sign-in back on this page with

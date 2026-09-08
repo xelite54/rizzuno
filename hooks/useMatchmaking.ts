@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { friendsCacheKey, parseFriendsCache } from "@/lib/friendsCache"
 import { useSignalingSocket } from "./useSignalingSocket"
 import { useWebRTC } from "./useWebRTC"
+import { canSearch, isCurrentRoom } from "@/lib/realtimeLifecycle"
 import { SignalBacklog } from "@/lib/signalBacklog"
 import { nextMatchState, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "@/lib/matchStateMachine"
 import type { MatchState, MatchStateEvent } from "@/lib/matchStateMachine"
@@ -112,7 +113,7 @@ export function useMatchmaking(
   myProfilePhoto?: string | null,
   accountId?: string
 ) {
-  const { connected, send, subscribe } = useSignalingSocket(enabled)
+  const { connected, send, subscribe } = useSignalingSocket(enabled, accountId)
 
   // `connected` only means the WebSocket transport opened — it says nothing
   // about whether the realtime server has actually verified our ticket and
@@ -162,7 +163,15 @@ export function useMatchmaking(
   // findMatch()) — that retry is what's consuming this budget, not
   // starting a fresh one.
   const queuePendingRetryCountRef = useRef(0)
-  const [roomId, setRoomId] = useState<string | null>(null)
+  const [roomId, updateRoomId] = useState<string | null>(null)
+  const roomRef = useRef<string | null>(null)
+  const setRoomId = useCallback((next: string | null, reason: string) => {
+    if (roomRef.current && next !== roomRef.current) {
+      console.debug("matchmaking: room destroyed", { roomId: roomRef.current, reason })
+    }
+    roomRef.current = next
+    updateRoomId(next)
+  }, [])
   const [initiator, setInitiator] = useState(false)
   const [peer, setPeer] = useState<PeerProfile | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -258,7 +267,7 @@ export function useMatchmaking(
     if (!roomId) return
     console.log("matchmaking: transport dropped mid-room — treating the room as lost, not assuming it survived")
     recordHistory(peerRef.current)
-    setRoomId(null)
+    setRoomId(null, "socket_closed")
     setPeer(null)
     setMessages([])
     setPeerMicEnabled(true)
@@ -270,9 +279,9 @@ export function useMatchmaking(
     // "find" (which re-enters "queue-pending" again anyway) and a genuine
     // "queued" is what actually promotes this to "searching" from there.
     if (wantsMatchingRef.current) setServerState("queue-pending")
-  }, [connected, roomId, recordHistory])
+  }, [connected, roomId, recordHistory, setRoomId])
 
-  const signalListeners = useRef(new Set<(roomId: string, data: RtcSignal) => void>())
+  const signalListeners = useRef(new Map<string, (roomId: string, data: RtcSignal) => void>())
   // Ordered per-room backlog for "signal" messages that arrive before
   // useWebRTC has actually subscribed yet — see lib/signalBacklog.ts for
   // why this needs to exist and why it's a plain, framework-independent
@@ -349,16 +358,14 @@ export function useMatchmaking(
     [send]
   )
 
-  const onSignal = useCallback((handler: (roomId: string, data: RtcSignal) => void) => {
-    signalListeners.current.add(handler)
-    // Replay anything that arrived before this subscription existed, in
-    // order. The handler filters by its own roomId internally (see
-    // useWebRTC), so replaying entries for a room this particular handler
-    // doesn't care about is a harmless no-op for it.
+  const onSignal = useCallback((room: string, handler: (roomId: string, data: RtcSignal) => void) => {
+    signalListeners.current.set(room, handler)
+    // Replay only this room; an outgoing room's subscriber must never
+    // consume the next room's early offer during the React effect handoff.
     console.log("webrtc: room initialized — flushing any buffered signals")
-    signalBacklog.current.drainAll(handler)
+    signalBacklog.current.drain(room, handler)
     return () => {
-      signalListeners.current.delete(handler)
+      if (signalListeners.current.get(room) === handler) signalListeners.current.delete(room)
     }
   }, [])
 
@@ -382,7 +389,7 @@ export function useMatchmaking(
   // received (see nextMatchState's "matched-received" case) — rather than
   // showing the matched-profile UI over what would otherwise be an empty
   // peer tile.
-  const state: MatchState = rtcStatus === "connected" && remoteVideoReady ? "active" : serverState
+  const state: MatchState = roomId ? (rtcStatus === "connected" && remoteVideoReady ? "active" : "connecting") : serverState
 
   // The one place any code path is allowed to claim "we're trying to get
   // into the queue" — never "searching" itself; see
@@ -405,12 +412,14 @@ export function useMatchmaking(
   // reset, because that retry is what's spending the budget, not
   // refilling it.
   const sendFind = useCallback(() => {
+    if (!canSearch(roomRef.current)) return
     wantsMatchingRef.current = true
     enterQueuePending({ type: "find-sent" })
     send({ type: "find" })
   }, [send, enterQueuePending])
 
   const findMatch = useCallback(() => {
+    if (!canSearch(roomRef.current)) return
     console.log("matchmaking: sending find")
     queuePendingRetryCountRef.current = 0
     sendFind()
@@ -429,6 +438,7 @@ export function useMatchmaking(
   // confirmed) the same way — camera-off ends the attempt regardless of
   // which stage it was at.
   const leaveQueueOnly = useCallback(() => {
+    if (roomRef.current) return
     console.log("matchmaking: leaving queue only (not a pause — wantsMatching stays true)")
     send({ type: "leave" })
     setServerState((prev) => nextMatchState(prev, { type: "left-queue" }))
@@ -441,7 +451,7 @@ export function useMatchmaking(
 
   const skip = useCallback(() => {
     recordHistory(peerRef.current)
-    setRoomId(null)
+    setRoomId(null, "user_skip")
     setPeer(null)
     setMessages([])
     setPeerMicEnabled(true)
@@ -451,7 +461,7 @@ export function useMatchmaking(
     queuePendingRetryCountRef.current = 0
     enterQueuePending({ type: "skip-sent" })
     send({ type: "skip" })
-  }, [send, recordHistory, enterQueuePending])
+  }, [send, recordHistory, enterQueuePending, setRoomId])
 
   const sendChat = useCallback(
     (text: string) => {
@@ -497,12 +507,12 @@ export function useMatchmaking(
     // instead of a blank gap; the ack-timeout effect covers this exactly
     // like any other queue-pending entry if that ack is slow or lost.
     send({ type: "block", roomId })
-    setRoomId(null)
+    setRoomId(null, "blocked")
     setPeer(null)
     // A genuinely new (about to be) search — its own fresh retry budget.
     queuePendingRetryCountRef.current = 0
     enterQueuePending({ type: "block-sent" })
-  }, [roomId, send, recordHistory, enterQueuePending])
+  }, [roomId, send, recordHistory, enterQueuePending, setRoomId])
 
   /** Reverses a block this account previously placed — see server/ws-server.ts's "unblock" handler and lib/db.ts's removeBlock(). `targetUserId` only ever comes from this account's own blocked-users snapshot. */
   const unblockUser = useCallback(
@@ -562,7 +572,7 @@ export function useMatchmaking(
     // reconnect-resume effect below, which checks this before ever sending
     // a fresh "find").
     wantsMatchingRef.current = false
-    setRoomId(null)
+    setRoomId(null, "user_leave")
     setPeer(null)
     setMessages([])
     setPeerMicEnabled(true)
@@ -576,7 +586,7 @@ export function useMatchmaking(
     // findMatch()'s own fresh attempt regardless, but clear it here too so
     // nothing stale survives a pause.
     queuePendingRetryCountRef.current = 0
-  }, [send, recordHistory])
+  }, [send, recordHistory, setRoomId])
 
   // Refs mirroring the latest profile field values — read at call time
   // inside announce()/the profile-update effect below, deliberately NOT
@@ -742,6 +752,7 @@ export function useMatchmaking(
           queuePendingRetryCountRef.current = 0
           break
         case "queued":
+          if (roomRef.current) break
           console.log("matchmaking: queued")
           // The ONLY promotion to "searching" — see nextMatchState's own
           // doc comment for exactly which prior states accept it (only an
@@ -755,8 +766,9 @@ export function useMatchmaking(
           queuePendingRetryCountRef.current = 0
           break
         case "matched":
+          if (roomRef.current) break // Duplicate/stale matches cannot replace a live room.
           console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator })
-          setRoomId(message.roomId)
+          setRoomId(message.roomId, "matched")
           // Direct friend calls start from idle/paused, without a find.
           // Record their accepted intent just like a random match.
           wantsMatchingRef.current = true
@@ -785,17 +797,17 @@ export function useMatchmaking(
           }
           break
         case "peer-updated":
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
           // The partner edited their own profile mid-call — merge the
           // refreshed identity into the peer we already have.
           setPeer((prev) => (prev ? { ...prev, ...message.peer } : prev))
           break
         case "signal": {
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
           const kind = message.data.kind
-          const label =
-            kind === "offer" ? "webrtc: offer received" : kind === "answer" ? "webrtc: answer received" : "webrtc: ice received"
-          console.log(`matchmaking: ${label}`, { roomId: message.roomId })
-          if (signalListeners.current.size > 0) {
-            signalListeners.current.forEach((listener) => listener(message.roomId, message.data))
+          const listener = signalListeners.current.get(message.roomId)
+          if (listener) {
+            listener(message.roomId, message.data)
           } else {
             // No useWebRTC subscriber yet — buffer it rather than dropping
             // it silently (see lib/signalBacklog.ts).
@@ -807,6 +819,7 @@ export function useMatchmaking(
           break
         }
         case "chat":
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
           setPeerTyping(false)
           setMessages((prev) => [
             ...prev,
@@ -814,16 +827,20 @@ export function useMatchmaking(
           ])
           break
         case "mic-state":
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
           setPeerMicEnabled(message.micEnabled)
           break
         case "typing":
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
           setPeerTyping(true)
           clearTimeout(peerTypingTimeout.current)
           peerTypingTimeout.current = setTimeout(() => setPeerTyping(false), 3000)
           break
         case "peer-left":
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
+          console.debug("matchmaking: peer-left", { roomId: message.roomId })
           recordHistory(peerRef.current)
-          setRoomId(null)
+          setRoomId(null, "peer_disconnected")
           setPeer(null)
           setPeerMicEnabled(true)
           setPeerTyping(false)
@@ -883,7 +900,7 @@ export function useMatchmaking(
           // the server re-sends right after a successful unblock — this is
           // just for any UI feedback (e.g. clearing a "removing…" state) a
           // caller of unblockUser() wants to react to directly.
-          console.log("matchmaking: unblock ack", { ok: message.ok, targetUserId: message.targetUserId })
+          console.log("matchmaking: unblock ack", { ok: message.ok })
           break
         case "error":
           console.error("matchmaking: server reported an error", {
@@ -968,7 +985,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, recordHistory, announce, findMatch, accountId])
+  }, [subscribe, recordHistory, announce, findMatch, accountId, setRoomId])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.
@@ -1013,7 +1030,7 @@ export function useMatchmaking(
     }
     if (resumedForCurrentReadyRef.current) return
     resumedForCurrentReadyRef.current = true
-    if (roomId || !wantsMatchingRef.current) return
+    if (!canSearch(roomRef.current) || !wantsMatchingRef.current) return
     console.log("matchmaking: ready + still wants matching + no active room — sending find")
     findMatch()
   }, [realtimeReady, roomId, findMatch])
@@ -1049,8 +1066,9 @@ export function useMatchmaking(
   // retrying via sendFind()) restarts the window even though `serverState`
   // itself didn't change value — see that state's own doc comment.
   useEffect(() => {
-    if (serverState !== "queue-pending") return
+    if (roomRef.current || serverState !== "queue-pending") return
     const timer = setTimeout(() => {
+      if (roomRef.current) return
       // Both `serverState` and `realtimeReady` closed over here are still
       // accurate at fire time, not stale — either one changing before this
       // fires re-runs this effect (they're both in the dependency array),
@@ -1122,7 +1140,7 @@ export function useMatchmaking(
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRealtimeReady(false)
     setServerState("idle")
-    setRoomId(null)
+    setRoomId(null, "realtime_disabled")
     setInitiator(false)
     setPeer(null)
     setMessages([])
@@ -1138,7 +1156,7 @@ export function useMatchmaking(
     setFriendActionState(new Map())
     setFriendToastRequestId(null)
     previousReceivedIds.current = new Set()
-  }, [enabled, send])
+  }, [enabled, send, setRoomId])
 
   return {
     connected,

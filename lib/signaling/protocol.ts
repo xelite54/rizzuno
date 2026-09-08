@@ -50,6 +50,7 @@ export type IceCandidateInit = {
 }
 
 export type RtcSignal =
+  | { kind: "ice-restart-request" }
   | { kind: "offer"; sdp: string }
   | { kind: "answer"; sdp: string }
   | { kind: "ice"; candidate: IceCandidateInit }

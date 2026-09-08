@@ -1,4 +1,5 @@
 "use client"
+import { useRealtimeAccount } from "@/hooks/useRealtimeAccount"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -100,8 +101,8 @@ const CURRENT_MIGRATION_VERSION = 1
  */
 export function useMyProfile() {
   const router = useRouter()
-  const { data: session } = useSession()
-  const userId = session?.user?.id ?? ""
+  const { data: session, status } = useSession()
+  const userId = useRealtimeAccount(session?.user?.id, status) ?? ""
 
   const [profilePhoto, setProfilePhotoState] = useState<string | null>(null)
   const [username, setUsername] = useState("")

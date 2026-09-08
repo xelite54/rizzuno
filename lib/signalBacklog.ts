@@ -17,8 +17,7 @@ export const MAX_BUFFERED_SIGNALS_PER_ROOM = 64
  * partner's own offer can in principle arrive over the wire before that
  * effect has actually run. Without buffering, that signal just vanishes —
  * forEach over an empty listener set does nothing, silently — and
- * negotiation either never completes or has to wait out a full
- * stuck-connection timeout to recover via a skip.
+ * negotiation cannot complete. Recovery must stay in the same room.
  *
  * Deliberately framework-independent (no React) so it's unit-testable on
  * its own — see hooks/useMatchmaking.ts for how it's actually wired in.
@@ -26,11 +25,16 @@ export const MAX_BUFFERED_SIGNALS_PER_ROOM = 64
 export class SignalBacklog {
   private byRoom = new Map<string, RtcSignal[]>()
 
-  /** Buffers one signal for `roomId`, oldest-dropped if already at the cap — a cap exists specifically so a room that never gets subscribed to can't grow this forever; dropping the oldest (not refusing the newest) keeps whatever's most likely still relevant to a negotiation in progress. */
+  /** Bounded per-room buffer. Evict oldest ICE first so candidate bursts
+   * cannot discard the SDP needed to make sense of those candidates. */
   push(roomId: string, signal: RtcSignal): void {
     const queued = this.byRoom.get(roomId) ?? []
     queued.push(signal)
-    if (queued.length > MAX_BUFFERED_SIGNALS_PER_ROOM) queued.shift()
+    if (queued.length > MAX_BUFFERED_SIGNALS_PER_ROOM) {
+      // Preserve SDP when an unusually large ICE batch arrives first.
+      const candidateIndex = queued.findIndex(entry => entry.kind === "ice")
+      queued.splice(candidateIndex < 0 ? 0 : candidateIndex, 1)
+    }
     this.byRoom.set(roomId, queued)
   }
 
@@ -40,6 +44,12 @@ export class SignalBacklog {
       for (const signal of queued) deliver(roomId, signal)
     }
     this.byRoom.clear()
+  }
+
+  drain(roomId: string, deliver: (roomId: string, signal: RtcSignal) => void): void {
+    const queued = this.byRoom.get(roomId) ?? []
+    this.byRoom.delete(roomId)
+    for (const signal of queued) deliver(roomId, signal)
   }
 
   /** Discards whatever's buffered for one room — used when that room ends (skip, block, peer-left, disconnect, a new room replacing it) so a stale offer/candidate from a dead negotiation can never leak into a future one. */

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { createRtcNegotiation } from "@/lib/rtcNegotiation"
 import type { RtcSignal } from "@/lib/signaling/protocol"
 
 /**
@@ -22,7 +23,7 @@ import type { RtcSignal } from "@/lib/signaling/protocol"
  * whatever's configured, and works with neither at all, falling back to
  * STUN-only, exactly as before).
  */
-function buildIceServers(): RTCIceServer[] {
+export function buildIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
@@ -99,7 +100,7 @@ async function configureVideoEncoding(sender: RTCRtpSender) {
   } catch (err) {
     // Non-fatal — the call still works with whatever the browser's own
     // defaults are; this is a quality tuning, not a correctness dependency.
-    console.error("webrtc: failed to configure video encoding parameters", { error: String(err) })
+    console.error("webrtc: failed to configure video encoding parameters", { error: err instanceof Error ? err.name : "RTCError" })
   }
 }
 
@@ -112,18 +113,15 @@ async function configureVideoEncoding(sender: RTCRtpSender) {
 const TICK_INTERVAL_MS = 1000
 const LOG_EVERY_N_TICKS = 5
 
-// How long a connection is allowed to sit at connectionState "connected"
-// with zero decoded remote video frames before this is treated as a real
-// media failure (not just "still negotiating") and recovery is attempted —
-// see the room effect's own tick function for exactly what "recovery"
-// means here (an ICE restart, and reporting `status: "failed"` so
-// useMatchmaking.ts's existing stuck-connection handling — the same path a
-// real connectionState "failed" already goes through — takes over from
-// there; no new recovery machinery needed beyond what already exists).
+// Detect connected-without-video using the existing stats tick; recovery never leaves the room.
 const MEDIA_READY_TIMEOUT_MS = 12_000
+// Diagnostic deadline only: never tears down a room or schedules another
+// attempt. Use the existing stats tick, not a second recovery timer.
+const ICE_RECOVERY_DEADLINE_MS = 30_000
 
 type CollectedStats = {
   candidateType: string | null
+  remoteCandidateType: string | null
   transportProtocol: string | null
   rttMs: number | null
   outgoing: {
@@ -153,7 +151,7 @@ type CollectedStats = {
  * `bytesReceived` between calls — getStats only ever reports a cumulative
  * counter, never a rate directly).
  *
- * TEMPORARY, for diagnosing/verifying the "connected but no remote video
+ * Safe media diagnostics for the "connected but no remote video
  * renders" investigation — the inbound half in particular
  * (bytesReceived/framesReceived/framesDecoded) is what lets these be told
  * apart: no packets arriving at all (bytesReceived never grows) vs.
@@ -187,6 +185,7 @@ function makeStatsCollector(pc: RTCPeerConnection) {
     }
 
     let candidateType: string | null = null
+    let remoteCandidateType: string | null = null
     let transportProtocol: string | null = null
     let rttMs: number | null = null
     let selectedPairId: string | null = null
@@ -208,6 +207,8 @@ function makeStatsCollector(pc: RTCPeerConnection) {
       if (pair) {
         if (typeof pair.currentRoundTripTime === "number") rttMs = Math.round(pair.currentRoundTripTime * 1000)
         const local = typeof pair.localCandidateId === "string" ? report.get(pair.localCandidateId) : undefined
+        const remote = typeof pair.remoteCandidateId === "string" ? report.get(pair.remoteCandidateId) : undefined
+        if (remote?.type === "remote-candidate") remoteCandidateType = remote.candidateType ?? null
         if (local?.type === "local-candidate") {
           candidateType = typeof local.candidateType === "string" ? local.candidateType : null
           transportProtocol = typeof local.protocol === "string" ? local.protocol : null
@@ -277,6 +278,7 @@ function makeStatsCollector(pc: RTCPeerConnection) {
 
     return {
       candidateType,
+      remoteCandidateType,
       transportProtocol,
       rttMs,
       outgoing: { packetsLost, fractionLost, bitrateKbps: outgoingBitrateKbps, framesPerSecond, framesSent, resolution },
@@ -301,7 +303,7 @@ type UseWebRTCParams = {
   videoTrack: MediaStreamTrack | null
   audioTrack: MediaStreamTrack | null
   sendSignal: (roomId: string, data: RtcSignal) => void
-  onSignal: (handler: (roomId: string, data: RtcSignal) => void) => () => void
+  onSignal: (roomId: string, handler: (roomId: string, data: RtcSignal) => void) => () => void
 }
 
 /**
@@ -336,11 +338,13 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
   // that file) — the whole point being that the matched-profile UI never
   // shows over what would otherwise be an empty peer tile.
   const [remoteVideoReady, setRemoteVideoReady] = useState(false)
+  const [mediaRoom, setMediaRoom] = useState<string | null>(null)
 
   useEffect(() => {
     if (!roomId) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a fresh room starts with neither known yet, same as `status` below
     setRemoteStream(null)
+    setMediaRoom(roomId)
     setRemoteVideoReady(false)
 
     // Explicit, not just the implicit default — "all" (never "relay")
@@ -353,9 +357,20 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceTransportPolicy: "all" })
     pcRef.current = pc
     console.log("webrtc: peer created", { roomId, initiator })
-    let remoteDescriptionSet = false
-    let pendingCandidates: RTCIceCandidateInit[] = []
     let cancelled = false
+    let recoveryStartedAt: number | null = null
+    let recoveryBaseline = 0
+    let lastDecodedFrames = 0
+    let videoReadyLocal = false
+    const negotiation = createRtcNegotiation(pc, initiator, (data) => sendSignal(roomId, data), (event) => {
+      console.debug(`webrtc: ${event}`, { roomId })
+      if (event === "ICE restart started") {
+        recoveryStartedAt = Date.now()
+        recoveryBaseline = lastDecodedFrames
+        videoReadyLocal = false
+        setRemoteVideoReady(false)
+      }
+    })
 
     // A brand-new RTCPeerConnection was just created for this room — this is
     // resource initialization, not mirroring some other piece of state.
@@ -380,19 +395,19 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     } catch (err) {
       console.error("webrtc: sender.setStreams failed (non-fatal — remote grouping doesn't depend on it)", {
         roomId,
-        error: String(err),
+        error: err instanceof Error ? err.name : "RTCError",
       })
     }
 
     if (videoTrack) {
       videoTransceiver.sender
         .replaceTrack(videoTrack)
-        .catch((err) => console.error("webrtc: replaceTrack (initial video) failed", { roomId, error: String(err) }))
+        .catch((err) => console.error("webrtc: replaceTrack (initial video) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
     }
     if (audioTrack) {
       audioTransceiver.sender
         .replaceTrack(audioTrack)
-        .catch((err) => console.error("webrtc: replaceTrack (initial audio) failed", { roomId, error: String(err) }))
+        .catch((err) => console.error("webrtc: replaceTrack (initial audio) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
     }
 
     // ONE persistent MediaStream for this room's entire lifetime — the
@@ -410,14 +425,15 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     let remoteVideoTrackLive = false
 
     function markVideoNotReady(reason: string) {
-      remoteVideoTrackLive = false
+      videoReadyLocal = false
+      recoveryBaseline = lastDecodedFrames
       console.log("webrtc: remote video no longer ready", { roomId, reason })
       setRemoteVideoReady(false)
     }
 
     pc.ontrack = (event) => {
       const track = event.track
-      // TEMPORARY diagnostic — see makeStatsCollector's own doc comment
+      // Track diagnostics — see makeStatsCollector's own doc comment
       // for the broader "connected but no video renders" investigation
       // this is part of. `track.muted` here is WebRTC's own "no RTP data
       // is currently arriving for this track" signal (distinct from the
@@ -461,7 +477,10 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
       }
       track.onmute = () => {
         console.log("webrtc: remote track muted (no data arriving)", { roomId, kind: track.kind })
-        if (track.kind === "video") remoteVideoTrackLive = false
+        if (track.kind === "video") {
+          remoteVideoTrackLive = false
+          markVideoNotReady("track muted")
+        }
       }
       track.onunmute = () => {
         console.log("webrtc: remote track unmuted (data flowing)", { roomId, kind: track.kind })
@@ -485,30 +504,27 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     // the media-readiness timeout below measures from here, independent of
     // (and deliberately more skeptical than) this connectionState alone.
     let connectedAt: number | null = null
-    let mediaRecoveryAttempted = false
 
+    const recover = () => { void negotiation.recover() }
+    pc.onicegatheringstatechange = () => {
+      if (!cancelled) console.debug("webrtc: ICE gathering state", { roomId, state: pc.iceGatheringState })
+    }
+    pc.oniceconnectionstatechange = () => {
+      if (cancelled) return
+      console.debug("webrtc: ICE connection state", { roomId, state: pc.iceConnectionState })
+      if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") recover()
+    }
     pc.onconnectionstatechange = () => {
       if (cancelled) return
+      console.debug("webrtc: peer connection state", { roomId, state: pc.connectionState })
       if (pc.connectionState === "connected") {
-        console.log("webrtc: connected", { roomId })
         setStatus("connected")
         connectedAt = Date.now()
-        mediaRecoveryAttempted = false
-      } else if (pc.connectionState === "failed") {
-        console.error("webrtc: failed", { roomId, iceConnectionState: pc.iceConnectionState })
-        pc.restartIce() // spec §55: try to recover before giving up on the call
-        setStatus("failed")
-        connectedAt = null
-        markVideoNotReady("connection failed")
-      } else if (pc.connectionState === "closed") {
-        setStatus("closed")
-        connectedAt = null
       } else {
-        // "connecting"/"disconnected"/"new" — no longer a confirmed
-        // connected state, so a stale connectedAt timestamp from a
-        // previous connected period must not keep counting toward the
-        // media-readiness timeout below.
         connectedAt = null
+        setStatus(pc.connectionState === "closed" ? "closed" : "connecting")
+        markVideoNotReady("transport not connected")
+        if (pc.connectionState === "failed" || pc.connectionState === "disconnected") recover()
       }
     }
 
@@ -531,7 +547,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
         })
         video
           .replaceTrack(videoTrackRef.current)
-          .catch((err) => console.error("webrtc: sender self-heal replaceTrack (video) failed", { roomId, error: String(err) }))
+          .catch((err) => console.error("webrtc: sender self-heal replaceTrack (video) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
       }
       if (audio && audio.track !== audioTrackRef.current) {
         console.error("webrtc: audio sender's track doesn't match the current mic track — reapplying replaceTrack", {
@@ -541,18 +557,27 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
         })
         audio
           .replaceTrack(audioTrackRef.current)
-          .catch((err) => console.error("webrtc: sender self-heal replaceTrack (audio) failed", { roomId, error: String(err) }))
+          .catch((err) => console.error("webrtc: sender self-heal replaceTrack (audio) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
       }
     }
 
     const collectStats = makeStatsCollector(pc)
     let tickCount = 0
-    let videoReadyLocal = false
+    let collecting = false
 
     const tick = async () => {
+      if (cancelled || collecting) return
+      collecting = true
       tickCount += 1
       const stats = await collectStats()
+      collecting = false
+      if (cancelled) return
+      if (recoveryStartedAt !== null && Date.now() - recoveryStartedAt > ICE_RECOVERY_DEADLINE_MS) {
+        negotiation.failed()
+        recoveryStartedAt = null
+      }
       if (stats) {
+        lastDecodedFrames = stats.incoming.framesDecoded ?? 0
         if (tickCount % LOG_EVERY_N_TICKS === 0) {
           console.log("webrtc: stats", { roomId, ...stats })
         }
@@ -561,112 +586,35 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
         // confirms real decoded frames — either alone is exactly the kind
         // of false-positive this whole investigation started from (ICE/
         // DTLS "connected" with nothing actually decoding).
-        if (!videoReadyLocal && remoteVideoTrackLive && (stats.incoming.framesDecoded ?? 0) > 0) {
+        if (!videoReadyLocal && remoteVideoTrackLive && lastDecodedFrames > recoveryBaseline) {
           videoReadyLocal = true
           console.log("webrtc: remote video ready — live track + frames decoding", {
             roomId,
             framesDecoded: stats.incoming.framesDecoded,
           })
           setRemoteVideoReady(true)
+          negotiation.recovered()
+          recoveryStartedAt = null
         }
 
-        // Media-recovery timeout: connectionState says "connected", but no
-        // decoded remote video frames within MEDIA_READY_TIMEOUT_MS of
-        // becoming connected — treat this as a real media failure rather
-        // than displaying the fallback background indefinitely. Reuses the
-        // exact same recovery path a genuine connectionState "failed"
-        // already goes through (restartIce() + reporting status "failed",
-        // which useMatchmaking.ts's existing stuck-connection handling
-        // already watches for and eventually skips past) — no new
-        // recovery machinery, just a second, more skeptical trigger for it.
-        if (!videoReadyLocal && connectedAt !== null && !mediaRecoveryAttempted && Date.now() - connectedAt > MEDIA_READY_TIMEOUT_MS) {
-          mediaRecoveryAttempted = true
-          console.error("webrtc: connected but no remote video frames decoded within timeout — attempting recovery", {
-            roomId,
-            elapsedMs: Date.now() - connectedAt,
-          })
-          pc.restartIce()
-          setStatus("failed")
+        // One bounded in-room recovery for connected-but-no-video.
+        if (!videoReadyLocal && connectedAt !== null && Date.now() - connectedAt > MEDIA_READY_TIMEOUT_MS) {
+          recover()
         }
       }
       checkSenderHealth()
     }
     const tickInterval = setInterval(tick, TICK_INTERVAL_MS)
 
-    async function flushPendingCandidates() {
-      const queued = pendingCandidates
-      pendingCandidates = []
-      for (const candidate of queued) {
-        await pc
-          .addIceCandidate(candidate)
-          .then(() => console.log("webrtc: ice applied (flushed)", { roomId }))
-          .catch((err) => {
-            console.error("webrtc: addIceCandidate (flushed) failed", { roomId, error: String(err) })
-          })
-      }
-    }
-
-    const unsubscribe = onSignal(async (incomingRoomId, data) => {
-      if (incomingRoomId !== roomId) return
-      try {
-        if (data.kind === "offer") {
-          console.log("webrtc: offer received", { roomId })
-          await pc.setRemoteDescription({ type: "offer", sdp: data.sdp })
-          remoteDescriptionSet = true
-          await flushPendingCandidates()
-          const answer = await pc.createAnswer()
-          await pc.setLocalDescription(answer)
-          console.log("webrtc: answer created", { roomId })
-          sendSignal(roomId, { kind: "answer", sdp: answer.sdp ?? "" })
-          console.log("webrtc: answer sent", { roomId })
-        } else if (data.kind === "answer") {
-          console.log("webrtc: answer received", { roomId })
-          await pc.setRemoteDescription({ type: "answer", sdp: data.sdp })
-          remoteDescriptionSet = true
-          await flushPendingCandidates()
-        } else if (data.kind === "ice") {
-          if (remoteDescriptionSet) {
-            await pc
-              .addIceCandidate(data.candidate)
-              .then(() => console.log("webrtc: ice applied", { roomId }))
-              .catch((err) => {
-                console.error("webrtc: addIceCandidate failed", { roomId, error: String(err) })
-              })
-          } else {
-            console.log("webrtc: ice buffered", { roomId })
-            pendingCandidates.push(data.candidate)
-          }
-        }
-      } catch (err) {
-        // Malformed or out-of-order signaling — safe to ignore, negotiation
-        // will retry (or the stuck-connection timeout in
-        // useMatchmaking.ts eventually gives up and skips) — but logged
-        // rather than silently swallowed, so a real, recurring negotiation
-        // problem is actually visible instead of just "calls sometimes
-        // don't connect, no idea why."
-        console.error("webrtc: signal handling failed", { roomId, kind: data.kind, error: String(err) })
-      }
+    const unsubscribe = onSignal(roomId, (incomingRoomId, data) => {
+      if (!cancelled && incomingRoomId === roomId) void negotiation.receive(data)
     })
-
-    if (initiator) {
-      ;(async () => {
-        try {
-          const offer = await pc.createOffer()
-          await pc.setLocalDescription(offer)
-          console.log("webrtc: offer created", { roomId })
-          sendSignal(roomId, { kind: "offer", sdp: offer.sdp ?? "" })
-        } catch (err) {
-          // connectionstatechange will reflect the failure too; logged here
-          // as well since createOffer/setLocalDescription failing outright
-          // is a different, more specific problem than a negotiation that
-          // started and then stalled.
-          console.error("webrtc: offer creation failed", { roomId, error: String(err) })
-        }
-      })()
-    }
+    if (initiator) void negotiation.start()
 
     return () => {
       cancelled = true
+      negotiation.dispose()
+      console.debug("webrtc: peer disposed", { roomId, reason: "room_effect_cleanup" })
       clearInterval(tickInterval)
       unsubscribe()
       pc.close()
@@ -691,12 +639,12 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     audioTrackRef.current = audioTrack
     const { video, audio } = sendersRef.current
     if (video && video.track !== videoTrack) {
-      video.replaceTrack(videoTrack).catch((err) => console.error("webrtc: replaceTrack (video) failed", { error: String(err) }))
+      video.replaceTrack(videoTrack).catch((err) => console.error("webrtc: replaceTrack (video) failed", { error: err instanceof Error ? err.name : "RTCError" }))
     }
     if (audio && audio.track !== audioTrack) {
-      audio.replaceTrack(audioTrack).catch((err) => console.error("webrtc: replaceTrack (audio) failed", { error: String(err) }))
+      audio.replaceTrack(audioTrack).catch((err) => console.error("webrtc: replaceTrack (audio) failed", { error: err instanceof Error ? err.name : "RTCError" }))
     }
   }, [videoTrack, audioTrack])
 
-  return { remoteStream, remoteVideoReady, status }
+  return { remoteStream: mediaRoom === roomId ? remoteStream : null, remoteVideoReady: mediaRoom === roomId && remoteVideoReady, status }
 }

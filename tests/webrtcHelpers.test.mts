@@ -1,6 +1,23 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { sortUdpFirst } from "../hooks/useWebRTC.ts"
+import { sortUdpFirst, buildIceServers } from "../hooks/useWebRTC.ts"
+
+test("configured TURN is passed to ICE alongside STUN", () => {
+  const keys = ["NEXT_PUBLIC_TURN_URL", "NEXT_PUBLIC_TURN_USERNAME", "NEXT_PUBLIC_TURN_CREDENTIAL"] as const
+  const previous = keys.map(key => process.env[key])
+  try {
+    process.env.NEXT_PUBLIC_TURN_URL = "turn:relay.example:3478,turns:relay.example:5349"
+    process.env.NEXT_PUBLIC_TURN_USERNAME = "test-user"
+    process.env.NEXT_PUBLIC_TURN_CREDENTIAL = "test-only"
+    const servers = buildIceServers()
+    assert.equal(servers.length, 3)
+    assert.deepEqual(servers[2], { urls: ["turn:relay.example:3478", "turns:relay.example:5349"], username: "test-user", credential: "test-only" })
+    delete process.env.NEXT_PUBLIC_TURN_URL
+    assert.equal(buildIceServers().length, 2)
+  } finally {
+    keys.forEach((key, i) => { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i] })
+  }
+})
 
 // Pure logic only — hooks/useWebRTC.ts itself needs a real browser
 // (RTCPeerConnection, getUserMedia) to exercise beyond this; see that
