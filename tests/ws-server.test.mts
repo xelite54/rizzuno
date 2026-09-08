@@ -4,6 +4,36 @@ import { startTestServer, connectAndHello, TestClient } from "./helpers/wsHarnes
 import { dbMockState, resetDbMockState } from "./helpers/dbMock.mts"
 
 let counter = 0
+
+// This is the server-side invariant hooks/useMatchmaking.ts's sendFind()
+// relies on (see its own doc comment): a "find" that races ahead of
+// "hello" completing must be silently dropped, never crash the connection
+// or produce any response — the client is what's responsible for not
+// sending one too early in the first place (recording the intent and
+// letting the reconnect-resume effect send a real one once "ready"
+// actually arrives), but the server must stay safe either way.
+test("a message sent before 'hello' is silently ignored — no crash, no response, and hello still works right after", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const early = new TestClient(server.url)
+    await early.waitForOpen()
+    early.send({ type: "find" })
+    // No "queued"/"matched"/"error"/anything — genuinely nothing comes
+    // back for a message the server never attached to an account.
+    await assert.rejects(() => early.waitForType("queued", 200), /timed out/)
+    await assert.rejects(() => early.waitForType("error", 100), /timed out/)
+
+    // The exact same (still-open) socket can still complete a normal
+    // hello afterward — the early, ignored message didn't corrupt
+    // anything about this connection.
+    const { mintTicket } = await import("../lib/realtimeTicket")
+    early.send({ type: "hello", ticket: mintTicket(uid("early")), handle: "early", gender: "male", profilePhoto: null })
+    await early.waitForType("ready")
+    early.close()
+  } finally { await server.close() }
+})
+
 test("a delayed find retry cannot end an established random match", async () => {
   resetDbMockState()
   const server = await startTestServer()

@@ -569,6 +569,21 @@ export function createRizzunoWebSocketServer() {
     ws.on("pong", () => {
       if (state) state.isAlive = true
     })
+    // A connection that never completes "hello" (a stray/misbehaving
+    // client, a probe, or one whose hello genuinely never arrives) is
+    // never added to `connections` — the heartbeat above only ever
+    // iterates that map, so a not-yet-authenticated socket is otherwise
+    // invisible to it and would sit open indefinitely with nothing to
+    // reap it. This is the pre-hello equivalent of the heartbeat, closed
+    // the moment "hello" actually succeeds below.
+    const HELLO_TIMEOUT_MS = 15_000
+    const helloTimeout = setTimeout(() => {
+      if (!state) {
+        console.log("ws-server: closing connection — no 'hello' received in time")
+        ws.close(1008, "hello timeout")
+      }
+    }, HELLO_TIMEOUT_MS)
+    ws.on("close", () => clearTimeout(helloTimeout))
     const checkRate = createRateLimiter()
     // Block/report/match checks are now real database round trips, so
     // handling one message can involve a genuine await. Messages from the

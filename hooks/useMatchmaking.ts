@@ -228,6 +228,23 @@ export function useMatchmaking(
   useEffect(() => {
     serverStateRef.current = serverState
   }, [serverState])
+  // Mirrors `realtimeReady` for sendFind() below to read without needing it
+  // as a dependency (which would change that callback's identity on every
+  // ready/not-ready flip, and with it every effect/prop that closes over
+  // it — e.g. SwipeStage's own `onResume`). The server already silently
+  // drops any non-"hello" message that arrives before it has processed
+  // this connection's own hello (see server/ws-server.ts's "message before
+  // hello — ignoring"), so a "find" sent too early was never actually
+  // reaching the matchmaker — but it still optimistically entered
+  // "queue-pending" client-side and started that state's own ack-timeout,
+  // for an attempt the server never even saw. This closes that gap at the
+  // source instead of only relying on the ack-timeout's retry (and,
+  // failing that, the reconnect-resume effect below) to paper over it a
+  // few seconds later.
+  const realtimeReadyRef = useRef(realtimeReady)
+  useEffect(() => {
+    realtimeReadyRef.current = realtimeReady
+  }, [realtimeReady])
 
   // Whether the guest currently *wants* automatic matching to be happening
   // — the "desired intent" this whole reconnect fix hinges on, kept
@@ -479,7 +496,19 @@ export function useMatchmaking(
   // refilling it.
   const sendFind = useCallback(() => {
     if (!canSearch(roomRef.current)) return
+    // The intent is recorded regardless of readiness — that's what lets a
+    // swipe/findMatch() that arrives a beat before "ready" still work: the
+    // reconnect-resume effect below fires a real find() itself the moment
+    // realtimeReady actually turns true, from this same recorded intent.
+    // What's skipped when not ready is only entering "queue-pending" and
+    // actually sending "find" — the server drops any non-"hello" message
+    // before it's processed this connection's own hello anyway (see
+    // realtimeReadyRef's own doc comment), so there is nothing correct to
+    // send yet, and optimistically showing "Finding someone…" for an
+    // attempt the server never saw would only resolve itself via the
+    // ack-timeout's retry a few seconds later — needless, avoidable churn.
     wantsMatchingRef.current = true
+    if (!realtimeReadyRef.current) return
     enterQueuePending({ type: "find-sent" })
     send({ type: "find" })
   }, [send, enterQueuePending])
