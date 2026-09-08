@@ -317,9 +317,49 @@ type UseWebRTCParams = {
    * all for the peer to possibly receive anything from.
    */
   micEnabled: boolean
+  /**
+   * The server's authoritative "both sides are genuinely rtc-ready — you
+   * (the designated initiator) may now start negotiation" signal, threaded
+   * straight through from useMatchmaking.ts's own "rtc-start" handling
+   * (already room-scoped/staleness-guarded there — see isCurrentRoom).
+   * Only ever meaningful for `initiator === true`; the non-initiator's
+   * flow is entirely unaffected (it only ever reacts to an incoming
+   * offer, exactly as before) — see the room effect's own doc comment on
+   * `startNegotiationForThisRoom` for why this used to be unconditional
+   * (`if (initiator) void negotiation.start()`, fired the instant the
+   * RTCPeerConnection was created) and why that was the actual
+   * architectural gap behind a real production bug: nothing ever proved
+   * the OTHER side had gotten far enough to receive an offer before one
+   * could be sent.
+   */
+  rtcStart: boolean
   sendSignal: (roomId: string, data: RtcSignal) => void
   onSignal: (roomId: string, handler: (roomId: string, data: RtcSignal) => void) => () => void
 }
+
+/**
+ * Purely internal, diagnostic-only phase tracking for the room-
+ * establishment handshake (see server/ws-server.ts's own doc comment on
+ * its RoomSetup type for the full design this is the client-side half
+ * of). Logged, never returned from this hook and never rendered — the
+ * user-facing UI still simply says "Connecting" the entire time (state
+ * === "connecting" in useMatchmaking.ts is unchanged); this exists so a
+ * stalled setup is diagnosable (which exact phase it stalled at, from the
+ * browser's own console) instead of every possible stall looking
+ * identical from the outside.
+ */
+type RtcPhase =
+  | "room-created"
+  | "rtc-initialized"
+  | "waiting-for-peer-ready"
+  | "rtc-start-received"
+  | "offer-sent"
+  | "offer-received"
+  | "answer-sent"
+  | "answer-received"
+  | "ice-connecting"
+  | "connected"
+  | "media-ready"
 
 /**
  * One RTCPeerConnection per room. A video and an audio transceiver are
@@ -328,7 +368,7 @@ type UseWebRTCParams = {
  * call — never a renegotiation — and turning the camera off, back on, or
  * swapping devices mid-call never disrupts the connection.
  */
-export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnabled, sendSignal, onSignal }: UseWebRTCParams) {
+export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnabled, rtcStart, sendSignal, onSignal }: UseWebRTCParams) {
   const [status, setStatus] = useState<PeerConnectionStatus>("new")
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const sendersRef = useRef<{ video: RTCRtpSender | null; audio: RTCRtpSender | null }>({ video: null, audio: null })
@@ -389,6 +429,24 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
   const reportPlaybackConfirmed = useCallback((forRoomId: string) => {
     reportPlaybackConfirmedRef.current?.(forRoomId)
   }, [])
+  // True once THIS room's RTCPeerConnection, video/audio transceivers, and
+  // signal listener are all genuinely set up — see "rtc-ready" in
+  // lib/signaling/protocol.ts for what useMatchmaking.ts actually does
+  // with this (sends "rtc-ready" to the server once this is true AND its
+  // own conditions — realtimeReady, a live local video track — also hold).
+  // Reset to false on every room change exactly like remoteStream/
+  // remoteVideoReady above, for the same reason: a value describing a room
+  // that's since ended must never be mistaken for describing the current
+  // one.
+  const [rtcInitialized, setRtcInitialized] = useState(false)
+  // Lets the "watch rtcStart" effect further down (a small, separate
+  // effect — NOT a dependency of the room-creating effect itself, which
+  // would tear down and recreate the whole RTCPeerConnection every time
+  // the server's readiness handshake progresses) reach into whichever room
+  // effect instance is CURRENTLY live, mirroring reportPlaybackConfirmedRef's
+  // exact pattern immediately above. Reassigned fresh by every room effect
+  // instance; cleared to null on that instance's own cleanup.
+  const startNegotiationRef = useRef<(() => void) | null>(null)
   const [mediaRoom, setMediaRoom] = useState<string | null>(null)
 
   useEffect(() => {
@@ -397,6 +455,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     setRemoteStream(null)
     setMediaRoom(roomId)
     setRemoteVideoReady(false)
+    setRtcInitialized(false)
 
     // Explicit, not just the implicit default — "all" (never "relay")
     // means every candidate type is gathered and ICE's own priority
@@ -413,8 +472,22 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     let recoveryBaseline = 0
     let lastDecodedFrames = 0
     let videoReadyLocal = false
+
+    // See RtcPhase's own doc comment above — purely diagnostic, logged
+    // only, never returned/rendered.
+    let phase: RtcPhase = "room-created"
+    function setPhase(next: RtcPhase) {
+      if (phase === next) return
+      phase = next
+      console.debug("webrtc: phase", { roomId, phase: next })
+    }
+
     const negotiation = createRtcNegotiation(pc, initiator, (data) => sendSignal(roomId, data), (event) => {
       console.debug(`webrtc: ${event}`, { roomId })
+      if (event === "offer sent") setPhase("offer-sent")
+      else if (event === "offer received") setPhase("offer-received")
+      else if (event === "answer sent") setPhase("answer-sent")
+      else if (event === "answer received") setPhase("answer-received")
       if (event === "ICE restart started") {
         recoveryStartedAt = Date.now()
         recoveryBaseline = lastDecodedFrames
@@ -506,6 +579,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       console.log("webrtc: remote video ready — confirmed by actual <video> playback, not just stats", { roomId })
       videoReadyLocal = true
       recoveryBaseline = lastDecodedFrames
+      setPhase("media-ready")
       setRemoteVideoReady(true)
       negotiation.recovered()
       recoveryStartedAt = null
@@ -593,12 +667,14 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     pc.oniceconnectionstatechange = () => {
       if (cancelled) return
       console.debug("webrtc: ICE connection state", { roomId, state: pc.iceConnectionState })
+      if (pc.iceConnectionState === "checking") setPhase("ice-connecting")
       if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") recover()
     }
     pc.onconnectionstatechange = () => {
       if (cancelled) return
       console.debug("webrtc: peer connection state", { roomId, state: pc.connectionState })
       if (pc.connectionState === "connected") {
+        setPhase("connected")
         setStatus("connected")
         connectedAt = Date.now()
       } else {
@@ -682,6 +758,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
             roomId,
             framesDecoded: stats.incoming.framesDecoded,
           })
+          setPhase("media-ready")
           setRemoteVideoReady(true)
           negotiation.recovered()
           recoveryStartedAt = null
@@ -699,7 +776,39 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     const unsubscribe = onSignal(roomId, (incomingRoomId, data) => {
       if (!cancelled && incomingRoomId === roomId) void negotiation.receive(data)
     })
-    if (initiator) void negotiation.start()
+
+    // Everything the room-establishment handshake actually needed is true
+    // right here: the RTCPeerConnection exists, both transceivers exist,
+    // and the signal listener for THIS room is now registered — see
+    // "rtc-ready" in lib/signaling/protocol.ts for the exact bullet list
+    // this satisfies. useMatchmaking.ts sends "rtc-ready" once this AND
+    // its own remaining conditions (realtimeReady, a live local video
+    // track) hold.
+    setPhase("rtc-initialized")
+    setRtcInitialized(true)
+    setPhase("waiting-for-peer-ready")
+
+    // THE fix for "matched" alone never proving the other side would ever
+    // actually receive an offer: negotiation.start() (the initiator-only
+    // call that creates and sends the first SDP offer) no longer fires
+    // unconditionally the instant this effect runs — see UseWebRTCParams'
+    // own doc comment on `rtcStart` for the full reasoning. It now only
+    // ever fires once the server's "rtc-start" arrives (confirming BOTH
+    // sides are genuinely rtc-ready), via the small separate effect below
+    // that watches `rtcStart` and calls through this ref — never as a
+    // dependency of THIS effect, which would tear down and recreate the
+    // whole RTCPeerConnection on every readiness-handshake tick. The
+    // non-initiator's own flow is completely unaffected: it never called
+    // negotiation.start() before and still doesn't — it only ever reacts
+    // to an incoming offer via onSignal above.
+    let negotiationStarted = false
+    function startNegotiationForThisRoom() {
+      if (cancelled || negotiationStarted || !initiator) return
+      negotiationStarted = true
+      setPhase("rtc-start-received")
+      void negotiation.start()
+    }
+    startNegotiationRef.current = startNegotiationForThisRoom
 
     return () => {
       cancelled = true
@@ -710,6 +819,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       pc.close()
       pcRef.current = null
       sendersRef.current = { video: null, audio: null }
+      if (startNegotiationRef.current === startNegotiationForThisRoom) startNegotiationRef.current = null
       if (reportPlaybackConfirmedRef.current === reportPlaybackConfirmedForThisRoom) reportPlaybackConfirmedRef.current = null
       setStatus("closed")
       setRemoteStream(null)
@@ -743,9 +853,27 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     }
   }, [videoTrack, audioTrack, micEnabled])
 
+  // Watches the server's "rtc-start" (relayed through useMatchmaking.ts's
+  // own `rtcStart`, already room-scoped there) and, the moment it becomes
+  // true, triggers THIS room's own negotiation.start() via
+  // startNegotiationRef — see startNegotiationForThisRoom's own doc
+  // comment inside the room effect above for the full reasoning. Kept as
+  // its own small effect, deliberately NOT folded into the room effect
+  // itself: `rtcStart` flipping must never tear down and recreate the
+  // RTCPeerConnection, only trigger an action on the one that already
+  // exists. `startNegotiationForThisRoom` is itself idempotent (guards on
+  // its own `negotiationStarted` flag) and a safe no-op once the room
+  // effect has torn down (the ref is cleared to null in that cleanup), so
+  // there's no meaningful failure mode from this firing more than once or
+  // from a late/stale `rtcStart` value.
+  useEffect(() => {
+    if (rtcStart) startNegotiationRef.current?.()
+  }, [rtcStart])
+
   return {
     remoteStream: mediaRoom === roomId ? remoteStream : null,
     remoteVideoReady: mediaRoom === roomId && remoteVideoReady,
+    rtcInitialized: mediaRoom === roomId && rtcInitialized,
     status,
     reportPlaybackConfirmed,
   }

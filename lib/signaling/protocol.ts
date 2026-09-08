@@ -132,6 +132,21 @@ export type ClientMessage =
   | { type: "skip" }
   | { type: "leave" }
   | { type: "signal"; roomId: string; data: RtcSignal }
+  /**
+   * "My WebRTC side for this room is genuinely initialized" — sent by
+   * useMatchmaking.ts only once ALL of: `roomId` is current, useWebRTC has
+   * created the RTCPeerConnection (video/audio transceivers included), its
+   * signal listener for this exact room is registered, and (see
+   * useMatchmaking.ts's own doc comment) local video is a live track. The
+   * server tracks this independently for both sides of a room and only
+   * dispatches "rtc-start" (below) to the designated initiator once BOTH
+   * have sent it — see server/ws-server.ts's room-establishment handshake
+   * for the full design and why "matched" alone was never enough (a stale/
+   * backgrounded browser could receive "matched" and never actually get
+   * this far, leaving its partner's UI on "Connecting" forever with no
+   * offer ever coming).
+   */
+  | { type: "rtc-ready"; roomId: string }
   /** `clientMessageId` is what "chat-sent"/"chat-failed" below echo back so the sender can reconcile its own optimistic copy — see hooks/useMatchmaking.ts's sendChat(), which never marks a message actually sent until one of those two arrives. */
   | { type: "chat"; roomId: string; clientMessageId: string; content: ChatContent }
   | { type: "report"; roomId: string; category: ReportCategory; details?: string }
@@ -195,10 +210,43 @@ export type ServerMessage =
    */
   | { type: "ready" }
   | { type: "queued" }
-  | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity; alreadyFriends: boolean }
+  /**
+   * `source` is authoritative, server-decided, and drives real
+   * client-side behavior (see hooks/useMatchmaking.ts) — never cosmetic:
+   * "random" is the only source that implies "keep automatically finding
+   * someone if this ends" (a direct/friend call must never accidentally
+   * start random matchmaking just because it failed or the friend left —
+   * see the room-establishment handshake's own doc comment in
+   * server/ws-server.ts for the full reasoning).
+   */
+  | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity; alreadyFriends: boolean; source: "random" | "friend" }
   /** The current partner edited their own profile mid-call (e.g. set/changed their username) — same shape as "matched"'s peer, just a refresh rather than a new match. */
   | { type: "peer-updated"; roomId: string; peer: PublicPeerIdentity }
   | { type: "signal"; roomId: string; data: RtcSignal }
+  /**
+   * Sent ONLY to the room's designated initiator, and only once the server
+   * has received "rtc-ready" from BOTH sides of this exact room — see
+   * "rtc-ready" above for what that actually proves, and
+   * server/ws-server.ts's room-establishment handshake for the full
+   * design. The initiator must not create/send an SDP offer before this
+   * arrives, even though it already knows `initiator: true` from
+   * "matched" — that's the entire point: "matched" alone never proved the
+   * OTHER side was genuinely ready to receive one.
+   */
+  | { type: "rtc-start"; roomId: string }
+  /**
+   * A committed room never finished establishing a real WebRTC session —
+   * neither side sent "rtc-ready" (or only one did) within
+   * server/ws-server.ts's bounded room-setup deadline, most often because
+   * one browser was stale, backgrounded, or otherwise unresponsive right
+   * after "matched" (see that file's own doc comment for the production
+   * bug this closes). The server has already authoritatively torn the
+   * room down by the time this arrives — the client's only job is to
+   * clear its own local room/RTC state and, for `source: "friend"`, land
+   * back on idle/home rather than reusing "peer-left"'s random-match
+   * auto-retry behavior (see "matched"'s own `source` field).
+   */
+  | { type: "room-setup-failed"; roomId: string; source: "random" | "friend" }
   | { type: "chat"; roomId: string; from: "peer"; content: ChatContent; ts: number }
   /** Delivery acknowledgement for a "chat" send — the ONLY thing that turns the sender's own optimistic message from "sending" into "sent" (see hooks/useMatchmaking.ts's sendChat()). Appending a message locally the instant it's sent, without waiting for this, is exactly the "phantom sent" bug this exists to fix: useSignalingSocket.send() silently drops a message when the transport isn't open, which previously left the sender seeing a message that never reached anyone. */
   | { type: "chat-sent"; roomId: string; clientMessageId: string; ts: number }

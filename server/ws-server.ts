@@ -59,7 +59,23 @@ function cancelInvitations(state: ConnectionState) {
 }
 
 function availableForInvitation(state: ConnectionState): boolean {
-  return connections.get(state.userId) === state && state.ws.readyState === WebSocket.OPEN && !state.roomId && !state.seeking
+  // `isAlive` (heartbeat liveness — see ConnectionState's own doc comment)
+  // is a real, if partial, improvement over `readyState === OPEN` alone: a
+  // connection that's genuinely vanished (backgrounded and killed, a lost
+  // signal) without a clean close can show OPEN for a long time otherwise.
+  // It does NOT prove the browser can actually start WebRTC right now
+  // (a tab can still be alive-per-heartbeat while stale/throttled/slow to
+  // resume JS execution) — that's what the rtc-ready handshake (see
+  // "match-invite-respond"'s own doc comment, and the "rtc-ready" case
+  // below) is the actual, final authority for. This is only ever the
+  // FIRST, cheap filter for "is there any point even trying".
+  return (
+    connections.get(state.userId) === state &&
+    state.ws.readyState === WebSocket.OPEN &&
+    state.isAlive &&
+    !state.roomId &&
+    !state.seeking
+  )
 }
 
 async function friendsMayCall(a: ConnectionState, b: ConnectionState): Promise<boolean> {
@@ -465,14 +481,11 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
 
   const aState = connections.get(room.a)!
   const bState = connections.get(room.b)!
-  aState.roomId = room.id
-  bState.roomId = room.id
   aState.seeking = false
   bState.seeking = false
 
-  send(aState.ws, { type: "matched", roomId: room.id, initiator: true, peer: toPublicIdentity(bState), alreadyFriends })
+  dispatchMatch(aState, bState, room.id, "random", alreadyFriends)
   console.log("ws-server: matched sent to A", { roomId: room.id, displayId: aState.displayId })
-  send(bState.ws, { type: "matched", roomId: room.id, initiator: false, peer: toPublicIdentity(aState), alreadyFriends })
   console.log("ws-server: matched sent to B", { roomId: room.id, displayId: bState.displayId })
 
   // Recorded ONLY now — after both "matched" sends, both to sockets this
@@ -481,12 +494,155 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   matchmaker.commitMatch(room.id)
 }
 
-type RoomEndReason = "user_skip" | "user_leave" | "blocked" | "socket_closed" | "account_changed" | "socket_replaced"
+type RoomEndReason = "user_skip" | "user_leave" | "blocked" | "socket_closed" | "account_changed" | "socket_replaced" | "setup_timeout"
+
+/**
+ * ROOM-ESTABLISHMENT HANDSHAKE.
+ *
+ * The production bug this closes: "matched" used to be dispatched to both
+ * sides the instant a room was created, with nothing whatsoever confirming
+ * either browser actually went on to build a working RTCPeerConnection —
+ * only that its WebSocket was OPEN (and, for a direct call,
+ * `availableForInvitation`'s pre-existing checks). A friend accepting an
+ * invite while the SENDER's tab was stale, backgrounded, or otherwise slow
+ * to resume JS execution would get "matched" fine, but that sender might
+ * never actually create its (initiator-side) RTCPeerConnection or send an
+ * SDP offer for an arbitrarily long time — or ever. The recipient, a
+ * correctly-behaving non-initiator, has nothing to react to: no offer ever
+ * arrives, useWebRTC's OWN recovery logic never engages (it's gated on
+ * `connectionState === "connected"`, which never happens without ICE ever
+ * starting), and the UI is stuck on "Connecting" forever with no path out.
+ *
+ * The fix makes a room a REAL call only once both live clients have
+ * explicitly told the server their own RTC side is genuinely initialized
+ * for this exact room ("rtc-ready" — see its own doc comment in
+ * lib/signaling/protocol.ts for exactly what that proves). Only once BOTH
+ * have arrives does the server tell the designated initiator to actually
+ * start negotiation ("rtc-start") — before that, the initiator does NOT
+ * create or send an offer merely because `matched` said `initiator: true`.
+ * This structurally guarantees the non-initiator already has its own
+ * RTCPeerConnection + signal listener installed before an offer can even
+ * exist, which is what makes "the offer arrives and there's nobody around
+ * to receive it" impossible by construction, not by luck of timing.
+ *
+ * A bounded deadline (`roomSetupTestConfig.deadlineMs`) is the safety net
+ * around that handshake, NOT the primary mechanism — a room whose initial
+ * offer hasn't been relayed within it (whichever side never got that far:
+ * never became rtc-ready, or became rtc-ready but the initiator's own
+ * offer never actually made it out) is torn down authoritatively and both
+ * still-current sides are told via "room-setup-failed", so neither UI can
+ * ever be stuck on "Connecting" indefinitely. Cleared the moment the FIRST
+ * real offer for a room is observed being relayed (see the "signal" case
+ * below) — everything after that (ICE, media, recovery) is useWebRTC's own
+ * existing, unrelated responsibility; this deadline is only ever about the
+ * initial handshake.
+ *
+ * Applies identically to random matches and direct/friend calls — `source`
+ * is carried through purely for client-side UI/intent decisions (see
+ * "matched"'s own doc comment), never to change how this handshake itself
+ * behaves.
+ */
+type RoomSetup = {
+  roomId: string
+  aUserId: string
+  bUserId: string
+  /** Whichever side got `initiator: true` in "matched" — always `aUserId` at both call sites below, kept as its own field rather than assumed so this type doesn't quietly depend on that convention holding elsewhere. */
+  initiatorUserId: string
+  source: "random" | "friend"
+  aReady: boolean
+  bReady: boolean
+  startSent: boolean
+  offerRelayed: boolean
+  answerRelayed: boolean
+  deadline: ReturnType<typeof setTimeout>
+}
+const roomSetups = new Map<string, RoomSetup>()
+
+/**
+ * Test-overridable — see tests/directCall.test.mts, which shortens this
+ * dramatically (milliseconds, not seconds) to exercise the deadline
+ * without a real multi-second wait per test. A mutable config OBJECT
+ * (never a re-exported `let` binding, which ESM makes read-only from an
+ * importer) — the same pattern tests/helpers/dbMock.mts already
+ * established for `blockCheckDelayMs`/`friendsCheckDelayMs`.
+ */
+export const roomSetupTestConfig = { deadlineMs: 9_000 }
+
+function clearRoomSetup(roomId: string) {
+  const setup = roomSetups.get(roomId)
+  if (!setup) return
+  clearTimeout(setup.deadline)
+  roomSetups.delete(roomId)
+}
+
+/** Authoritatively tears down a room whose RTC setup never completed within the deadline — see the class doc comment above for the full design. Safe to call even if the room (or either side's membership in it) has already moved on for any other reason; touches nothing that isn't still genuinely this exact room. */
+function abortRoomSetup(roomId: string) {
+  const setup = roomSetups.get(roomId)
+  if (!setup) return
+  clearRoomSetup(roomId)
+  matchmaker.destroyRoom(roomId)
+  console.warn("rtc: setup timeout", {
+    roomId,
+    source: setup.source,
+    aReady: setup.aReady,
+    bReady: setup.bReady,
+    offerRelayed: setup.offerRelayed,
+  })
+  if (setup.source === "friend") console.log("direct-call: room aborted", { roomId })
+  for (const userId of [setup.aUserId, setup.bUserId]) {
+    const s = connections.get(userId)
+    if (s && s.roomId === roomId) {
+      s.roomId = null
+      send(s.ws, { type: "room-setup-failed", roomId, source: setup.source })
+    }
+  }
+}
+
+/**
+ * The ONE place a room is ever dispatched to both sides — used by both
+ * random matches (tryMatch, below) and direct/friend calls
+ * ("match-invite-respond"), so the handshake this file's own doc comment
+ * describes applies identically to both, never duplicated or able to drift
+ * apart between the two call sites. `aState` is always the designated
+ * initiator. Registers this room's RoomSetup entry (see its own doc
+ * comment) and starts its bounded setup deadline BEFORE either "matched"
+ * send, so there is no gap in which a room exists with no deadline
+ * protecting it.
+ */
+function dispatchMatch(
+  aState: ConnectionState,
+  bState: ConnectionState,
+  roomId: string,
+  source: "random" | "friend",
+  alreadyFriends: boolean
+) {
+  aState.roomId = roomId
+  bState.roomId = roomId
+  const deadline = setTimeout(() => abortRoomSetup(roomId), roomSetupTestConfig.deadlineMs)
+  deadline.unref()
+  roomSetups.set(roomId, {
+    roomId,
+    aUserId: aState.userId,
+    bUserId: bState.userId,
+    initiatorUserId: aState.userId,
+    source,
+    aReady: false,
+    bReady: false,
+    startSent: false,
+    offerRelayed: false,
+    answerRelayed: false,
+    deadline,
+  })
+  console.log(source === "friend" ? "direct-call: room created" : "rtc: room created", { roomId, source })
+  send(aState.ws, { type: "matched", roomId, initiator: true, peer: toPublicIdentity(bState), alreadyFriends, source })
+  send(bState.ws, { type: "matched", roomId, initiator: false, peer: toPublicIdentity(aState), alreadyFriends, source })
+}
 
 function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason: RoomEndReason) {
   if (!state.roomId) return
   const roomId = state.roomId
   console.info("ws-server: room destroyed", { roomId, reason })
+  clearRoomSetup(roomId)
   const partner = roomPartner(state)
   matchmaker.leaveRoom(state.userId)
   state.roomId = null
@@ -929,7 +1085,71 @@ export function createRizzunoWebSocketServer() {
         case "signal": {
           const partner = roomPartner(state)
           if (partner && partner.roomId === message.roomId) {
+            // Diagnostic-only observation of the room-establishment
+            // handshake's actual progress — never gates or delays the
+            // relay itself (see the "signal" relay unconditionally below,
+            // and SignalBacklog's own doc comment for why early/recovery
+            // signals must keep working exactly as before regardless of
+            // this handshake's own state). The FIRST offer relayed for a
+            // room is what proves the initiator's negotiation genuinely
+            // started — that's what actually clears the setup deadline
+            // (see abortRoomSetup's own doc comment); the answer is logged
+            // purely for the diagnostics this whole investigation needed
+            // (Railway previously had no way to tell whether a direct
+            // invitation successfully created a room, let alone where RTC
+            // setup actually stalled).
+            const setup = roomSetups.get(message.roomId)
+            if (setup) {
+              if (message.data.kind === "offer" && !setup.offerRelayed) {
+                setup.offerRelayed = true
+                clearTimeout(setup.deadline)
+                console.log("rtc: initial offer relayed", { roomId: message.roomId })
+              } else if (message.data.kind === "answer" && !setup.answerRelayed) {
+                setup.answerRelayed = true
+                console.log("rtc: initial answer relayed", { roomId: message.roomId })
+              }
+            }
             send(partner.ws, { type: "signal", roomId: message.roomId, data: message.data })
+          }
+          break
+        }
+        case "rtc-ready": {
+          if (typeof message.roomId !== "string" || state.roomId !== message.roomId) break
+          const setup = roomSetups.get(message.roomId)
+          // No setup entry: either this room was never dispatched through
+          // dispatchMatch() (shouldn't happen — every "matched" now goes
+          // through it) or the handshake already resolved one way or the
+          // other (rtc-start already sent and the deadline cleared, or the
+          // room was already aborted) — either way, a late/duplicate
+          // "rtc-ready" here is a safe no-op, never an error.
+          if (!setup) break
+          if (state.userId === setup.aUserId) {
+            if (setup.aReady) break // idempotent — a duplicate must never re-trigger rtc-start
+            setup.aReady = true
+            console.log("rtc: side A ready", { roomId: message.roomId })
+          } else if (state.userId === setup.bUserId) {
+            if (setup.bReady) break
+            setup.bReady = true
+            console.log("rtc: side B ready", { roomId: message.roomId })
+          } else {
+            break // not actually a participant in this exact room
+          }
+          if (setup.aReady && setup.bReady && !setup.startSent) {
+            setup.startSent = true
+            const initiatorState = connections.get(setup.initiatorUserId)
+            if (initiatorState && initiatorState.roomId === message.roomId) {
+              console.log("rtc: both ready — starting initiator", { roomId: message.roomId })
+              send(initiatorState.ws, { type: "rtc-start", roomId: message.roomId })
+            } else {
+              // The designated initiator vanished between becoming ready
+              // and now — both sides being ready moments ago makes this
+              // rare, but if it happens there's no one left to actually
+              // start negotiation. The setup deadline (still armed —
+              // nothing here clears it) is what bounds this rather than
+              // leaving the other side waiting on a "rtc-start" that will
+              // never come.
+              console.warn("rtc: initiator missing at start time — leaving the setup deadline to abort", { roomId: message.roomId })
+            }
           }
           break
         }
@@ -1200,19 +1420,51 @@ export function createRizzunoWebSocketServer() {
           const senderGeneration = sender.searchGeneration
           const recipientGeneration = state.searchGeneration
           const allowed = await friendsMayCall(sender, state)
-          if (friendInvitations.get(invite.id) !== invite || invite.expiresAt <= Date.now() || !allowed || invite.sender !== sender || !availableForInvitation(sender) || !availableForInvitation(state) || senderGeneration !== sender.searchGeneration || recipientGeneration !== state.searchGeneration) {
+          // Everything the class doc comment on the room-establishment
+          // handshake (above leaveCurrentRoom) lists as needing a re-check
+          // right before commit: the invitation itself (still pending, not
+          // expired, still genuinely from `sender`), both sides still
+          // eligible (availableForInvitation — includes heartbeat
+          // liveness, no room, not seeking), neither side's search intent
+          // having moved on (generation match), AND — the one this used to
+          // be missing — that `connections.get(...)` for BOTH userIds
+          // still resolves to these EXACT captured ConnectionState object
+          // references, not a replacement (a reconnect/account-switch that
+          // created a NEW ConnectionState for the same userId — see
+          // cleanUpAccount, which always bumps the OLD object's own
+          // searchGeneration too, so this is genuine defense-in-depth on
+          // top of the generation check, not the only thing catching it).
+          if (
+            friendInvitations.get(invite.id) !== invite ||
+            invite.expiresAt <= Date.now() ||
+            !allowed ||
+            invite.sender !== sender ||
+            !availableForInvitation(sender) ||
+            !availableForInvitation(state) ||
+            senderGeneration !== sender.searchGeneration ||
+            recipientGeneration !== state.searchGeneration ||
+            connections.get(sender.userId) !== sender ||
+            connections.get(state.userId) !== state
+          ) {
             removeInvitation(invite)
             send(state.ws, { type: "match-invite-error", message: "This friend is no longer available. Please send a new invitation." })
             break
           }
           const room = matchmaker.createDirectRoom(sender.userId, state.userId, senderGeneration, recipientGeneration)
           if (!room) { removeInvitation(invite); break }
-          sender.roomId = room.id
-          state.roomId = room.id
           cancelInvitations(sender)
           cancelInvitations(state)
-          send(sender.ws, { type: "matched", roomId: room.id, initiator: true, peer: toPublicIdentity(state), alreadyFriends: true })
-          send(state.ws, { type: "matched", roomId: room.id, initiator: false, peer: toPublicIdentity(sender), alreadyFriends: true })
+          console.log("direct-call: invite accepted", { roomId: room.id })
+          // `sender` is always the room-establishment handshake's
+          // designated initiator — see dispatchMatch's own doc comment.
+          // Media readiness (a live local video track, not just "the
+          // camera permission exists") is verified client-side before
+          // either side's own "rtc-ready" — see that message's doc
+          // comment in lib/signaling/protocol.ts — not re-checked here;
+          // the server has no visibility into the browser's actual
+          // MediaStreamTrack state, only into the handshake built on top
+          // of it.
+          dispatchMatch(sender, state, room.id, "friend", true)
           matchmaker.commitMatch(room.id)
           break
         }

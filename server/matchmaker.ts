@@ -320,6 +320,31 @@ export class Matchmaker {
       this.rooms.delete(roomId)
     }
   }
+
+  /**
+   * Tears down a committed room entirely, addressed by its own id rather
+   * than derived from either side's CURRENT membership — used by
+   * server/ws-server.ts's room-establishment handshake to abort a room
+   * whose RTC setup never completed in time. `leaveRoom(userId)` isn't
+   * safe for that case: if either side had already moved on to a
+   * DIFFERENT room by the time the setup deadline fires (a reconnect, a
+   * fresh match, an explicit leave that already cleaned this one up),
+   * `roomByGuest.get(userId)` would point at that new room instead, and
+   * blindly deleting under `userId` would tear the wrong one down. This
+   * only ever clears a `roomByGuest` entry that still actually points at
+   * THIS roomId, so a side that's already moved on is left completely
+   * untouched. No recent-partner cooldown is recorded (or un-recorded) —
+   * whether one exists already depends entirely on whether commitMatch()
+   * already ran for this room, which this method has no reason to know or
+   * change either way.
+   */
+  destroyRoom(roomId: string) {
+    const room = this.rooms.get(roomId)
+    if (!room) return
+    if (this.roomByGuest.get(room.a) === roomId) this.roomByGuest.delete(room.a)
+    if (this.roomByGuest.get(room.b) === roomId) this.roomByGuest.delete(room.b)
+    this.rooms.delete(roomId)
+  }
 }
 
 export const matchmaker = new Matchmaker()

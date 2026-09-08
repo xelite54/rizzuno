@@ -323,3 +323,70 @@ test("re-reserving with a changed gender replaces the old queue snapshot — mat
   assert.ok(afterGenderChange, "changer (now female) immediately matches the waiting male candidate")
   assert.equal(afterGenderChange!.b, maleCandidate)
 })
+
+// destroyRoom — used by server/ws-server.ts's room-establishment handshake
+// to abort a committed room whose RTC setup never completed in time,
+// addressed by roomId directly rather than derived from either side's
+// current membership (see its own doc comment for why that distinction is
+// the entire point of this method existing separately from leaveRoom).
+test("destroyRoom removes a committed room's mappings entirely, by id", async () => {
+  const matchmaker = new Matchmaker()
+  const registry = makeRegistry()
+  const a = uid("m")
+  const b = uid("f")
+  registry.register(a, { gender: "male", searchGeneration: 1 })
+  registry.register(b, { gender: "female", searchGeneration: 1 })
+
+  await matchmaker.reserveMatch({ userId: a, gender: "male", enqueuedAt: Date.now(), debugId: a, searchGeneration: 1 }, registry.checkLive)
+  const room = await matchmaker.reserveMatch({ userId: b, gender: "female", enqueuedAt: Date.now(), debugId: b, searchGeneration: 1 }, registry.checkLive)
+  assert.ok(room)
+  matchmaker.commitMatch(room!.id)
+
+  matchmaker.destroyRoom(room!.id)
+  assert.equal(matchmaker.getRoom(room!.id), undefined, "room mapping fully removed")
+
+  // Both sides are free to queue and match someone new right away — no
+  // ghost room left behind holding either of their roomByGuest entries.
+  registry.conns.get(a)!.roomId = null
+  registry.conns.get(b)!.roomId = null
+  const c = uid("f")
+  registry.register(c, { gender: "female", searchGeneration: 1 })
+  await matchmaker.reserveMatch({ userId: c, gender: "female", enqueuedAt: Date.now(), debugId: c, searchGeneration: 1 }, registry.checkLive)
+  const rematch = await matchmaker.reserveMatch({ userId: a, gender: "male", enqueuedAt: Date.now(), debugId: a, searchGeneration: 1 }, registry.checkLive)
+  assert.ok(rematch, "a is immediately matchable again after the destroyed room")
+  assert.equal(rematch!.b, c)
+})
+
+test("destroyRoom never touches a DIFFERENT room either side has since moved into", async () => {
+  const matchmaker = new Matchmaker()
+  const registry = makeRegistry()
+  const a = uid("m")
+  const b = uid("f")
+  const c = uid("f")
+  registry.register(a, { gender: "male", searchGeneration: 1 })
+  registry.register(b, { gender: "female", searchGeneration: 1 })
+  registry.register(c, { gender: "female", searchGeneration: 2 })
+
+  await matchmaker.reserveMatch({ userId: a, gender: "male", enqueuedAt: Date.now(), debugId: a, searchGeneration: 1 }, registry.checkLive)
+  const staleRoom = await matchmaker.reserveMatch({ userId: b, gender: "female", enqueuedAt: Date.now(), debugId: b, searchGeneration: 1 }, registry.checkLive)
+  assert.ok(staleRoom)
+  matchmaker.commitMatch(staleRoom!.id)
+
+  // `a` leaves that room and immediately reserves a brand new one with `c`
+  // — this is the exact "moved on before a stale abort ever fires" case
+  // destroyRoom must not disturb.
+  matchmaker.leaveRoom(a)
+  registry.conns.get(a)!.roomId = null
+  registry.conns.get(a)!.searchGeneration = 2
+  const freshRoom = await matchmaker.reserveMatch({ userId: a, gender: "male", enqueuedAt: Date.now(), debugId: a, searchGeneration: 2 }, registry.checkLive)
+  const committedFresh = await matchmaker.reserveMatch({ userId: c, gender: "female", enqueuedAt: Date.now(), debugId: c, searchGeneration: 2 }, registry.checkLive)
+  const newRoom = freshRoom ?? committedFresh
+  assert.ok(newRoom, "a and c formed a new room")
+  matchmaker.commitMatch(newRoom!.id)
+
+  // A late destroyRoom(staleRoom.id) call — as if the original setup
+  // deadline for the first room fired only now — must have no effect on
+  // the NEW room `a` is actually in.
+  matchmaker.destroyRoom(staleRoom!.id)
+  assert.ok(matchmaker.getRoom(newRoom!.id), "the new, unrelated room a moved into is untouched")
+})

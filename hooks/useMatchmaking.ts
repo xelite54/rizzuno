@@ -185,11 +185,25 @@ export function useMatchmaking(
   const queuePendingRetryCountRef = useRef(0)
   const [roomId, updateRoomId] = useState<string | null>(null)
   const roomRef = useRef<string | null>(null)
+  /**
+   * The server's authoritative answer to "is the CURRENT room a random
+   * match, or a direct/friend call?" (see "matched"'s `source` field in
+   * lib/signaling/protocol.ts) — never guessed client-side. Read only when
+   * the current room actually ends (peer-left, room-setup-failed), to
+   * decide whether that ending should behave like an ordinary random-match
+   * peer-left (resume searching, per wantsMatchingRef) or land back on
+   * idle/home without ever implying random-match intent (a direct call
+   * failing must never silently start random matchmaking). Cleared
+   * whenever the room clears (see setRoomId below) — there is never a
+   * meaningful "source of no room".
+   */
+  const roomSourceRef = useRef<"random" | "friend" | null>(null)
   const setRoomId = useCallback((next: string | null, reason: string) => {
     if (roomRef.current && next !== roomRef.current) {
       console.debug("matchmaking: room destroyed", { roomId: roomRef.current, reason })
     }
     roomRef.current = next
+    if (next === null) roomSourceRef.current = null
     updateRoomId(next)
   }, [])
   // Which of THIS tab's own match-chat sends are still waiting on a
@@ -437,15 +451,64 @@ export function useMatchmaking(
     }
   }, [])
 
-  const { remoteStream, remoteVideoReady, status: rtcStatus, reportPlaybackConfirmed } = useWebRTC({
+  // The server's "rtc-start" for the room named here — see that message's
+  // own doc comment in lib/signaling/protocol.ts. Room-scoped by
+  // comparison against `roomId` below (via `rtcStart`, not this raw state
+  // value directly) rather than reset to null on every room change: a
+  // stale roomId sitting here from a room that's since ended is harmless
+  // and automatically stops mattering the instant `roomId` no longer
+  // matches it, exactly like `isCurrentRoom`'s own pattern used throughout
+  // this file.
+  const [rtcStartRoomId, setRtcStartRoomId] = useState<string | null>(null)
+  const rtcStart = rtcStartRoomId !== null && rtcStartRoomId === roomId
+
+  const { remoteStream, remoteVideoReady, rtcInitialized, status: rtcStatus, reportPlaybackConfirmed } = useWebRTC({
     roomId,
     initiator,
     videoTrack,
     audioTrack,
     micEnabled,
+    rtcStart,
     sendSignal,
     onSignal,
   })
+
+  /**
+   * Sends "rtc-ready" exactly once per room, only once every real
+   * prerequisite the room-establishment handshake actually needs is true —
+   * see that message's own doc comment in lib/signaling/protocol.ts for
+   * the exact bullet list this satisfies:
+   *
+   *  - `rtcInitialized` (useWebRTC.ts): the RTCPeerConnection, its video/
+   *    audio transceivers, and this room's own signal listener all exist.
+   *  - `realtimeReady`: the transport is genuinely up, not just "was, a
+   *    moment ago".
+   *  - a LIVE local video track: makes this hook's own readiness check
+   *    authoritative, not just the pre-call UI gate on `videoTrack`
+   *    existing (see MatchStage.tsx) — media that temporarily
+   *    disappeared mid-setup (a device sleep, a permission hiccup) must
+   *    never be claimed ready; this simply doesn't fire until
+   *    useLocalMedia's own recovery brings a live track back (or never
+   *    fires at all, in which case the server's own bounded setup
+   *    deadline is what cleanly ends the attempt — see "room-setup-
+   *    failed").
+   *
+   * `rtcReadySentForRoomRef` is compared against `roomId` itself (never
+   * reset separately) — a fresh room simply won't match whatever the ref
+   * held for the previous one, so this naturally fires again for a new
+   * room without any explicit reset logic that could itself drift out of
+   * sync.
+   */
+  const rtcReadySentForRoomRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!roomId) return
+    if (rtcReadySentForRoomRef.current === roomId) return
+    if (!rtcInitialized || !realtimeReady) return
+    if (!videoTrack || videoTrack.readyState !== "live") return
+    rtcReadySentForRoomRef.current = roomId
+    console.log("matchmaking: rtc-ready", { roomId })
+    send({ type: "rtc-ready", roomId })
+  }, [roomId, rtcInitialized, realtimeReady, videoTrack, send])
 
   /**
    * The one place a peer VideoTile (rendered well downstream, by
@@ -1001,11 +1064,20 @@ export function useMatchmaking(
           break
         case "matched":
           if (roomRef.current) break // Duplicate/stale matches cannot replace a live room.
-          console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator })
+          console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator, source: message.source })
           setRoomId(message.roomId, "matched")
-          // Direct friend calls start from idle/paused, without a find.
-          // Record their accepted intent just like a random match.
-          wantsMatchingRef.current = true
+          roomSourceRef.current = message.source
+          // ONLY a genuinely random match implies "keep automatically
+          // finding someone if this ends" — a direct/friend call starts
+          // from idle/paused, without a find, and must NOT be treated as
+          // random-match intent (see roomSourceRef's own doc comment and
+          // the "peer-left"/"room-setup-failed" handling below, which is
+          // what actually reads this back). Left untouched (not forced
+          // false) for `source === "friend"` — an independent random
+          // search that was somehow already in flight survives a direct
+          // call exactly as it would survive anything else, it's just
+          // never STARTED by accepting one.
+          if (message.source === "random") wantsMatchingRef.current = true
           setInitiator(message.initiator)
           setPeer(message.peer)
           setMessages([])
@@ -1036,6 +1108,57 @@ export function useMatchmaking(
           // refreshed identity into the peer we already have.
           setPeer((prev) => (prev ? { ...prev, ...message.peer } : prev))
           break
+        case "rtc-start":
+          // Room-scoped via isCurrentRoom the same way every other
+          // room-addressed message here is — a stale "rtc-start" for a
+          // room that's since ended (or an earlier one, before a fresh
+          // match) must never activate negotiation in a LATER room. See
+          // `rtcStart`'s own computation above (compares this state
+          // against the CURRENT roomId, not just recorded here blindly)
+          // for the second, independent layer of that same guard.
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
+          console.log("matchmaking: rtc-start received", { roomId: message.roomId })
+          setRtcStartRoomId(message.roomId)
+          break
+        case "room-setup-failed": {
+          // Same staleness guard as every other room-addressed message —
+          // a failure notice for a room this tab has already moved on
+          // from (a reconnect's fresh room, an explicit leave that beat
+          // the server's own notice here) must be a no-op.
+          if (!isCurrentRoom(roomRef.current, message.roomId)) break
+          console.warn("matchmaking: room setup failed — never became ready in time", {
+            roomId: message.roomId,
+            source: message.source,
+          })
+          recordHistory(peerRef.current)
+          setRoomId(null, "setup_timeout")
+          setPeer(null)
+          setPeerMicEnabled(true)
+          setPeerTyping(false)
+          if (message.source === "friend") {
+            // A direct/friend call failing must never look like — or
+            // behave like — an ordinary random-match peer-left (which
+            // auto-retries into random searching below). Straight to
+            // idle/home, same as any other direct-call ending — see
+            // "matched"'s own `source` field and its doc comment.
+            setServerState((prev) => nextMatchState(prev, { type: "reset-idle" }))
+            // The one narrow exception the spec actually calls for: an
+            // independent random-search intent that was somehow ALREADY
+            // in flight (wantsMatchingRef true despite this being a
+            // direct call — accepting one already requires not currently
+            // seeking, so this is rare) survives exactly like it would
+            // survive anything else, rather than being silently dropped
+            // just because THIS particular attempt was a direct call.
+            if (wantsMatchingRef.current) findMatch()
+          } else {
+            setServerState((prev) => nextMatchState(prev, { type: "peer-left-received" }))
+            // wantsMatchingRef is already true for a random-sourced room
+            // (set at "matched" time above) — the existing peer-left
+            // auto-retry effect further down is what actually resumes
+            // searching; nothing else to do here.
+          }
+          break
+        }
         case "signal": {
           if (!isCurrentRoom(roomRef.current, message.roomId)) break
           const kind = message.data.kind
@@ -1153,16 +1276,29 @@ export function useMatchmaking(
           clearTimeout(peerTypingTimeout.current)
           peerTypingTimeout.current = setTimeout(() => setPeerTyping(false), 3000)
           break
-        case "peer-left":
+        case "peer-left": {
           if (!isCurrentRoom(roomRef.current, message.roomId)) break
-          console.debug("matchmaking: peer-left", { roomId: message.roomId })
+          // Captured before setRoomId(null, ...) below, which clears
+          // roomSourceRef.current as part of clearing the room itself —
+          // see setRoomId's own doc comment.
+          const endedRoomSource = roomSourceRef.current
+          console.debug("matchmaking: peer-left", { roomId: message.roomId, source: endedRoomSource })
           recordHistory(peerRef.current)
           setRoomId(null, "peer_disconnected")
           setPeer(null)
           setPeerMicEnabled(true)
           setPeerTyping(false)
-          setServerState((prev) => nextMatchState(prev, { type: "peer-left-received" }))
+          if (endedRoomSource === "friend") {
+            // Same reasoning as "room-setup-failed"'s own friend-call
+            // branch above — a direct call's partner leaving must never
+            // read as (or behave like) a random-match peer-left.
+            setServerState((prev) => nextMatchState(prev, { type: "reset-idle" }))
+            if (wantsMatchingRef.current) findMatch()
+          } else {
+            setServerState((prev) => nextMatchState(prev, { type: "peer-left-received" }))
+          }
           break
+        }
         case "rejected":
           console.warn("matchmaking: hello rejected", { reason: message.reason })
           if (message.reason === "invalid_ticket") {
