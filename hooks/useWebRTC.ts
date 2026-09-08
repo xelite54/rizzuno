@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { createRtcNegotiation } from "@/lib/rtcNegotiation"
 import type { RtcSignal } from "@/lib/signaling/protocol"
 
@@ -331,13 +331,48 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
   // has a stream" while it might still have zero actual tracks. null here
   // means exactly what it says: no remote media has arrived yet.
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
-  // True only once a live remote VIDEO track has arrived AND getStats()
-  // confirms real frames are actually being decoded — never just "ICE/DTLS
-  // says connected". This is what useMatchmaking.ts's `state` derivation
-  // now gates "active" on, instead of `status === "connected"` alone (see
-  // that file) — the whole point being that the matched-profile UI never
-  // shows over what would otherwise be an empty peer tile.
+  // True once remote video is genuinely proven ready, by EITHER of two
+  // independent kinds of evidence — never just "ICE/DTLS says connected"
+  // alone. This is what useMatchmaking.ts's `state` derivation gates
+  // "active" on, instead of `status === "connected"` alone (see that
+  // file) — the whole point being that the matched-profile UI never shows
+  // over what would otherwise be an empty peer tile.
+  //
+  // 1. Stats proof (the tick loop further down): a live remote video
+  //    track has arrived AND getStats() confirms real frames are actually
+  //    decoding. This was the original, and remains the primary, signal.
+  //
+  // 2. Playback proof (reportPlaybackConfirmed below, called from
+  //    VideoTile.tsx via useMatchmaking.ts — see its own doc comment):
+  //    the peer's actual <video> element reached "playing", with a real
+  //    track/stream attached and real decoded dimensions. Added because
+  //    stats proof alone is too browser-specific — iOS Safari in
+  //    particular can render remote video correctly while
+  //    getStats().framesDecoded is missing, delayed, or unreliable,
+  //    which left a genuinely working call stuck on "Connecting"
+  //    forever. A real <video> element actually playing is, if anything,
+  //    STRONGER evidence than a stats counter — it's the exact thing the
+  //    person is looking at.
+  //
+  // Both write into this SAME state, so "active" itself never needs to
+  // know which proof satisfied it. Both are reset by the identical set of
+  // real WebRTC-level events (markVideoNotReady, below) — track
+  // ended/muted, transport no longer connected, an ICE restart starting —
+  // so playback proof inherits every existing reset case for free, rather
+  // than needing its own parallel, easy-to-drift-apart copy of that logic.
   const [remoteVideoReady, setRemoteVideoReady] = useState(false)
+  // Lets reportPlaybackConfirmed (below, and this hook's return value)
+  // reach into whichever room-effect instance is CURRENTLY live, without
+  // needing that effect's own internals (videoReadyLocal, recoveryBaseline,
+  // cancelled, the room's own `roomId` closure) as an external dependency.
+  // Reassigned every time the room effect (re)runs, to that instance's own
+  // handler; cleared to null on that instance's cleanup — so a call that
+  // arrives after a room has genuinely ended, before any new one has
+  // started, is a safe no-op instead of reaching into a torn-down closure.
+  const reportPlaybackConfirmedRef = useRef<((forRoomId: string) => void) | null>(null)
+  const reportPlaybackConfirmed = useCallback((forRoomId: string) => {
+    reportPlaybackConfirmedRef.current?.(forRoomId)
+  }, [])
   const [mediaRoom, setMediaRoom] = useState<string | null>(null)
 
   useEffect(() => {
@@ -430,6 +465,30 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
       console.log("webrtc: remote video no longer ready", { roomId, reason })
       setRemoteVideoReady(false)
     }
+
+    // The playback-proof path — see remoteVideoReady's own doc comment
+    // above for why this exists alongside the stats path below, not
+    // instead of it. `forRoomId` is checked against this EFFECT
+    // INSTANCE's own `roomId` (not a live/mutable value — this whole
+    // effect tears down and a fresh one runs whenever the room actually
+    // changes), so a stale report from a room that's already ended can
+    // never mark a later room ready; useMatchmaking.ts's own
+    // isCurrentRoom() check on the way in here is the second, independent
+    // layer of that same protection. `remoteVideoTrackLive` (kept current
+    // by the track's own mute/unmute handlers below) is re-verified here
+    // too — VideoTile.tsx already checks the track before ever calling
+    // this, but trusting that alone would make a bug in that unrelated
+    // file able to silently defeat this one's own guarantee.
+    function reportPlaybackConfirmedForThisRoom(forRoomId: string) {
+      if (cancelled || forRoomId !== roomId || videoReadyLocal || !remoteVideoTrackLive) return
+      console.log("webrtc: remote video ready — confirmed by actual <video> playback, not just stats", { roomId })
+      videoReadyLocal = true
+      recoveryBaseline = lastDecodedFrames
+      setRemoteVideoReady(true)
+      negotiation.recovered()
+      recoveryStartedAt = null
+    }
+    reportPlaybackConfirmedRef.current = reportPlaybackConfirmedForThisRoom
 
     pc.ontrack = (event) => {
       const track = event.track
@@ -620,6 +679,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
       pc.close()
       pcRef.current = null
       sendersRef.current = { video: null, audio: null }
+      if (reportPlaybackConfirmedRef.current === reportPlaybackConfirmedForThisRoom) reportPlaybackConfirmedRef.current = null
       setStatus("closed")
       setRemoteStream(null)
       setRemoteVideoReady(false)
@@ -646,5 +706,10 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     }
   }, [videoTrack, audioTrack])
 
-  return { remoteStream: mediaRoom === roomId ? remoteStream : null, remoteVideoReady: mediaRoom === roomId && remoteVideoReady, status }
+  return {
+    remoteStream: mediaRoom === roomId ? remoteStream : null,
+    remoteVideoReady: mediaRoom === roomId && remoteVideoReady,
+    status,
+    reportPlaybackConfirmed,
+  }
 }

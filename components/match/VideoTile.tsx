@@ -7,6 +7,39 @@ type VideoTileProps = {
   muted?: boolean
   mirrored?: boolean
   className?: string
+  /**
+   * Which room `stream` belongs to — only ever meaningful (and only ever
+   * passed) alongside `onPlaybackReady` below, for the peer's own tile;
+   * never read for rendering. Tags each `onPlaybackReady` call with the
+   * room it was actually about, so a stale report from a room that's
+   * since ended (or an earlier match, before a fresh one) can never be
+   * mistaken for the current one — see useMatchmaking.ts's
+   * `reportRemoteVideoPlaying`, the one thing this is ever wired to.
+   */
+  roomId?: string | null
+  /**
+   * Fired the moment this tile's own <video> element has PROVEN real
+   * playback — not just that a stream was attached, but that the
+   * browser's own "playing" event fired with a genuinely live video
+   * track and real decoded dimensions. This exists because stats-based
+   * readiness (getStats().framesDecoded, see useWebRTC.ts) is too
+   * browser-specific on its own: iOS Safari in particular can render
+   * remote video correctly while that counter stays missing, delayed, or
+   * unreliable, leaving a genuinely working call stuck showing
+   * "Connecting". A real <video> element actually playing is, if
+   * anything, STRONGER evidence than a stats counter — it's the exact
+   * thing the person is looking at.
+   *
+   * Deliberately never passed for the self/muted tile (see
+   * SelfPanel.tsx, which doesn't pass this prop at all) — the self
+   * camera must never be able to trigger REMOTE readiness. Fired at most
+   * once per genuinely live track (idempotent on the receiving end
+   * either way — see useWebRTC.ts's own `videoReadyLocal` guard); never
+   * un-fired for a transient stall/buffering event — resetting readiness
+   * for those goes through the existing WebRTC-level events instead (see
+   * useWebRTC.ts's `markVideoNotReady`), not this callback.
+   */
+  onPlaybackReady?: (roomId: string) => void
 }
 
 // How often to check that a supposedly-playing <video> element's
@@ -18,7 +51,7 @@ type VideoTileProps = {
 // Remove alongside those once a real two-device test confirms the fix.
 const PLAYBACK_CHECK_INTERVAL_MS = 5000
 
-export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps) {
+export function VideoTile({ stream, muted, mirrored, className, roomId, onPlaybackReady }: VideoTileProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
   // The `autoPlay` attribute alone silently does nothing on many mobile
@@ -101,6 +134,22 @@ export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps
     }
     function onPlaying() {
       console.log("videoTile: playing", { label, videoWidth: video?.videoWidth, videoHeight: video?.videoHeight })
+      // Playback proof — see onPlaybackReady's own doc comment for the
+      // full reasoning. `muted` is a belt-and-suspenders check on top of
+      // this prop simply never being passed for the self tile at all
+      // (SelfPanel.tsx doesn't pass it) — the self camera must never be
+      // able to trigger REMOTE readiness. Every condition here mirrors
+      // exactly what the doc comment promises: the element is genuinely
+      // playing THIS stream (not some earlier srcObject the browser
+      // hasn't caught up on yet), a real video track is attached and
+      // still live, and the element has real decoded dimensions — not
+      // just that a "playing" event fired at all.
+      if (!onPlaybackReady || !roomId || muted || !video || !stream) return
+      if (video.srcObject !== stream) return
+      const track = stream.getVideoTracks()[0]
+      if (!track || track.readyState !== "live") return
+      if (!(video.videoWidth > 0 && video.videoHeight > 0)) return
+      onPlaybackReady(roomId)
     }
     function onWaiting() {
       console.log("videoTile: waiting (stalled buffering)", { label })
@@ -155,7 +204,7 @@ export function VideoTile({ stream, muted, mirrored, className }: VideoTileProps
         track.removeEventListener("unmute", onTrackUnmute)
       }
     }
-  }, [stream, muted])
+  }, [stream, muted, roomId, onPlaybackReady])
 
   return (
     <video

@@ -22,6 +22,10 @@ type SwipeStageProps = {
   friendState: FriendState
   onAddFriend: () => void
   remoteStream: MediaStream | null
+  /** The current match's room id — threaded straight through to the peer VideoTile, which tags its own playback-readiness reports with it (see VideoTile.tsx's `roomId` prop and useMatchmaking.ts's `reportRemoteVideoPlaying`). `null` whenever there's no active room; VideoTile simply never reports readiness in that case. */
+  roomId: string | null
+  /** Fired by the peer VideoTile once its own <video> element has proven real playback — see VideoTile.tsx's `onPlaybackReady` doc comment for what "proven" means and why it exists alongside stats-based readiness. */
+  onRemoteVideoPlaying?: (roomId: string) => void
   onSwipeComplete: () => void
   /** When true, swiping is disabled — used while a just-completed skip is still undoable. */
   locked?: boolean
@@ -42,6 +46,8 @@ export function SwipeStage({
   friendState,
   onAddFriend,
   remoteStream,
+  roomId,
+  onRemoteVideoPlaying,
   onSwipeComplete,
   locked = false,
   onPauseMatching,
@@ -225,7 +231,12 @@ export function SwipeStage({
         }
         className="absolute inset-0 origin-bottom cursor-grab touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-accent-2 active:cursor-grabbing"
       >
-        <VideoTile stream={remoteStream} className={isWaitingToStart ? "bg-home-glow" : "bg-surface-2"} />
+        <VideoTile
+          stream={remoteStream}
+          className={isWaitingToStart ? "bg-home-glow" : "bg-surface-2"}
+          roomId={roomId}
+          onPlaybackReady={onRemoteVideoPlaying}
+        />
         {!isWaitingToStart && (
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
         )}

@@ -171,6 +171,8 @@ export function MatchStage() {
     activeOnAnotherDevice,
     retryRealtimeConnection,
     state,
+    roomId,
+    reportRemoteVideoPlaying,
     canMatchChat,
     onlineCount,
     peer,
@@ -710,6 +712,8 @@ export function MatchStage() {
                 friendState={friendState}
                 onAddFriend={handleAddFriend}
                 remoteStream={remoteStream}
+                roomId={roomId}
+                onRemoteVideoPlaying={reportRemoteVideoPlaying}
                 onSwipeComplete={handleSwipeComplete}
                 locked={pendingSkip !== null}
                 onPauseMatching={handlePauseMatching}

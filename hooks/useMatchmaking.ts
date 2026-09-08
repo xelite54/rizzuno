@@ -437,7 +437,7 @@ export function useMatchmaking(
     }
   }, [])
 
-  const { remoteStream, remoteVideoReady, status: rtcStatus } = useWebRTC({
+  const { remoteStream, remoteVideoReady, status: rtcStatus, reportPlaybackConfirmed } = useWebRTC({
     roomId,
     initiator,
     videoTrack,
@@ -446,17 +446,45 @@ export function useMatchmaking(
     onSignal,
   })
 
+  /**
+   * The one place a peer VideoTile (rendered well downstream, by
+   * SwipeStage.tsx) can feed real playback evidence back into this
+   * hook's own readiness state — see useWebRTC.ts's `remoteVideoReady`
+   * doc comment for why stats proof alone (getStats().framesDecoded)
+   * isn't reliable enough on its own: iOS Safari in particular can render
+   * remote video correctly while that counter is missing, delayed, or
+   * unreliable, which used to leave a genuinely working call stuck on
+   * "Connecting" forever.
+   *
+   * `isCurrentRoom` — the same staleness guard "chat"/"signal"/"typing"/
+   * etc. already use above — is what makes a stale report from a room
+   * that's already ended (or an earlier one, before a fresh match) unable
+   * to mark a LATER room ready; useWebRTC.ts's own reportPlaybackConfirmed
+   * independently re-checks the same thing against its own room-effect
+   * instance, so this is intentionally double-guarded, not relying on
+   * either check alone.
+   */
+  const reportRemoteVideoPlaying = useCallback(
+    (forRoomId: string) => {
+      if (!isCurrentRoom(roomRef.current, forRoomId)) return
+      reportPlaybackConfirmed(forRoomId)
+    },
+    [reportPlaybackConfirmed]
+  )
+
   // The connection is genuinely "active" once WebRTC media is actually
   // flowing — `rtcStatus === "connected"` alone only means ICE/DTLS
   // negotiation succeeded, which is NOT the same thing (a connection can
   // report "connected" with zero remote video frames ever actually
-  // decoding). `remoteVideoReady` (see useWebRTC.ts) is the real signal:
-  // a live remote video track has arrived AND getStats() has confirmed
-  // real frames decoding. Until both are true, `state` stays whatever
-  // `serverState` already is — "connecting" from the moment "matched" was
-  // received (see nextMatchState's "matched-received" case) — rather than
-  // showing the matched-profile UI over what would otherwise be an empty
-  // peer tile.
+  // decoding). `remoteVideoReady` (see useWebRTC.ts) is the real signal —
+  // proven by EITHER getStats() confirming real decoded frames OR the
+  // peer's actual <video> element having genuinely reached "playing"
+  // (reportRemoteVideoPlaying above, fed by VideoTile.tsx via
+  // SwipeStage.tsx). Until one of those two proofs exists, `state` stays
+  // whatever `serverState` already is — "connecting" from the moment
+  // "matched" was received (see nextMatchState's "matched-received"
+  // case) — rather than showing the matched-profile UI over what would
+  // otherwise be an empty peer tile.
   const state: MatchState = roomId ? (rtcStatus === "connected" && remoteVideoReady ? "active" : "connecting") : serverState
 
   /**
@@ -1460,6 +1488,14 @@ export function useMatchmaking(
     activeOnAnotherDevice: supersededElsewhere,
     retryRealtimeConnection,
     state,
+    // The current room id itself — SwipeStage.tsx threads this straight
+    // through to the peer VideoTile, which tags its own
+    // reportRemoteVideoPlaying() calls with it (see that function's own
+    // doc comment for why). Not otherwise meant as a general-purpose
+    // identifier for callers — `hasCurrentRoom`/`canMatchChat` below are
+    // the derived values most callers actually want.
+    roomId,
+    reportRemoteVideoPlaying,
     // Chat availability — deliberately separate from `state`'s video
     // meaning; see canMatchChat's own doc comment above. `hasCurrentRoom`
     // is exposed too since a caller may want "is there a live room at
