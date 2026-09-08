@@ -166,6 +166,31 @@ export function MatchStage() {
     setAdmittedAccount(realtimeEnabled ? realtimeAccount : undefined)
   }, [realtimeEnabled, realtimeAccount])
 
+  // Diagnostic only — `realtimeEnabled` is useSignalingSocket's `enabled`
+  // input verbatim (see useMatchmaking() below), so every time it actually
+  // FLIPS, that hook tears down and recreates the whole realtime
+  // connection (see its own "effect started"/"reason: enabled_changed"
+  // log). This traces WHICH of its three real inputs changed value at the
+  // moment of a flip — legal status, profile hydration, or onboarding —
+  // rather than leaving that to be inferred after the fact from
+  // useSignalingSocket's logs alone.
+  const realtimeEnabledLogRef = useRef({ enabled: realtimeEnabled, legalStatus: legal.status, hydrated: myProfile.profileHydrated, onboarded })
+  useEffect(() => {
+    const prev = realtimeEnabledLogRef.current
+    if (prev.enabled !== realtimeEnabled) {
+      console.debug("realtimeEnabled: flipped", {
+        enabled: realtimeEnabled,
+        legalStatusChanged: prev.legalStatus !== legal.status,
+        hydratedChanged: prev.hydrated !== myProfile.profileHydrated,
+        onboardedChanged: prev.onboarded !== onboarded,
+        legalStatus: legal.status,
+        hydrated: myProfile.profileHydrated,
+        onboarded,
+      })
+    }
+    realtimeEnabledLogRef.current = { enabled: realtimeEnabled, legalStatus: legal.status, hydrated: myProfile.profileHydrated, onboarded }
+  }, [realtimeEnabled, legal.status, myProfile.profileHydrated, onboarded])
+
   const {
     realtimeReady,
     activeOnAnotherDevice,

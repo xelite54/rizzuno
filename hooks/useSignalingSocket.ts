@@ -79,6 +79,26 @@ function normalizeWsUrl(configuredUrl: string): string {
  * instant `enabled` flips.
  */
 export function useSignalingSocket(enabled: boolean, accountId?: string) {
+  // A random, opaque label for THIS hook instance (i.e. this browser
+  // tab's lifetime) — never derived from account/session identity, purely
+  // for correlating console lines across MULTIPLE effect instances (every
+  // enabled/accountId change tears down and re-creates the effect below,
+  // which would otherwise make each one's own local `generation` counter
+  // restart from zero, silently hiding a remount-driven reconnect storm
+  // from the very mechanism meant to reveal it). `useState`'s lazy
+  // initializer (called exactly once, ever) is what makes this safe to
+  // generate here rather than a plain `useRef(Math.random())`, which would
+  // call the impure Math.random() on every single render even though only
+  // the first result is ever kept.
+  const [tabId] = useState(() => Math.random().toString(36).slice(2, 10))
+  // How many sockets THIS hook instance has ever created — a ref, not a
+  // local variable inside the effect below, specifically so it survives
+  // every effect remount (see tabId's own comment) instead of resetting
+  // to 0 each time. A generation count that climbs across what SHOULD have
+  // been one continuous connection is itself direct proof of a
+  // remount-driven duplicate-socket source, distinguishable in the logs
+  // from a genuinely fresh tab (which starts at 1 and rarely climbs).
+  const generationRef = useRef(0)
   const [connected, setConnected] = useState(false)
   // True once a superseded close has exhausted its one bounded retry (see
   // nextSupersededRetryDelayMs) — at that point this is confident a
@@ -140,7 +160,13 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
         ? "enabled_changed"
         : "account_changed"
     prevStartDepsRef.current = { enabled, accountId }
-    console.debug("signaling: effect started", { reason: startReason, enabled, hasAccount: Boolean(accountId) })
+    console.debug("signaling: effect started", {
+      tabId,
+      reason: startReason,
+      enabled,
+      hasAccount: Boolean(accountId),
+      priorGenerationCount: generationRef.current,
+    })
 
     if (!enabled) {
       // Nothing to do if we were never connected in the first place (e.g.
@@ -159,16 +185,41 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     // How many of THIS effect instance's superseded closes have already
     // retried — see nextSupersededRetryDelayMs's own doc comment.
     let supersededRetriesUsed = 0
-    // Purely a log-correlation label — one physical socket attempt per
-    // increment. The actual "is this callback about a socket we've since
-    // moved on from" guard is (and remains) the `wsRef.current !==
-    // currentSocket` identity check on each handler below; this just makes
-    // that sequence legible in the logs without ever printing account/
-    // ticket/credential data.
-    let generation = 0
 
-    function connect() {
+    // The one and only place a new WebSocket is ever constructed. `reason`
+    // is never inferred after the fact — every call site below names
+    // exactly why IT thinks a reconnect is warranted (initial_mount/
+    // enabled_changed/account_changed from the effect starting,
+    // backoff_retry, superseded_retry, visibility_resume, manual_retry),
+    // so "signaling: socket created" always says which of those five
+    // sources actually fired — no guessing from log ordering alone.
+    //
+    // The guard right below the log line is the actual structural
+    // guarantee behind "a reconnect must never start while the current
+    // socket is OPEN/CONNECTING, and exactly one live WebSocket exists per
+    // tab/account": every call site (including the ones that already had
+    // their own pre-check, like the visibility handler) still funnels
+    // through this one shared check, so a bug/omission at any individual
+    // call site can never actually produce a second live socket — this is
+    // the last line of defense, not the only one.
+    function connect(reason: string) {
       if (cancelled) return
+      // Cancel any pending retry unconditionally, regardless of which of
+      // the paths below is calling — a new connection attempt starting
+      // makes whatever the old one was waiting to retry moot, and leaving
+      // it armed is exactly how two independent timers could each end up
+      // calling connect() a moment apart.
+      clearTimeout(retryTimer)
+      const existing = wsRef.current
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        console.warn("signaling: reconnect skipped — a socket is already OPEN/CONNECTING", {
+          tabId,
+          generation: generationRef.current,
+          reason,
+          existingReadyState: existing.readyState,
+        })
+        return
+      }
       // A genuinely new attempt starting — whatever "active on another
       // device" state a previous attempt's exhausted retry budget left
       // showing no longer describes what's happening right now.
@@ -181,9 +232,9 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
       const configuredUrl = process.env.NEXT_PUBLIC_WS_URL
       const protocol = window.location.protocol === "https:" ? "wss" : "ws"
       const url = configuredUrl ? normalizeWsUrl(configuredUrl) : `${protocol}://${window.location.host}${WS_PATH}`
-      generation += 1
-      const thisGeneration = generation
-      console.debug("signaling: socket created", { generation: thisGeneration })
+      generationRef.current += 1
+      const thisGeneration = generationRef.current
+      console.debug("signaling: socket created", { tabId, generation: thisGeneration, reason })
       socket = new WebSocket(url)
       wsRef.current = socket
       const currentSocket = socket
@@ -197,7 +248,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
         // is flushed/replayed here on purpose — see the module doc comment
         // above; useMatchmaking.ts reacts to `connected` itself and sends a
         // fresh "hello" from scratch instead.
-        console.debug("signaling: socket opened", { generation: thisGeneration })
+        console.debug("signaling: socket opened", { tabId, generation: thisGeneration })
         retryDelay = 500
         setConnected(true)
       }
@@ -235,6 +286,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
         const willReconnectNormally = shouldReconnectAfterClose(event.code)
         const supersededRetryDelay = willReconnectNormally ? null : nextSupersededRetryDelayMs(supersededRetriesUsed)
         console.debug("signaling: socket closed", {
+          tabId,
           generation: thisGeneration,
           reason: willReconnectNormally ? "network_close" : "superseded",
           code: event.code,
@@ -243,7 +295,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
         })
         setConnected(false)
         if (willReconnectNormally) {
-          retryTimer = setTimeout(connect, retryDelay)
+          retryTimer = setTimeout(() => connect("backoff_retry"), retryDelay)
           retryDelay = Math.min(retryDelay * 1.6, 8000)
           return
         }
@@ -257,7 +309,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
           return
         }
         supersededRetriesUsed += 1
-        retryTimer = setTimeout(connect, supersededRetryDelay)
+        retryTimer = setTimeout(() => connect("superseded_retry"), supersededRetryDelay)
       }
 
       socket.onerror = () => {
@@ -268,15 +320,19 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     // Lets retryNow() (returned by this hook) trigger a real, fresh
     // attempt on demand — through this SAME connect(), with its own
     // bounded superseded-retry budget restored, not a second parallel
-    // reconnect path. Cleared below on teardown so a stale call afterward
-    // is a safe no-op instead of reaching into a torn-down closure.
+    // reconnect path. connect() itself is what actually guards against
+    // firing while a socket is already OPEN/CONNECTING (see its own doc
+    // comment) — this used to skip that guard entirely, the one call site
+    // that could genuinely open a second live socket if it ever fired
+    // while the existing one was still healthy. Cleared below on teardown
+    // so a stale call afterward is a safe no-op instead of reaching into a
+    // torn-down closure.
     manualRetryRef.current = () => {
-      clearTimeout(retryTimer)
       supersededRetriesUsed = 0
-      connect()
+      connect("manual_retry")
     }
 
-    connect()
+    connect(startReason)
 
     // Mobile OSes can silently kill a backgrounded tab's WebSocket with no
     // close event ever reaching JS until the tab is actually looked at
@@ -297,9 +353,8 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
       if (document.visibilityState !== "visible") return
       const current = wsRef.current
       if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) return
-      console.debug("signaling: tab visible again while disconnected — reconnecting now")
-      clearTimeout(retryTimer)
-      connect()
+      console.debug("signaling: tab visible again while disconnected — reconnecting now", { tabId })
+      connect("visibility_resume")
     }
     document.addEventListener("visibilitychange", handleVisibilityChange)
 
@@ -310,14 +365,18 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
       const latest = latestDepsRef.current
       const cleanupReason =
         latest.enabled !== enabled ? "enabled_changed" : latest.accountId !== accountId ? "account_changed" : "unmounted"
-      console.debug("signaling: effect cleanup", { reason: cleanupReason })
+      console.debug("signaling: effect cleanup", { tabId, reason: cleanupReason })
       if (wsRef.current === socket) wsRef.current = null
       manualRetryRef.current = null
       setConnected(false)
       setSupersededElsewhere(false)
       socket?.close()
     }
-  }, [enabled, accountId])
+    // `tabId` is genuinely constant for this hook instance's whole
+    // lifetime (see its own useState lazy-initializer above) — included
+    // here only to satisfy exhaustive-deps; it can never actually cause
+    // this effect to re-run.
+  }, [enabled, accountId, tabId])
 
   const send = useCallback((message: ClientMessage) => {
     const socket = wsRef.current
