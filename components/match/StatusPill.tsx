@@ -95,7 +95,7 @@ export function StatusPill({ state, cameraUnavailable = false, onPauseMatching, 
         <button
           type="button"
           onClick={onPauseMatching}
-          className="text-[13px] font-medium text-muted transition hover:text-foreground hover:underline underline-offset-2"
+          className="text-[13px] font-medium text-muted drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)] transition hover:text-foreground hover:underline underline-offset-2"
         >
           Pause matching
         </button>
