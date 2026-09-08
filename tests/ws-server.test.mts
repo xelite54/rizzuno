@@ -4,6 +4,24 @@ import { startTestServer, connectAndHello, TestClient } from "./helpers/wsHarnes
 import { dbMockState, resetDbMockState } from "./helpers/dbMock.mts"
 
 let counter = 0
+test("a delayed find retry cannot end an established random match", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, "stable-find-a", { gender: "male" })
+    const b = await connectAndHello(server.url, "stable-find-b", { gender: "female" })
+    a.send({ type: "find" }); b.send({ type: "find" })
+    const matched = await a.waitForType("matched")
+    await b.waitForType("matched")
+    a.send({ type: "find" }); b.send({ type: "find" })
+    await assert.rejects(() => a.waitForType("peer-left", 100), /timed out/)
+    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text: "still connected" } })
+    assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "still connected" })
+    a.send({ type: "skip" })
+    await b.waitForType("peer-left")
+    a.close(); b.close()
+  } finally { await server.close() }
+})
 test("friends refresh delivers externally persisted requests without reconnecting", async () => {
   resetDbMockState()
   const server = await startTestServer()

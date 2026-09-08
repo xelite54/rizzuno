@@ -488,14 +488,14 @@ function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean) {
  * stale/superseded state object calling this must never clobber whatever's
  * actually live now for that same userId).
  */
-function cleanUpAccount(oldState: ConnectionState) {
+function cleanUpAccount(oldState: ConnectionState, preserveInvitations = false) {
   const wasCurrent = connections.get(oldState.userId) === oldState
   if (!wasCurrent) {
     console.log("ws-server: cleanup skipped — this state was already superseded", { displayId: oldState.displayId })
     return
   }
   leaveCurrentRoom(oldState, true)
-  cancelInvitations(oldState)
+  if (!preserveInvitations) cancelInvitations(oldState)
   matchmaker.removeFromQueue(oldState.userId)
   oldState.seeking = false
   oldState.searchGeneration += 1
@@ -585,6 +585,9 @@ export function createRizzunoWebSocketServer() {
       // message even joins the serialized chain.
       let capturedGeneration: number | undefined
       if (state) {
+        // Retries/resumes are not skips. Never let a delayed find command
+        // abandon an established room (including a direct friend call).
+        if (message.type === "find" && state.roomId) return
         if (message.type === "find" || message.type === "skip") {
           cancelInvitations(state)
           state.seeking = true
@@ -706,10 +709,8 @@ export function createRizzunoWebSocketServer() {
         // preserve any room they're currently in rather than assuming this
         // is a fresh reconnect with nothing left to carry forward.
         let existing = connections.get(userId)
-        // Invitations hold connection objects, not just account IDs. A
-        // fresh hello replaces that object, so retire its invitations now
-        // instead of leaving the other friend with an unacceptably stale one.
-        if (existing) cancelInvitations(existing)
+        // Pending invitations are rebound to the authenticated replacement
+        // below, rather than canceled by a routine repeat handshake.
         // A second "hello" for the same account on a *different* socket
         // means the old one is superseded (e.g. a duplicated tab, or a
         // reconnect that raced with the old socket's own close) — close it
@@ -719,7 +720,7 @@ export function createRizzunoWebSocketServer() {
           // A new transport has no surviving WebRTC session. Retire the
           // old room before any async profile reads, not in its delayed
           // close callback (which races with registering this connection).
-          cleanUpAccount(existing)
+          cleanUpAccount(existing, true)
           existing.ws.close()
           existing = undefined
         }
@@ -756,6 +757,12 @@ export function createRizzunoWebSocketServer() {
         }
         connections.set(userId, state)
         connectionsByDisplayId.set(state.displayId, userId)
+        let restoredInvitation = false
+        for (const invite of friendInvitations.values()) {
+          if (invite.sender.userId === userId) { invite.sender = state; restoredInvitation = true }
+          if (invite.recipient.userId === userId) { invite.recipient = state; restoredInvitation = true }
+        }
+        if (restoredInvitation) publishInvitations(state)
 
         // If they're mid-call, their partner is already showing a "matched"
         // snapshot of them from whenever the room started — push a refresh
@@ -810,9 +817,11 @@ export function createRizzunoWebSocketServer() {
       switch (message.type) {
         case "friends-refresh":
           await trySendFriendsSnapshot(state)
+          publishInvitations(state)
           break
         case "find":
         case "skip": {
+          if (message.type === "find" && state.roomId) break
           console.log("ws-server: find received", { displayId: state.displayId, type: message.type })
           leaveCurrentRoom(state, true)
           // capturedGeneration was set synchronously at message-receipt
@@ -1074,15 +1083,19 @@ export function createRizzunoWebSocketServer() {
             break
           }
           if (!message.accept) { removeInvitation(invite); break }
-          const senderGeneration = invite.sender.searchGeneration
+          const sender = invite.sender
+          if (!availableForInvitation(sender)) {
+            send(state.ws, { type: "match-invite-error", message: "Your friend is reconnecting or busy. Try again when they’re available." })
+            break
+          }
+          const senderGeneration = sender.searchGeneration
           const recipientGeneration = state.searchGeneration
-          const allowed = await friendsMayCall(invite.sender, state)
-          if (friendInvitations.get(invite.id) !== invite || invite.expiresAt <= Date.now() || !allowed || !availableForInvitation(invite.sender) || !availableForInvitation(state) || senderGeneration !== invite.sender.searchGeneration || recipientGeneration !== state.searchGeneration) {
+          const allowed = await friendsMayCall(sender, state)
+          if (friendInvitations.get(invite.id) !== invite || invite.expiresAt <= Date.now() || !allowed || invite.sender !== sender || !availableForInvitation(sender) || !availableForInvitation(state) || senderGeneration !== sender.searchGeneration || recipientGeneration !== state.searchGeneration) {
             removeInvitation(invite)
             send(state.ws, { type: "match-invite-error", message: "This friend is no longer available. Please send a new invitation." })
             break
           }
-          const sender = invite.sender
           const room = matchmaker.createDirectRoom(sender.userId, state.userId, senderGeneration, recipientGeneration)
           if (!room) { removeInvitation(invite); break }
           sender.roomId = room.id
@@ -1146,7 +1159,9 @@ export function createRizzunoWebSocketServer() {
     ws.on("close", () => {
       if (!state) return
       console.log("ws-server: peer disconnected", { displayId: state.displayId })
-      cleanUpAccount(state)
+      // Keep the short-lived invitation until its original expiry so a
+      // transient socket loss does not erase it from the friend's Requests.
+      cleanUpAccount(state, true)
     })
   })
 

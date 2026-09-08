@@ -100,7 +100,7 @@ const CURRENT_MIGRATION_VERSION = 1
  */
 export function useMyProfile() {
   const router = useRouter()
-  const { data: session, status: sessionStatus } = useSession()
+  const { data: session } = useSession()
   const userId = session?.user?.id ?? ""
 
   const [profilePhoto, setProfilePhotoState] = useState<string | null>(null)
@@ -127,8 +127,6 @@ export function useMyProfile() {
   // posts until they happened to edit one. A blank slate first means an
   // account with nothing saved actually presents as nothing saved.
   useEffect(() => {
-    if (sessionStatus === "loading") return
-
     // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting before loading the new account's own data (or nothing, if signed out) — never carrying over the previous account's fields
     setProfilePhotoState(null)
     setUsername("")
@@ -330,7 +328,7 @@ export function useMyProfile() {
     return () => {
       cancelled = true
     }
-  }, [userId, sessionStatus])
+  }, [userId])
 
   // Caches locally on every change, but only once the load above has
   // actually run — otherwise the very first render (before restoring)

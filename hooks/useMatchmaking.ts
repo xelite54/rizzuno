@@ -308,13 +308,12 @@ export function useMatchmaking(
     send({ type: "match-invite-respond", invitationId, accept })
   }, [send])
   useEffect(() => {
-    if (!connected || !accountId) {
-      // Pending invitations belong to the live connection, never its cache.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setMatchInvitations([])
-      setMatchInviteError(null)
-    }
-  }, [connected, accountId])
+    // Clear across account changes, not temporary socket loss. The server
+    // restores unexpired invitations when this same account reconnects.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMatchInvitations([])
+    setMatchInviteError(null)
+  }, [accountId])
   const friendsAccountRef = useRef<string | undefined>(undefined)
   useLayoutEffect(() => {
     const previousAccount = friendsAccountRef.current

@@ -37,7 +37,7 @@ test("friend invitations require recipient consent, then create a direct call wi
   } finally { await server.close() }
 })
 
-test("a fresh hello retires stale invitations and allows a new accepted call", async () => {
+test("a fresh hello preserves the invitation and accepts it on the current connection", async () => {
   resetDbMockState()
   dbMockState.areFriendsImpl = async () => true
   const server = await startTestServer()
@@ -48,13 +48,7 @@ test("a fresh hello retires stale invitations and allows a new accepted call", a
     const old = (await b.waitForType("match-invitations")).invitations[0]
     a.send({ type: "hello", ticket: mintTicket("refresh-a"), handle: "refreshed", gender: "male" })
     await a.waitForType("ready")
-    assert.deepEqual((await b.waitForType("match-invitations")).invitations, [])
     b.send({ type: "match-invite-respond", invitationId: old.id, accept: true })
-    await b.waitForType("match-invite-error")
-    a.send({ type: "match-invite", targetUserId: "refresh-b" })
-    const fresh = (await b.waitForType("match-invitations")).invitations[0]
-    assert.notEqual(fresh.id, old.id)
-    b.send({ type: "match-invite-respond", invitationId: fresh.id, accept: true })
     assert.equal((await a.waitForType("matched")).roomId, (await b.waitForType("matched")).roomId)
     a.close(); b.close()
   } finally { await server.close() }
@@ -81,6 +75,31 @@ test("sender leaving during the acceptance lookup cannot commit a friend call", 
     await b.waitForType("match-invite-error")
     await assert.rejects(() => a.waitForType("matched", 100), /timed out/)
     a.close(); b.close()
+  } finally { await server.close() }
+})
+
+test("a friend invitation survives sender socket loss and is accepted after reconnect", async () => {
+  resetDbMockState()
+  dbMockState.areFriendsImpl = async () => true
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, "restore-a", { gender: "male" })
+    const b = await connectAndHello(server.url, "restore-b", { gender: "female" })
+    a.send({ type: "match-invite", targetUserId: "restore-b" })
+    const invite = (await b.waitForType("match-invitations")).invitations[0]
+    a.close()
+    await new Promise<void>((resolve) => a.ws.once("close", () => resolve()))
+    await assert.rejects(() => b.waitForType("match-invitations", 100), /timed out/)
+    const replacement = await connectAndHello(server.url, "restore-a", { gender: "male" })
+    assert.equal((await replacement.waitForType("match-invitations")).invitations[0].id, invite.id)
+    b.send({ type: "match-invite-respond", invitationId: invite.id, accept: true })
+    const matched = await replacement.waitForType("matched")
+    assert.equal((await b.waitForType("matched")).roomId, matched.roomId)
+    replacement.send({ type: "find" })
+    await assert.rejects(() => b.waitForType("peer-left", 100), /timed out/)
+    replacement.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text: "still here" } })
+    assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "still here" })
+    replacement.close(); b.close()
   } finally { await server.close() }
 })
 

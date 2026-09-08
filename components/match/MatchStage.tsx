@@ -121,8 +121,10 @@ export function MatchStage() {
   // — treated as neither signed in nor signed out, so the landing screen
   // doesn't flash on and off for people who are actually already signed in.
   const { data: session, status: sessionStatus, update: updateSession } = useSession()
-  const signedIn = sessionStatus === "authenticated"
-  const authLoading = sessionStatus === "loading"
+  // Session refresh may briefly report loading while retaining the same
+  // authenticated account. Do not tear down its call during that refresh.
+  const signedIn = Boolean(session?.user?.id) && sessionStatus !== "unauthenticated"
+  const authLoading = sessionStatus === "loading" && !signedIn
 
   // 18+ affirmation + Terms/Privacy acceptance, recorded server-side against
   // the signed-in account (see hooks/useLegalAcceptance.ts) — required
