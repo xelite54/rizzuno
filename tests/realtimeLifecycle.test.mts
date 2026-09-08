@@ -1,6 +1,15 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { canSearch, isCurrentRoom, resolveRealtimeAccount, retainRealtime, shouldReconnectAfterClose } from "../lib/realtimeLifecycle"
+import {
+  canSearch,
+  isCurrentRoom,
+  resolveRealtimeAccount,
+  retainRealtime,
+  shouldReconnectAfterClose,
+  nextSupersededRetryDelayMs,
+  MAX_SUPERSEDED_RETRIES,
+  SUPERSEDED_RETRY_DELAY_MS,
+} from "../lib/realtimeLifecycle"
 import { WS_CLOSE_SUPERSEDED } from "../lib/signaling/protocol"
 
 test("find/reconnect/resume cannot search while a room exists", () => {
@@ -36,4 +45,13 @@ test("every other close code still reconnects — network drops, unclean disconn
     assert.equal(shouldReconnectAfterClose(code), true, `code ${code} must still reconnect`)
   }
   assert.notEqual(WS_CLOSE_SUPERSEDED, 1000, "sanity: the superseded code must not collide with a standard one")
+})
+test("a superseded socket gets exactly one delayed retry, then gives up for good", () => {
+  assert.equal(nextSupersededRetryDelayMs(0), SUPERSEDED_RETRY_DELAY_MS, "the first superseded close still gets one retry")
+  assert.equal(nextSupersededRetryDelayMs(MAX_SUPERSEDED_RETRIES), null, "once the bounded budget is spent, no further retry")
+  assert.equal(nextSupersededRetryDelayMs(MAX_SUPERSEDED_RETRIES + 5), null, "never resumes retrying past the budget")
+})
+test("the superseded retry delay is comfortably longer than one full server heartbeat cycle (40s worst case), and far slower than the normal backoff", () => {
+  assert.ok(SUPERSEDED_RETRY_DELAY_MS > 40_000, "must outlast the ~40s worst-case heartbeat reap time, or it just retries into the same rejection")
+  assert.ok(SUPERSEDED_RETRY_DELAY_MS > 8000, "must never be as fast as the normal network-close backoff (caps at 8s) — that fast cadence is what caused the original reconnect war")
 })

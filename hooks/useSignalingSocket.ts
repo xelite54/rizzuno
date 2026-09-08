@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { WS_PATH } from "@/lib/signaling/protocol"
 import type { ClientMessage, ServerMessage } from "@/lib/signaling/protocol"
-import { shouldReconnectAfterClose } from "@/lib/realtimeLifecycle"
+import { shouldReconnectAfterClose, nextSupersededRetryDelayMs } from "@/lib/realtimeLifecycle"
 
 type Listener = (message: ServerMessage) => void
 
@@ -134,6 +134,9 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     let retryDelay = 500
     let socket: WebSocket | null = null
     let retryTimer: ReturnType<typeof setTimeout> | undefined
+    // How many of THIS effect instance's superseded closes have already
+    // retried — see nextSupersededRetryDelayMs's own doc comment.
+    let supersededRetriesUsed = 0
     // Purely a log-correlation label — one physical socket attempt per
     // increment. The actual "is this callback about a socket we've since
     // moved on from" guard is (and remains) the `wsRef.current !==
@@ -190,28 +193,37 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
         // doc comment) exactly when another, already-healthy connection
         // for this same account exists elsewhere — a second tab/device, or
         // a reconnect that arrived while the previous socket here hadn't
-        // actually died yet. That is NOT a transient network failure, and
-        // must not be treated like one: reconnecting would just walk
-        // straight back into the same ownership check and lose again,
-        // which — before this check existed — is exactly what produced an
-        // infinite replace/reconnect fight between two sockets for one
-        // account (each side's blind "any close retries" logic kept
-        // re-triggering the other's own supersession). This socket simply
-        // stops here; a future genuine reason to reconnect (sign-out and
-        // back in, an account switch, this tab reloading) starts a whole
-        // new effect instance with its own fresh retry budget, not this one.
-        const willReconnect = shouldReconnectAfterClose(event.code)
+        // actually died yet. That is NOT an ordinary transient network
+        // failure, and must not be retried the same fast way one is —
+        // blindly retrying at the normal backoff cadence is exactly what
+        // used to produce an infinite replace/reconnect fight between two
+        // sockets that are BOTH actually still active. But "superseded"
+        // doesn't only mean a genuine second device: it's also exactly
+        // what a device's own reconnect gets back when ITS OWN previous
+        // connection died silently (mobile backgrounding/a network drop)
+        // but still looks healthy to the server for a while (see
+        // MAX_SUPERSEDED_RETRIES's own doc comment above) — treating every
+        // superseded close as permanent left that case stuck on a dead
+        // connection until a manual reload, even once the real owner (this
+        // same device's stale old connection) was long gone.
+        const willReconnectNormally = shouldReconnectAfterClose(event.code)
+        const supersededRetryDelay = willReconnectNormally ? null : nextSupersededRetryDelayMs(supersededRetriesUsed)
         console.debug("signaling: socket closed", {
           generation: thisGeneration,
-          reason: willReconnect ? "network_close" : "superseded",
+          reason: willReconnectNormally ? "network_close" : "superseded",
           code: event.code,
           wasClean: event.wasClean,
-          willRetry: willReconnect,
+          willRetry: willReconnectNormally || supersededRetryDelay !== null,
         })
         setConnected(false)
-        if (!willReconnect) return
-        retryTimer = setTimeout(connect, retryDelay)
-        retryDelay = Math.min(retryDelay * 1.6, 8000)
+        if (willReconnectNormally) {
+          retryTimer = setTimeout(connect, retryDelay)
+          retryDelay = Math.min(retryDelay * 1.6, 8000)
+          return
+        }
+        if (supersededRetryDelay === null) return
+        supersededRetriesUsed += 1
+        retryTimer = setTimeout(connect, supersededRetryDelay)
       }
 
       socket.onerror = () => {
