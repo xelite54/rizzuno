@@ -302,6 +302,21 @@ type UseWebRTCParams = {
   initiator: boolean
   videoTrack: MediaStreamTrack | null
   audioTrack: MediaStreamTrack | null
+  /**
+   * Whether the mic should actually be heard right now. useLocalMedia.ts
+   * already sets `audioTrack.enabled = micEnabled` (a real, spec-correct
+   * mute on its own — a disabled track sends silence), but that's the
+   * ONLY thing enforcing it: this hook used to never see `micEnabled` at
+   * all, so muting was exactly one property write away from ever reaching
+   * the peer, with nothing here reinforcing it. This hook now ALSO
+   * detaches the audio track from the sender entirely (`replaceTrack(null)`)
+   * whenever muted, restoring it on unmute — belt-and-suspenders: even if
+   * something ever left `.enabled` untouched (a missed toggle, a fresh
+   * track from a mic switch/reacquire arriving before that effect re-runs,
+   * a future refactor), there is still no audio track on the sender at
+   * all for the peer to possibly receive anything from.
+   */
+  micEnabled: boolean
   sendSignal: (roomId: string, data: RtcSignal) => void
   onSignal: (roomId: string, handler: (roomId: string, data: RtcSignal) => void) => () => void
 }
@@ -313,17 +328,18 @@ type UseWebRTCParams = {
  * call — never a renegotiation — and turning the camera off, back on, or
  * swapping devices mid-call never disrupts the connection.
  */
-export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSignal, onSignal }: UseWebRTCParams) {
+export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnabled, sendSignal, onSignal }: UseWebRTCParams) {
   const [status, setStatus] = useState<PeerConnectionStatus>("new")
   const pcRef = useRef<RTCPeerConnection | null>(null)
   const sendersRef = useRef<{ video: RTCRtpSender | null; audio: RTCRtpSender | null }>({ video: null, audio: null })
-  // Mirrors the latest videoTrack/audioTrack props for the room effect's own
-  // closure to read without needing them in its dependency array (which
-  // would tear down and recreate the whole RTCPeerConnection on every
-  // camera toggle — see that effect's own trailing comment). Kept current
-  // by the replaceTrack-syncing effect further down.
+  // Mirrors the latest videoTrack/audioTrack/micEnabled props for the room
+  // effect's own closure to read without needing them in its dependency
+  // array (which would tear down and recreate the whole RTCPeerConnection
+  // on every camera toggle — see that effect's own trailing comment).
+  // Kept current by the replaceTrack-syncing effect further down.
   const videoTrackRef = useRef<MediaStreamTrack | null>(videoTrack)
   const audioTrackRef = useRef<MediaStreamTrack | null>(audioTrack)
+  const micEnabledRef = useRef(micEnabled)
   // Starts null, not an eagerly-created empty MediaStream — see the
   // ontrack handler below for why: attaching an always-present-but-empty
   // stream to <video> up front, then mutating it as tracks trickle in, is
@@ -439,7 +455,13 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
         .replaceTrack(videoTrack)
         .catch((err) => console.error("webrtc: replaceTrack (initial video) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
     }
-    if (audioTrack) {
+    // Muted-at-room-start (e.g. a fresh match landed on right after a skip
+    // made mid-mute) must never briefly attach the real audio track before
+    // some later effect gets around to detaching it again — `micEnabledRef`
+    // (see its own doc comment) already reflects the current mute state by
+    // the time this runs, so the sender simply never receives a track to
+    // begin with rather than attaching-then-immediately-removing one.
+    if (audioTrack && micEnabledRef.current) {
       audioTransceiver.sender
         .replaceTrack(audioTrack)
         .catch((err) => console.error("webrtc: replaceTrack (initial audio) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
@@ -608,14 +630,23 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
           .replaceTrack(videoTrackRef.current)
           .catch((err) => console.error("webrtc: sender self-heal replaceTrack (video) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
       }
-      if (audio && audio.track !== audioTrackRef.current) {
-        console.error("webrtc: audio sender's track doesn't match the current mic track — reapplying replaceTrack", {
+      // The "correct" audio track is null while muted, not
+      // audioTrackRef.current — see micEnabled's own doc comment on
+      // UseWebRTCParams. Without this, self-heal would fight the mute
+      // itself: every tick, it would see the sender's track (null, because
+      // the mute effect below deliberately detached it) not matching
+      // audioTrackRef.current (the real mic track) and "fix" that by
+      // reattaching it, undoing the mute within about a second.
+      const desiredAudioTrack = micEnabledRef.current ? audioTrackRef.current : null
+      if (audio && audio.track !== desiredAudioTrack) {
+        console.error("webrtc: audio sender's track doesn't match what it should be (mic track, or null while muted) — reapplying replaceTrack", {
           roomId,
           senderHasTrack: Boolean(audio.track),
-          expectedTrack: Boolean(audioTrackRef.current),
+          expectedTrack: Boolean(desiredAudioTrack),
+          micEnabled: micEnabledRef.current,
         })
         audio
-          .replaceTrack(audioTrackRef.current)
+          .replaceTrack(desiredAudioTrack)
           .catch((err) => console.error("webrtc: sender self-heal replaceTrack (audio) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
       }
     }
@@ -690,21 +721,27 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, sendSigna
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, initiator, sendSignal, onSignal])
 
-  // Swap the outgoing tracks whenever the camera/mic is toggled or a
-  // different device is chosen — replaceTrack only, never renegotiation.
-  // Also keeps videoTrackRef/audioTrackRef current for the room effect's
-  // own checkSenderHealth self-heal to read.
+  // Swap the outgoing tracks whenever the camera/mic device is toggled or
+  // a different device is chosen, AND whenever mute itself toggles —
+  // replaceTrack only, never renegotiation. Also keeps videoTrackRef/
+  // audioTrackRef/micEnabledRef current for the room effect's own
+  // checkSenderHealth self-heal to read. `desiredAudioTrack` is null
+  // whenever muted — see micEnabled's own doc comment on UseWebRTCParams
+  // for why the sender is meant to have no audio track at all while
+  // muted, not just a disabled one.
   useEffect(() => {
     videoTrackRef.current = videoTrack
     audioTrackRef.current = audioTrack
+    micEnabledRef.current = micEnabled
     const { video, audio } = sendersRef.current
     if (video && video.track !== videoTrack) {
       video.replaceTrack(videoTrack).catch((err) => console.error("webrtc: replaceTrack (video) failed", { error: err instanceof Error ? err.name : "RTCError" }))
     }
-    if (audio && audio.track !== audioTrack) {
-      audio.replaceTrack(audioTrack).catch((err) => console.error("webrtc: replaceTrack (audio) failed", { error: err instanceof Error ? err.name : "RTCError" }))
+    const desiredAudioTrack = micEnabled ? audioTrack : null
+    if (audio && audio.track !== desiredAudioTrack) {
+      audio.replaceTrack(desiredAudioTrack).catch((err) => console.error("webrtc: replaceTrack (audio) failed", { error: err instanceof Error ? err.name : "RTCError" }))
     }
-  }, [videoTrack, audioTrack])
+  }, [videoTrack, audioTrack, micEnabled])
 
   return {
     remoteStream: mediaRoom === roomId ? remoteStream : null,

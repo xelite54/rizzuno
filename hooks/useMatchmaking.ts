@@ -442,6 +442,7 @@ export function useMatchmaking(
     initiator,
     videoTrack,
     audioTrack,
+    micEnabled,
     sendSignal,
     onSignal,
   })
