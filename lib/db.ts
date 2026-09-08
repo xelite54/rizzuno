@@ -888,6 +888,154 @@ export async function getFriendshipOtherUser(userId: string, friendshipId: strin
   return row.user_a_id === userId ? row.user_b_id : row.user_a_id
 }
 
+export type FriendChatMessageRow = {
+  id: string
+  friendshipId: string
+  senderId: string
+  text: string
+  createdAt: number
+}
+
+export type SendFriendMessageResult =
+  | { status: "sent"; message: FriendChatMessageRow; recipientId: string; duplicate: boolean }
+  | { status: "not_friends" }
+  | { status: "blocked" }
+
+/**
+ * Persists a friend-chat message — the durable backend behind Friends' text
+ * chat (see server/ws-server.ts's "friend-chat-send" handler, the only
+ * caller). Every check here is server-authoritative: `senderId` only ever
+ * comes from the verified realtime connection, never a client-supplied
+ * field, and getFriendshipOtherUser() above is what actually proves the
+ * sender is a real party to `friendshipId` (and derives the recipient from
+ * it) — the same authoritative check app/api/friends/profile/[friendshipId]
+ * already uses for the same reason. A friendship removed (unfriend) or
+ * either side blocking the other both make getFriendshipOtherUser()/
+ * isBlockedEitherWay() fail this before anything is ever written.
+ *
+ * `clientMessageId` + the UNIQUE(sender_id, client_message_id) constraint
+ * (see migration 0009_friend_messages) together make a retried send
+ * idempotent: if this exact (sender, clientMessageId) pair was already
+ * persisted, the existing row is returned (`duplicate: true`) instead of
+ * inserting a second one — a network retry or a duplicate WS send can never
+ * create two messages for what the sender considers one send.
+ */
+export async function sendFriendMessage(
+  senderId: string,
+  friendshipId: string,
+  clientMessageId: string,
+  text: string
+): Promise<SendFriendMessageResult> {
+  const recipientId = await getFriendshipOtherUser(senderId, friendshipId)
+  if (!recipientId) return { status: "not_friends" }
+  if (await isBlockedEitherWay(senderId, recipientId)) return { status: "blocked" }
+
+  const existing = await q<{ id: string; text: string; created_at: string }>(
+    `SELECT id, text, created_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
+    [senderId, clientMessageId]
+  )
+  if (existing.rows[0]) {
+    const row = existing.rows[0]
+    return {
+      status: "sent",
+      duplicate: true,
+      recipientId,
+      message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at) },
+    }
+  }
+
+  const id = randomUUID()
+  const ts = now()
+  try {
+    await q(
+      `INSERT INTO friend_messages (id, friendship_id, sender_id, recipient_id, text, client_message_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [id, friendshipId, senderId, recipientId, text, clientMessageId, ts]
+    )
+  } catch (err) {
+    if ((err as { code?: string }).code === "23505") {
+      // Lost a race with itself (a near-simultaneous retry landing between
+      // the SELECT above and this INSERT) — re-read rather than fail the
+      // send outright; the row genuinely exists either way.
+      const raced = await q<{ id: string; text: string; created_at: string }>(
+        `SELECT id, text, created_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
+        [senderId, clientMessageId]
+      )
+      const row = raced.rows[0]
+      if (row) {
+        return {
+          status: "sent",
+          duplicate: true,
+          recipientId,
+          message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at) },
+        }
+      }
+    }
+    throw err
+  }
+  return { status: "sent", duplicate: false, recipientId, message: { id, friendshipId, senderId, text, createdAt: ts } }
+}
+
+/**
+ * The latest page of a friendship's real message history (see
+ * app/api/friends/messages/[friendshipId], the only caller) — ordered
+ * oldest-first (ready to render top-to-bottom) even though the query itself
+ * fetches newest-first-then-reverses, so "latest N" and "oldest first on
+ * screen" are both true at once. `userId` must be a real party to
+ * `friendshipId` — verified the same way sendFriendMessage() is above,
+ * never trusted from a client-supplied id.
+ */
+export async function listFriendMessages(
+  userId: string,
+  friendshipId: string,
+  limit = 50
+): Promise<{ status: "ok"; messages: FriendChatMessageRow[] } | { status: "not_found" }> {
+  const otherId = await getFriendshipOtherUser(userId, friendshipId)
+  if (!otherId) return { status: "not_found" }
+  const { rows } = await q<{ id: string; sender_id: string; text: string; created_at: string }>(
+    `SELECT id, sender_id, text, created_at FROM friend_messages WHERE friendship_id = $1 ORDER BY created_at DESC LIMIT $2`,
+    [friendshipId, limit]
+  )
+  const messages = rows
+    .reverse()
+    .map((r) => ({ id: r.id, friendshipId, senderId: r.sender_id, text: r.text, createdAt: Number(r.created_at) }))
+  return { status: "ok", messages }
+}
+
+/**
+ * Marks every message `userId` has RECEIVED in `friendshipId` as read —
+ * never messages they sent themselves (there is nothing to "read" about
+ * your own outgoing message). Returns false only if `friendshipId` doesn't
+ * belong to `userId` at all; true otherwise, including when there was
+ * nothing unread to mark.
+ */
+export async function markFriendMessagesRead(userId: string, friendshipId: string): Promise<boolean> {
+  const otherId = await getFriendshipOtherUser(userId, friendshipId)
+  if (!otherId) return false
+  await q(
+    `UPDATE friend_messages SET read_at = $1 WHERE friendship_id = $2 AND recipient_id = $3 AND read_at IS NULL`,
+    [now(), friendshipId, userId]
+  )
+  return true
+}
+
+/**
+ * Unread-message counts for every friendship `userId` currently has an
+ * unread message in — merged into each FriendSummary by
+ * server/ws-server.ts's sendFriendsSnapshot(), never exposed as its own
+ * endpoint (a bare count carries no message content, so it's safe to ride
+ * along with everything else about a friend that snapshot already sends).
+ */
+export async function countUnreadFriendMessages(userId: string): Promise<Map<string, number>> {
+  const { rows } = await q<{ friendship_id: string; count: string }>(
+    `SELECT friendship_id, COUNT(*)::int AS count FROM friend_messages WHERE recipient_id = $1 AND read_at IS NULL GROUP BY friendship_id`,
+    [userId]
+  )
+  const counts = new Map<string, number>()
+  for (const row of rows) counts.set(row.friendship_id, Number(row.count))
+  return counts
+}
+
 /** Escapes a user-supplied fragment for safe use inside a `LIKE`/`ILIKE` pattern — Postgres's default LIKE escape character is already backslash, so prefixing the three special characters with one is all this needs (no separate ESCAPE clause required). Without this, someone searching for e.g. `50%` or `a_b` would have `%`/`_` act as wildcards instead of literal characters. */
 function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`)

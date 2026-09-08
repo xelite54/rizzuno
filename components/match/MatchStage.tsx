@@ -168,6 +168,7 @@ export function MatchStage() {
   const {
     realtimeReady,
     state,
+    canMatchChat,
     onlineCount,
     peer,
     peerMicEnabled,
@@ -199,6 +200,9 @@ export function MatchStage() {
     matchInviteError,
     inviteFriendToMatch,
     respondToMatchInvitation,
+    friendMessages,
+    sendFriendChatMessage,
+    markFriendChatRead,
   } = useMatchmaking(
     realtimeEnabled,
     videoTrack,
@@ -434,6 +438,15 @@ export function MatchStage() {
   const displayedPeer = pendingSkip ? null : peer
   const swipeMatchState = pendingSkip || (state === "active" && !peer) ? "queue-pending" : state
   const inCall = state === "active" && !pendingSkip && Boolean(peer)
+  // Chat availability, deliberately NOT tied to `inCall`/`state`'s video
+  // meaning — see useMatchmaking's `canMatchChat` doc comment for why. A
+  // server-confirmed match already has a valid peer relationship before
+  // WebRTC video finishes connecting; chat has no reason to wait for
+  // decoded frames. `!pendingSkip` is the one thing added here that the
+  // hook itself has no reason to know about — the undo-skip window is
+  // purely this component's own presentational masking (see displayedPeer
+  // above), not a matchmaking/video concern.
+  const canChat = canMatchChat && !pendingSkip
   // This is the signed-in home screen, not half of the call layout.
   // While it is visible the stage owns the whole canvas and the self camera
   // becomes a small preview. Starting a search restores the two-person call
@@ -483,6 +496,7 @@ export function MatchStage() {
     username: f.username ?? "",
     profilePhoto: f.profilePhoto,
     online: f.online,
+    unreadCount: f.unreadCount,
   }))
   const requests: PendingRequest[] = rawFriendRequestsReceived.map((r) => ({
     id: r.id,
@@ -636,7 +650,7 @@ export function MatchStage() {
                     onToggleMic={toggleMic}
                   />
                   <div className="h-5 w-px shrink-0 bg-white/20" />
-                  <CompactChat disabled={!inCall} onOpenChat={() => setChatOpen(true)} />
+                  <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} />
                 </div>
               </div>
               <MatchChatPanel
@@ -644,7 +658,7 @@ export function MatchStage() {
                 onClose={() => setChatOpen(false)}
                 peer={displayedPeer}
                 messages={messages}
-                disabled={!inCall}
+                disabled={!canChat}
                 peerTyping={peerTyping}
                 onSend={sendChat}
                 onNotifyTyping={notifyTyping}
@@ -726,6 +740,9 @@ export function MatchStage() {
             onRemoveFriend={unfriend}
             onBlockPerson={(userId) => blockFriendAccount(userId)}
             onUnreadMessagesChange={setUnreadMessages}
+            friendMessages={friendMessages}
+            onSendFriendMessage={sendFriendChatMessage}
+            onMarkFriendChatRead={markFriendChatRead}
           />
           <IncomingFriendRequestToast
             request={incomingMatchInvitation ? null : toastRequest}

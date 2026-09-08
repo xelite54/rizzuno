@@ -13,9 +13,26 @@ import { ChevronLeftIcon, CloseIcon, DotsIcon, MailIcon, SearchIcon, SendIcon, U
 import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
 import { EASE_OUT, DURATION_QUICK, DURATION_BASE } from "@/lib/motion"
 import type { DemoFriend, PendingRequest } from "@/hooks/useFriends"
+import type { FriendChatEntry } from "@/hooks/useMatchmaking"
 
-type MessageContent = { kind: "text"; text: string } | { kind: "image"; dataUrl: string }
-type FriendMessage = { id: string; from: "me" | "them"; content: MessageContent; ts: number }
+/**
+ * Combines a friendship's real, persisted history (fetched once per open —
+ * see the effect below) with whatever's arrived/been sent live this
+ * session (`live`, from useMatchmaking's `friendMessages` — see its own
+ * doc comment for why that's cache, not the source of truth). Deduped by
+ * id: once a "sending" optimistic entry is acknowledged, useMatchmaking
+ * rewrites its id to the real server-assigned one (see its "friend-chat-
+ * sent" handler) — the same id a later history fetch would return for that
+ * same message — so `live` naturally wins on any overlap (a fresher status
+ * than whatever a stale history fetch already had) without ever double-
+ * rendering the same message twice.
+ */
+function mergeFriendMessages(history: FriendChatEntry[], live: FriendChatEntry[]): FriendChatEntry[] {
+  const merged = new Map<string, FriendChatEntry>()
+  for (const message of history) merged.set(message.id, message)
+  for (const message of live) merged.set(message.id, message)
+  return [...merged.values()].sort((a, b) => a.ts - b.ts)
+}
 
 // A real account found by username search — see app/api/friends/search.
 // Deliberately just a username, not an id: search results never carry the
@@ -48,8 +65,12 @@ type FriendsPanelProps = {
   onDeclineRequest: (id: string) => void
   onRemoveFriend: (id: string) => void
   onBlockPerson: (id: string, displayName: string) => void
-  /** Reported whenever unread message count changes, so the header's Friends icon can badge it. */
+  /** Reported whenever unread message count changes, so the header's Friends icon can badge it. Now a real sum of each friend's server-computed `unreadCount` (see DemoFriend's own doc comment) — never a local counter. */
   onUnreadMessagesChange?: (count: number) => void
+  /** This session's live friend-chat cache, keyed by friendshipId — see useMatchmaking's `friendMessages` doc comment. Merged with real fetched history (below) rather than trusted alone. */
+  friendMessages: Map<string, FriendChatEntry[]>
+  onSendFriendMessage: (friendshipId: string, text: string) => void
+  onMarkFriendChatRead: (friendshipId: string) => void
 }
 
 type View = "list" | "chat" | "requests"
@@ -69,9 +90,16 @@ export function FriendsPanel({
   onRemoveFriend,
   onBlockPerson,
   onUnreadMessagesChange,
+  friendMessages,
+  onSendFriendMessage,
+  onMarkFriendChatRead,
 }: FriendsPanelProps) {
-  const [unread, setUnread] = useState<Record<string, number>>({})
-  const [messages, setMessages] = useState<Record<string, FriendMessage[]>>({})
+  // Real, persisted history per friendship — fetched fresh every time that
+  // conversation opens (see the effect below), merged with the live cache
+  // (`friendMessages`, from useMatchmaking) rather than trusted alone. This
+  // is rendered state/cache too, same as `friendMessages` itself — Postgres
+  // is still the actual source of truth.
+  const [historyById, setHistoryById] = useState<Record<string, FriendChatEntry[]>>({})
   const [view, setView] = useState<View>("list")
   const incomingMatchInvitations = matchInvitations.filter((invite) => invite.direction === "incoming")
   const requestCount = requests.length + incomingMatchInvitations.length
@@ -137,8 +165,9 @@ export function FriendsPanel({
   // Report unread messages up to the header badge whenever they change —
   // including the initial seed, so the badge shows up before the panel is
   // ever opened. Pending requests are counted separately by whoever owns
-  // that shared state.
-  const totalUnread = Object.values(unread).reduce((sum, count) => sum + count, 0)
+  // that shared state. Real, server-computed counts (see DemoFriend's own
+  // doc comment) — never a client-local counter.
+  const totalUnread = friends.reduce((sum, friend) => sum + friend.unreadCount, 0)
   useEffect(() => {
     onUnreadMessagesChange?.(totalUnread)
   }, [totalUnread, onUnreadMessagesChange])
@@ -254,13 +283,57 @@ export function FriendsPanel({
   }, [searchQuery, searchActive])
 
   const active = friends.find((friend) => friend.id === activeId) ?? null
-  const activeMessages = active ? (messages[active.id] ?? []) : []
+  const activeLiveMessages = active ? (friendMessages.get(active.id) ?? []) : []
+  const activeMessages = active ? mergeFriendMessages(historyById[active.id] ?? [], activeLiveMessages) : []
+
+  // Real, persisted history — fetched fresh every time a conversation
+  // opens (a different friendship, or reopening the same one), the same
+  // pattern the friend-profile fetch above already uses. Failing to load
+  // must never block live chat — the merge above just falls back to
+  // whatever the live cache already has if this never resolves.
+  useEffect(() => {
+    if (!activeId) return
+    let cancelled = false
+    fetch(`/api/friends/messages/${encodeURIComponent(activeId)}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`friend messages fetch failed: ${res.status}`)
+        return res.json()
+      })
+      .then((data: { messages?: { id: string; text: string; createdAt: number; mine: boolean }[] }) => {
+        if (cancelled) return
+        const loaded: FriendChatEntry[] = (data.messages ?? []).map((m) => ({
+          id: m.id,
+          from: m.mine ? "me" : "peer",
+          text: m.text,
+          ts: m.createdAt,
+        }))
+        setHistoryById((prev) => ({ ...prev, [activeId]: loaded }))
+      })
+      .catch(() => {
+        console.warn("friends panel: failed to load message history")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeId])
+
+  // Marks the open conversation's received messages read — on opening it,
+  // and again for any later message that arrives while it's still open
+  // (`activeLiveMessages` changing covers both: a fresh live push, or this
+  // account's own send transitioning "sending" -> "sent", which is a
+  // harmless redundant mark-read). The server responds with a fresh
+  // friends-snapshot, which is what actually zeroes `unreadCount` — see
+  // useMatchmaking's markFriendChatRead().
+  useEffect(() => {
+    if (view !== "chat" || !active) return
+    onMarkFriendChatRead(active.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the active conversation's own live messages, not onMarkFriendChatRead's identity
+  }, [view, active?.id, activeLiveMessages])
 
   function openChat(id: string) {
     setChatBlocked(false)
     setActiveId(id)
     setView("chat")
-    setUnread((prev) => ({ ...prev, [id]: 0 }))
   }
 
   function sendMessage() {
@@ -271,13 +344,8 @@ export function FriendsPanel({
       return
     }
     setChatBlocked(false)
-    const friendId = active.id
-    const messageId = crypto.randomUUID()
     setDraft("")
-    setMessages((prev) => ({
-      ...prev,
-      [friendId]: [...(prev[friendId] ?? []), { id: messageId, from: "me", content: { kind: "text", text }, ts: Date.now() }],
-    }))
+    onSendFriendMessage(active.id, text)
   }
 
   function handleRemoveFriend(id: string) {
@@ -589,9 +657,9 @@ export function FriendsPanel({
                             {matchInvitations.some((invite) => invite.userId === friend.userId && invite.direction === "outgoing") ? "Invited" : "Match"}
                           </button>
                         )}
-                        {(unread[friend.id] ?? 0) > 0 && (
+                        {friend.unreadCount > 0 && (
                           <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-accent-foreground">
-                            {unread[friend.id]}
+                            {friend.unreadCount}
                           </span>
                         )}
                         <button
@@ -746,24 +814,21 @@ export function FriendsPanel({
                           </div>
                         )}
                         <div className={`max-w-[80%] ${isMine ? "ml-auto" : ""}`}>
-                          {message.content.kind === "image" ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- local/data-URL chat images, not a static asset
-                            <img
-                              src={message.content.dataUrl}
-                              alt="Shared photo"
-                              className="max-h-48 w-auto rounded-xl border border-border object-cover"
-                            />
-                          ) : (
-                            <div
-                              className={`rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
-                                isMine ? "bg-accent text-accent-foreground" : "bg-surface-2 text-foreground"
-                              }`}
-                            >
-                              {message.content.text}
-                            </div>
-                          )}
+                          <div
+                            className={`rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
+                              isMine ? "bg-accent text-accent-foreground" : "bg-surface-2 text-foreground"
+                            }`}
+                          >
+                            {message.text}
+                          </div>
                           <div className={`mt-1 flex items-center gap-1 px-1 text-[10px] text-muted ${isMine ? "justify-end" : ""}`}>
-                            <span>{formatTime(message.ts)}</span>
+                            <span>
+                              {isMine && message.status === "sending"
+                                ? "Sending…"
+                                : isMine && message.status === "failed"
+                                  ? "Not delivered"
+                                  : formatTime(message.ts)}
+                            </span>
                           </div>
                         </div>
                       </div>

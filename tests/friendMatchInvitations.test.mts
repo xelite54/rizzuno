@@ -29,7 +29,7 @@ test("friend invitations require recipient consent, then create a direct call wi
     assert.deepEqual((await b.waitForType("signal")).data, { kind: "offer", sdp: "test-offer" })
     b.send({ type: "signal", roomId: bm.roomId, data: { kind: "answer", sdp: "test-answer" } })
     assert.deepEqual((await a.waitForType("signal")).data, { kind: "answer", sdp: "test-answer" })
-    a.send({ type: "chat", roomId: am.roomId, content: { kind: "text", text: "hello friend" } })
+    a.send({ type: "chat", roomId: am.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "text", text: "hello friend" } })
     assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "hello friend" })
     b.send({ type: "leave" })
     await a.waitForType("peer-left")
@@ -97,7 +97,7 @@ test("a friend invitation survives sender socket loss and is accepted after reco
     assert.equal((await b.waitForType("matched")).roomId, matched.roomId)
     replacement.send({ type: "find" })
     await assert.rejects(() => b.waitForType("peer-left", 100), /timed out/)
-    replacement.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text: "still here" } })
+    replacement.send({ type: "chat", roomId: matched.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "text", text: "still here" } })
     assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "still here" })
     replacement.close(); b.close()
   } finally { await server.close() }

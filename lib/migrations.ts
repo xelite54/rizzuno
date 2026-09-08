@@ -265,4 +265,35 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS billing_subscription_user ON billing_subscriptions(user_id);
     `,
   },
+  {
+    // The real backend behind Friends' text chat — previously entirely
+    // local React state in FriendsPanel.tsx (never sent anywhere), so the
+    // other friend could never receive a message, a refresh lost
+    // everything, and offline delivery was impossible. See
+    // server/ws-server.ts's "friend-chat-send"/"friend-chat-read" handlers
+    // (the only writers) and app/api/friends/messages/[friendshipId] (the
+    // only reader of history).
+    //
+    // `client_message_id` + `UNIQUE(sender_id, client_message_id)` is what
+    // makes a retried send idempotent — see lib/db.ts's sendFriendMessage().
+    // `read_at` is nullable — unread until a value is set — rather than a
+    // separate boolean, so "when" is available for free wherever "whether"
+    // is needed.
+    id: "0009_friend_messages",
+    sql: `
+      CREATE TABLE IF NOT EXISTS friend_messages (
+        id TEXT PRIMARY KEY,
+        friendship_id TEXT NOT NULL,
+        sender_id TEXT NOT NULL,
+        recipient_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        client_message_id TEXT NOT NULL,
+        created_at BIGINT NOT NULL,
+        read_at BIGINT,
+        UNIQUE (sender_id, client_message_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_friend_messages_friendship ON friend_messages(friendship_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_friend_messages_unread ON friend_messages(recipient_id, friendship_id) WHERE read_at IS NULL;
+    `,
+  },
 ]

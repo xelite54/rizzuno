@@ -31,6 +31,8 @@ export type DemoFriend = {
   /** The friend's current profile photo, straight from the latest friends-snapshot (see server/ws-server.ts) — kept current there when the friend changes it, not just a value cached from whenever the friendship formed. */
   profilePhoto: string | null
   online: boolean
+  /** Real, server-computed unread-message count for this friend (see lib/db.ts's countUnreadFriendMessages()) — not a client-local counter. See FriendSummary's own doc comment in lib/signaling/protocol.ts. */
+  unreadCount: number
 }
 export type PendingRequest = { id: string; senderId: string; displayName: string; username: string }
 export type BlockedUser = { id: string; displayName: string }

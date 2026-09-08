@@ -88,7 +88,12 @@ export type FriendSummary = {
   profilePhoto: string | null
   online: boolean
   since: number
+  /** How many of this friend's messages are currently unread — real, server-computed state (see lib/db.ts's countUnreadFriendMessages()), not a client-local counter. Refreshed via a fresh friends-snapshot on every hello, right after a live "friend-chat-message" delivery, and after this account sends "friend-chat-read" — so a refresh/relogin always shows the correct count, never a stale or purely-local one. */
+  unreadCount: number
 }
+
+/** One friend-chat message, as delivered/echoed over the realtime socket or returned by GET /api/friends/messages/[friendshipId] — text only, matching the existing UI (see AGENTS: "Only implement the text-chat functionality that currently exists"). Never carries sender/recipient account ids itself; the surrounding context (which friendship, "friend-chat-message" vs the sender's own optimistic copy) is what tells the two apart client-side. */
+export type FriendChatMessage = { id: string; text: string; createdAt: number }
 
 /** A friend request someone else sent you — `id` is the request's own opaque id (used to accept/decline it), not the sender's account id, which this doesn't expose until you accept. */
 export type ReceivedFriendRequest = { id: string; senderId: string; username: string | null; createdAt: number }
@@ -127,7 +132,8 @@ export type ClientMessage =
   | { type: "skip" }
   | { type: "leave" }
   | { type: "signal"; roomId: string; data: RtcSignal }
-  | { type: "chat"; roomId: string; content: ChatContent }
+  /** `clientMessageId` is what "chat-sent"/"chat-failed" below echo back so the sender can reconcile its own optimistic copy — see hooks/useMatchmaking.ts's sendChat(), which never marks a message actually sent until one of those two arrives. */
+  | { type: "chat"; roomId: string; clientMessageId: string; content: ChatContent }
   | { type: "report"; roomId: string; category: ReportCategory; details?: string }
   | { type: "block"; roomId: string }
   /** Reverses a block this account previously placed — never the other direction (see lib/db.ts's removeBlock). `targetUserId` is one the client only ever learned from its own blocked-users snapshot, not a value it's guessing. */
@@ -160,6 +166,20 @@ export type ClientMessage =
   | { type: "unfriend"; friendshipId: string }
   /** Blocking someone you're already friends with (or have a pending request with) — `targetUserId` is one the client only ever learned from a prior friends-snapshot/request, i.e. a relationship it was already told about, not an arbitrary id it's guessing. */
   | { type: "friend-block"; targetUserId: string }
+  /**
+   * Sends a friend-chat text message — rides this same authenticated
+   * socket (see AGENTS: "DO NOT create a second WebSocket for Friends
+   * chat"), never a separate connection. `friendshipId` is never trusted
+   * at face value; the server derives the recipient itself via
+   * lib/db.ts's getFriendshipOtherUser() and rejects the send outright if
+   * the friendship doesn't exist, doesn't belong to this account, or
+   * either side has blocked the other. `clientMessageId` is both the
+   * dedup key (see migration 0009_friend_messages' UNIQUE constraint) and
+   * what "friend-chat-sent"/"friend-chat-error" echo back.
+   */
+  | { type: "friend-chat-send"; friendshipId: string; clientMessageId: string; text: string }
+  /** Marks every message this account has RECEIVED in `friendshipId` as read — sent on opening a conversation, and again for any later message that arrives while it's still open. Never marks this account's own outgoing messages; see lib/db.ts's markFriendMessagesRead(). */
+  | { type: "friend-chat-read"; friendshipId: string }
 
 export type ServerMessage =
   | { type: "match-invitations"; invitations: MatchInvitation[] }
@@ -180,6 +200,16 @@ export type ServerMessage =
   | { type: "peer-updated"; roomId: string; peer: PublicPeerIdentity }
   | { type: "signal"; roomId: string; data: RtcSignal }
   | { type: "chat"; roomId: string; from: "peer"; content: ChatContent; ts: number }
+  /** Delivery acknowledgement for a "chat" send — the ONLY thing that turns the sender's own optimistic message from "sending" into "sent" (see hooks/useMatchmaking.ts's sendChat()). Appending a message locally the instant it's sent, without waiting for this, is exactly the "phantom sent" bug this exists to fix: useSignalingSocket.send() silently drops a message when the transport isn't open, which previously left the sender seeing a message that never reached anyone. */
+  | { type: "chat-sent"; roomId: string; clientMessageId: string; ts: number }
+  /** A "chat" send was rejected — the room is stale (this account no longer has it, the supplied roomId doesn't match its live one, or the partner has already left), the text failed content validation ("blocked"), or the content was neither valid text nor a valid image ("invalid"). The client must never treat this as delivered. */
+  | { type: "chat-failed"; roomId: string; clientMessageId: string; reason: "stale_room" | "blocked" | "invalid" }
+  /** A friend-chat message — the Friends-panel equivalent of "chat" above. Sent ONLY to the recipient; the sender already has their own optimistic copy, reconciled via "friend-chat-sent" instead — mirroring how match chat's "chat" is only ever pushed to the partner, never echoed back to whoever sent it. */
+  | { type: "friend-chat-message"; friendshipId: string; message: FriendChatMessage }
+  /** Delivery acknowledgement for a "friend-chat-send" — `messageId`/`createdAt` are the real, server-assigned values, which may differ from whatever the client's optimistic render guessed. */
+  | { type: "friend-chat-sent"; friendshipId: string; clientMessageId: string; messageId: string; createdAt: number }
+  /** A "friend-chat-send" was rejected — the friendship doesn't exist (removed, or never did), one side has blocked the other, or the message failed content validation. The client must never treat this as delivered. */
+  | { type: "friend-chat-error"; friendshipId: string; clientMessageId: string; reason: "not_friends" | "blocked" | "invalid" }
   | { type: "mic-state"; roomId: string; micEnabled: boolean }
   | { type: "typing"; roomId: string }
   | { type: "peer-left"; roomId: string }

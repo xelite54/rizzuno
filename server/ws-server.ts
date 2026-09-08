@@ -23,8 +23,11 @@ import {
   listPendingRequestsReceived,
   listPendingRequestsSent,
   listBlockedByUserWithUsernames,
+  sendFriendMessage,
+  markFriendMessagesRead,
+  countUnreadFriendMessages,
 } from "../lib/db"
-import { sanitizeText, containsSevereContent, containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "../lib/textFilter"
+import { sanitizeText, containsSevereContent, containsBlockedChatContent } from "../lib/textFilter"
 import { moderateImage } from "../lib/imageModeration"
 
 const MAX_HANDLE_LENGTH = 40
@@ -235,11 +238,12 @@ function toQueuedClient(state: ConnectionState, searchGeneration: number): Queue
 
 /** The full current friends/requests/blocks picture for this account — sent right after "ready" (best-effort, never a prerequisite for it — see the "hello" handler), and re-sent to whoever's affected (if they're online) after any friends-related action, so every open tab converges on the same state without diffing granular events itself. */
 async function sendFriendsSnapshot(state: ConnectionState) {
-  const [friends, requestsReceived, requestsSent, blocked] = await Promise.all([
+  const [friends, requestsReceived, requestsSent, blocked, unreadCounts] = await Promise.all([
     listFriends(state.userId),
     listPendingRequestsReceived(state.userId),
     listPendingRequestsSent(state.userId),
     listBlockedByUserWithUsernames(state.userId),
+    countUnreadFriendMessages(state.userId),
   ])
 
   // Temporary diagnostic for the blank-friend-username investigation — safe
@@ -272,6 +276,7 @@ async function sendFriendsSnapshot(state: ConnectionState) {
       profilePhoto: f.profilePhoto,
       online: connections.has(f.userId),
       since: f.since,
+      unreadCount: unreadCounts.get(f.friendshipId) ?? 0,
     })),
     requestsReceived: requestsReceived.map((r) => ({
       id: r.requestId,
@@ -911,23 +916,42 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "chat": {
+          console.debug("match-chat: send requested", { roomId: message.roomId })
+          // Authoritative staleness check — covers all three ways this can
+          // be stale at once: this account has no room at all, the
+          // supplied roomId doesn't match its actual live one (roomPartner
+          // derives the partner from `state.roomId`, never `message.roomId`
+          // — see its own doc comment), or the partner has already left
+          // (roomPartner returns undefined, or their own roomId has since
+          // moved on). Previously this silently discarded the message here
+          // with no ack at all — the sender's own optimistic local append
+          // (now removed, see chat-sent below) meant they saw "sent" for a
+          // message that never reached anyone. An explicit "chat-failed"
+          // is what fixes that.
           const partner = roomPartner(state)
-          if (!partner || partner.roomId !== message.roomId) break
+          if (!partner || partner.roomId !== message.roomId) {
+            console.debug("match-chat: rejected stale room", { roomId: message.roomId })
+            send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "stale_room" })
+            break
+          }
 
           const content = message.content
           if (content.kind === "text") {
             const text = sanitizeText(content.text, 500)
             if (!text || containsBlockedChatContent(text)) {
-              send(state.ws, { type: "error", message: CHAT_BLOCKED_MESSAGE })
+              send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "blocked" })
               break
             }
+            const ts = Date.now()
             send(partner.ws, {
               type: "chat",
               roomId: message.roomId,
               from: "peer",
               content: { kind: "text", text },
-              ts: Date.now(),
+              ts,
             })
+            send(state.ws, { type: "chat-sent", roomId: message.roomId, clientMessageId: message.clientMessageId, ts })
+            console.debug("match-chat: delivered", { roomId: message.roomId })
           } else if (
             content.kind === "image" &&
             typeof content.dataUrl === "string" &&
@@ -951,16 +975,21 @@ export function createRizzunoWebSocketServer() {
               surface: "chat",
             })
             if (moderation.decision === "allow") {
+              const ts = Date.now()
               send(partner.ws, {
                 type: "chat",
                 roomId: message.roomId,
                 from: "peer",
                 content: { kind: "image", dataUrl: content.dataUrl },
-                ts: Date.now(),
+                ts,
               })
+              send(state.ws, { type: "chat-sent", roomId: message.roomId, clientMessageId: message.clientMessageId, ts })
+              console.debug("match-chat: delivered", { roomId: message.roomId })
             } else {
-              send(state.ws, { type: "error", message: "Image blocked." })
+              send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "blocked" })
             }
+          } else {
+            send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "invalid" })
           }
           break
         }
@@ -1203,6 +1232,79 @@ export function createRizzunoWebSocketServer() {
             await trySendFriendsSnapshot(state)
             await refreshSnapshotIfOnline(message.targetUserId)
           }
+          break
+        }
+        case "friend-chat-send": {
+          console.debug("friend-chat: send requested", { displayId: state.displayId })
+          const text = sanitizeText(message.text, 500)
+          if (!text || containsBlockedChatContent(text)) {
+            send(state.ws, {
+              type: "friend-chat-error",
+              friendshipId: message.friendshipId,
+              clientMessageId: message.clientMessageId,
+              reason: "invalid",
+            })
+            break
+          }
+          let result
+          try {
+            result = await sendFriendMessage(state.userId, message.friendshipId, message.clientMessageId, text)
+          } catch (err) {
+            console.error("ws-server: friend-chat-send failed", { displayId: state.displayId, ...describeErr(err) })
+            send(state.ws, {
+              type: "friend-chat-error",
+              friendshipId: message.friendshipId,
+              clientMessageId: message.clientMessageId,
+              reason: "invalid",
+            })
+            break
+          }
+          if (result.status !== "sent") {
+            // "not_friends" (removed/never existed) or "blocked" (either
+            // side blocked the other) — see lib/db.ts's sendFriendMessage(),
+            // the one authoritative check; nothing here trusts the client's
+            // own idea of who it's friends with.
+            send(state.ws, {
+              type: "friend-chat-error",
+              friendshipId: message.friendshipId,
+              clientMessageId: message.clientMessageId,
+              reason: result.status,
+            })
+            break
+          }
+          console.debug("friend-chat: persisted", { friendshipId: message.friendshipId, duplicate: result.duplicate })
+          send(state.ws, {
+            type: "friend-chat-sent",
+            friendshipId: message.friendshipId,
+            clientMessageId: message.clientMessageId,
+            messageId: result.message.id,
+            createdAt: result.message.createdAt,
+          })
+          // A retried send (the client's own clientMessageId dedup) is
+          // already persisted from its first attempt — the recipient
+          // already got (or will get, from that first attempt) the live
+          // push; sending it again here would show the same message twice.
+          if (result.duplicate) break
+          const recipient = connections.get(result.recipientId)
+          if (recipient) {
+            send(recipient.ws, {
+              type: "friend-chat-message",
+              friendshipId: message.friendshipId,
+              message: { id: result.message.id, text: result.message.text, createdAt: result.message.createdAt },
+            })
+            console.debug("friend-chat: live delivery", { friendshipId: message.friendshipId })
+            // Keeps the recipient's own unread badge correct the instant
+            // the message arrives, not just on their next hello.
+            await trySendFriendsSnapshot(recipient)
+          } else {
+            console.debug("friend-chat: recipient offline", { friendshipId: message.friendshipId })
+          }
+          break
+        }
+        case "friend-chat-read": {
+          const ok = await markFriendMessagesRead(state.userId, message.friendshipId)
+          console.debug("friend-chat: marked read", { displayId: state.displayId, ok })
+          if (ok) await trySendFriendsSnapshot(state)
           break
         }
         default:

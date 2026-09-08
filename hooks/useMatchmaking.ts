@@ -32,7 +32,27 @@ import type {
 // setting a literal, specifically so this hook's actual runtime behavior
 // and tests/matchStateMachine.test.mts's coverage of it can never diverge.
 export type { MatchState }
-export type ChatMessage = { id: string; from: "me" | "peer"; content: ChatContent; ts: number }
+/**
+ * `status` only ever applies to "me" messages — the sender's own optimistic
+ * copy, shown "sending" until the server actually acknowledges it (see
+ * sendChat()'s own doc comment for why appending locally was never enough
+ * on its own). A "peer" message is never optimistic to begin with — it only
+ * ever arrives already delivered — so it carries no status at all.
+ */
+export type ChatMessage = { id: string; from: "me" | "peer"; content: ChatContent; ts: number; status?: "sending" | "sent" | "failed" }
+/** A friend-chat message, rendered the same way match chat is — `status` has the same "me"-message-only meaning ChatMessage's does. */
+export type FriendChatEntry = { id: string; from: "me" | "peer"; text: string; ts: number; status?: "sending" | "sent" | "failed" }
+
+// How long a match-chat/friend-chat send waits for the server's own
+// delivery acknowledgement before giving up and marking itself "failed" —
+// covers both "the transport looked open but wasn't really" and "the
+// message genuinely got lost in flight", not just an outright-closed
+// socket (useSignalingSocket.send() already drops that case immediately,
+// synchronously, before this timeout would ever matter). Long enough for a
+// normal round trip even over a slow connection; short enough that a
+// person isn't left staring at "Sending…" for a message that's actually
+// never coming.
+const CHAT_ACK_TIMEOUT_MS = 8000
 
 // What we show about the current match — always a real match, nothing
 // fabricated. `userId` (the peer's real Google account id) is never part of
@@ -172,6 +192,10 @@ export function useMatchmaking(
     roomRef.current = next
     updateRoomId(next)
   }, [])
+  // Which of THIS tab's own match-chat sends are still waiting on a
+  // server ack — keyed by clientMessageId, holding that send's timeout
+  // handle. See sendChat() and the "chat-sent"/"chat-failed" cases below.
+  const pendingChatSendsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const [initiator, setInitiator] = useState(false)
   const [peer, setPeer] = useState<PeerProfile | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -316,12 +340,39 @@ export function useMatchmaking(
     setMatchInviteError(null)
     send({ type: "match-invite-respond", invitationId, accept })
   }, [send])
+
+  // Friend-chat — rides this same authenticated socket (never a second
+  // connection; see AGENTS' friend-chat architecture requirement).
+  // Postgres (via server/ws-server.ts's "friend-chat-send"/"friend-chat-
+  // read" handlers, see lib/db.ts) is the actual source of truth; this map
+  // is rendered state/cache only — the live-arrived and just-sent messages
+  // for whichever friendships this tab has touched this session. History
+  // (GET /api/friends/messages/[friendshipId]) is fetched and merged in by
+  // FriendsPanel.tsx itself, the same way it already fetches a friend's
+  // real profile — this hook only ever appends to what's already here, it
+  // never fetches history on its own.
+  const [friendMessages, setFriendMessages] = useState<Map<string, FriendChatEntry[]>>(new Map())
+  // Which of THIS tab's own optimistic sends are still waiting on a
+  // server ack — keyed by clientMessageId, holding that send's timeout
+  // handle so a late ack (or the timeout itself) can cancel/clear it
+  // exactly once. See sendFriendChatMessage() and the "friend-chat-sent"/
+  // "friend-chat-error" cases below.
+  const pendingFriendChatSendsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
   useEffect(() => {
     // Clear across account changes, not temporary socket loss. The server
     // restores unexpired invitations when this same account reconnects.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setMatchInvitations([])
     setMatchInviteError(null)
+    // Friend-chat cache is rendered state, not the source of truth (see
+    // its own doc comment) — a different account must never see it. A
+    // temporary socket loss on the SAME account is not an account change
+    // (this effect doesn't fire for that), so a brief reconnect keeps
+    // whatever was already cached, exactly like `friends` above.
+    setFriendMessages(new Map())
+    for (const timer of pendingFriendChatSendsRef.current.values()) clearTimeout(timer)
+    pendingFriendChatSendsRef.current.clear()
   }, [accountId])
   const friendsAccountRef = useRef<string | undefined>(undefined)
   useLayoutEffect(() => {
@@ -390,6 +441,21 @@ export function useMatchmaking(
   // showing the matched-profile UI over what would otherwise be an empty
   // peer tile.
   const state: MatchState = roomId ? (rtcStatus === "connected" && remoteVideoReady ? "active" : "connecting") : serverState
+
+  /**
+   * Chat availability, deliberately independent of `state`/video above.
+   * A server-confirmed "matched" already establishes a real, valid peer
+   * relationship (a roomId, a real `peer`) well before WebRTC video
+   * finishes negotiating — chat has no reason to wait on decoded frames
+   * that have nothing to do with whether the two of you can exchange
+   * text. `realtimeReady` guards the one real prerequisite instead: the
+   * transport has to actually be up to send anything at all. Consumers
+   * (MatchStage.tsx) still combine this with their own `!pendingSkip` —
+   * that's presentational masking this hook has no reason to know about,
+   * not a matchmaking/video concern.
+   */
+  const hasCurrentRoom = roomId !== null
+  const canMatchChat = realtimeReady && hasCurrentRoom && Boolean(peer)
 
   // The one place any code path is allowed to claim "we're trying to get
   // into the queue" — never "searching" itself; see
@@ -463,18 +529,69 @@ export function useMatchmaking(
     send({ type: "skip" })
   }, [send, recordHistory, enterQueuePending, setRoomId])
 
+  /**
+   * Appending a message to `messages` the instant it's sent used to mean
+   * "sent" as far as the sender could see — but useSignalingSocket.send()
+   * silently drops a message whenever the transport isn't OPEN (see its
+   * own doc comment), so a send attempted mid-reconnect (or one that
+   * genuinely gets lost) left the sender looking at a message that never
+   * reached Railway, let alone the partner. The message now renders
+   * immediately either way (optimistic, `status: "sending"`), but only
+   * ever becomes `"sent"` once the server's own "chat-sent" ack arrives
+   * (see the subscribe() switch below) — the client never decides that on
+   * its own. `!connected` fails fast without waiting out the timeout;
+   * `CHAT_ACK_TIMEOUT_MS` catches everything else that never gets a reply
+   * (a reconnect that looked open but wasn't, a message genuinely lost).
+   *
+   * Deliberately does NOT retry automatically, and the ack-timeout for a
+   * given send is torn down the moment the ROOM it was sent into ends (see
+   * the cleanup effect below) — a stale ack/timeout must never touch a
+   * later room's messages, and this must never silently replay a
+   * room-scoped send into a room that may no longer exist.
+   */
   const sendChat = useCallback(
     (text: string) => {
       const trimmed = text.trim().slice(0, 500)
-      if (!trimmed || !roomId) return
-      send({ type: "chat", roomId, content: { kind: "text", text: trimmed } })
+      const room = roomRef.current
+      if (!trimmed || !room) return
+      const clientMessageId = crypto.randomUUID()
+      console.debug("match-chat: send requested", { roomId: room })
       setMessages((prev) => [
         ...prev,
-        { id: crypto.randomUUID(), from: "me", content: { kind: "text", text: trimmed }, ts: Date.now() },
+        { id: clientMessageId, from: "me", content: { kind: "text", text: trimmed }, ts: Date.now(), status: "sending" },
       ])
+      if (!connected) {
+        console.debug("match-chat: send failed transport unavailable", { roomId: room })
+        setMessages((prev) => prev.map((m) => (m.id === clientMessageId ? { ...m, status: "failed" } : m)))
+        return
+      }
+      const timer = setTimeout(() => {
+        pendingChatSendsRef.current.delete(clientMessageId)
+        console.debug("match-chat: send failed transport unavailable", { roomId: room })
+        setMessages((prev) => prev.map((m) => (m.id === clientMessageId && m.status === "sending" ? { ...m, status: "failed" } : m)))
+      }, CHAT_ACK_TIMEOUT_MS)
+      pendingChatSendsRef.current.set(clientMessageId, timer)
+      send({ type: "chat", roomId: room, clientMessageId, content: { kind: "text", text: trimmed } })
     },
-    [roomId, send]
+    [send, connected]
   )
+
+  // A room that's ended can never produce a real ack for a send made into
+  // it — clearing every pending timer the instant `roomId` changes (this
+  // fires on skip/peer-left/a fresh match/teardown alike) is what "do not
+  // automatically replay room-specific messages after reconnect because
+  // the old room may no longer exist" actually means for THIS side of the
+  // flow: nothing here ever fires a stale ack-timeout against a later
+  // room's `messages` (which setRoomId's own callers already reset to []
+  // on every room change anyway — this just stops the dangling timers,
+  // not a visible symptom on its own).
+  useEffect(() => {
+    const pending = pendingChatSendsRef.current
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer)
+      pending.clear()
+    }
+  }, [roomId])
 
   // Throttled so every keystroke doesn't hit the wire.
   const notifyTyping = useCallback(() => {
@@ -559,6 +676,65 @@ export function useMatchmaking(
   )
 
   const dismissFriendToast = useCallback(() => setFriendToastRequestId(null), [])
+
+  /**
+   * Sends a real, persisted friend-chat message over this same socket (see
+   * AGENTS: "DO NOT create a second WebSocket for Friends chat"). Mirrors
+   * sendChat() above exactly: renders optimistically (`status: "sending"`)
+   * immediately, but only the server's own "friend-chat-sent"/
+   * "friend-chat-error" (see the subscribe() switch below) ever moves it
+   * to "sent"/"failed" — appending locally was the entire bug this
+   * replaces (FriendsPanel.tsx used to do only that, with nothing behind
+   * it at all).
+   */
+  const sendFriendChatMessage = useCallback(
+    (friendshipId: string, text: string) => {
+      const trimmed = text.trim().slice(0, 500)
+      if (!trimmed || !friendshipId) return
+      const clientMessageId = crypto.randomUUID()
+      console.debug("friend-chat: send requested", { friendshipId })
+      setFriendMessages((prev) => {
+        const next = new Map(prev)
+        const existing = next.get(friendshipId) ?? []
+        next.set(friendshipId, [...existing, { id: clientMessageId, from: "me", text: trimmed, ts: Date.now(), status: "sending" }])
+        return next
+      })
+      const markFailed = () => {
+        setFriendMessages((prev) => {
+          const existing = prev.get(friendshipId)
+          if (!existing) return prev
+          const next = new Map(prev)
+          next.set(
+            friendshipId,
+            existing.map((m) => (m.id === clientMessageId && m.status === "sending" ? { ...m, status: "failed" } : m))
+          )
+          return next
+        })
+      }
+      if (!connected) {
+        console.debug("friend-chat: send failed transport unavailable", { friendshipId })
+        markFailed()
+        return
+      }
+      const timer = setTimeout(() => {
+        pendingFriendChatSendsRef.current.delete(clientMessageId)
+        console.debug("friend-chat: send failed transport unavailable", { friendshipId })
+        markFailed()
+      }, CHAT_ACK_TIMEOUT_MS)
+      pendingFriendChatSendsRef.current.set(clientMessageId, timer)
+      send({ type: "friend-chat-send", friendshipId, clientMessageId, text: trimmed })
+    },
+    [send, connected, setFriendMessages]
+  )
+
+  /** Marks a friendship's received messages read — sent when its conversation opens, and again for any later message that arrives while it's still open (see FriendsPanel.tsx). The server re-sends a fresh friends-snapshot in response, which is what actually zeroes this friend's `unreadCount` — see lib/db.ts's markFriendMessagesRead(). */
+  const markFriendChatRead = useCallback(
+    (friendshipId: string) => {
+      if (!friendshipId) return
+      send({ type: "friend-chat-read", friendshipId })
+    },
+    [send]
+  )
 
   // Ends any current call (recording it to history like a normal skip) and
   // tells the server to drop this guest from the queue entirely — a real
@@ -826,6 +1002,89 @@ export function useMatchmaking(
             { id: crypto.randomUUID(), from: "peer", content: message.content, ts: message.ts },
           ])
           break
+        case "chat-sent": {
+          const timer = pendingChatSendsRef.current.get(message.clientMessageId)
+          if (timer) {
+            clearTimeout(timer)
+            pendingChatSendsRef.current.delete(message.clientMessageId)
+          }
+          // Deliberately not gated on isCurrentRoom — this account's own
+          // send, being acknowledged; nothing to protect against here that
+          // stale-room protection exists for (an incoming push from
+          // someone else's room).
+          console.debug("match-chat: delivered", { roomId: message.roomId })
+          setMessages((prev) => prev.map((m) => (m.id === message.clientMessageId ? { ...m, status: "sent" } : m)))
+          break
+        }
+        case "chat-failed": {
+          const timer = pendingChatSendsRef.current.get(message.clientMessageId)
+          if (timer) {
+            clearTimeout(timer)
+            pendingChatSendsRef.current.delete(message.clientMessageId)
+          }
+          console.debug("match-chat: rejected stale room", { roomId: message.roomId, reason: message.reason })
+          setMessages((prev) => prev.map((m) => (m.id === message.clientMessageId ? { ...m, status: "failed" } : m)))
+          break
+        }
+        case "friend-chat-message": {
+          console.debug("friend-chat: live delivery", { friendshipId: message.friendshipId })
+          setFriendMessages((prev) => {
+            const next = new Map(prev)
+            const existing = next.get(message.friendshipId) ?? []
+            // A duplicate live push (defensive — the server already
+            // avoids re-sending on a deduped retry) must never render the
+            // same received message twice.
+            if (existing.some((m) => m.id === message.message.id)) return prev
+            next.set(message.friendshipId, [
+              ...existing,
+              { id: message.message.id, from: "peer", text: message.message.text, ts: message.message.createdAt },
+            ])
+            return next
+          })
+          break
+        }
+        case "friend-chat-sent": {
+          const timer = pendingFriendChatSendsRef.current.get(message.clientMessageId)
+          if (timer) {
+            clearTimeout(timer)
+            pendingFriendChatSendsRef.current.delete(message.clientMessageId)
+          }
+          console.debug("friend-chat: persisted", { friendshipId: message.friendshipId })
+          setFriendMessages((prev) => {
+            const existing = prev.get(message.friendshipId)
+            if (!existing) return prev
+            const next = new Map(prev)
+            next.set(
+              message.friendshipId,
+              existing.map((m) =>
+                m.id === message.clientMessageId
+                  ? { ...m, id: message.messageId, ts: message.createdAt, status: "sent" }
+                  : m
+              )
+            )
+            return next
+          })
+          break
+        }
+        case "friend-chat-error": {
+          const timer = pendingFriendChatSendsRef.current.get(message.clientMessageId)
+          if (timer) {
+            clearTimeout(timer)
+            pendingFriendChatSendsRef.current.delete(message.clientMessageId)
+          }
+          console.debug("friend-chat: send rejected", { friendshipId: message.friendshipId, reason: message.reason })
+          setFriendMessages((prev) => {
+            const existing = prev.get(message.friendshipId)
+            if (!existing) return prev
+            const next = new Map(prev)
+            next.set(
+              message.friendshipId,
+              existing.map((m) => (m.id === message.clientMessageId ? { ...m, status: "failed" } : m))
+            )
+            return next
+          })
+          break
+        }
         case "mic-state":
           if (!isCurrentRoom(roomRef.current, message.roomId)) break
           setPeerMicEnabled(message.micEnabled)
@@ -1162,6 +1421,12 @@ export function useMatchmaking(
     connected,
     realtimeReady,
     state,
+    // Chat availability — deliberately separate from `state`'s video
+    // meaning; see canMatchChat's own doc comment above. `hasCurrentRoom`
+    // is exposed too since a caller may want "is there a live room at
+    // all" without the realtimeReady/peer conditions baked in.
+    hasCurrentRoom,
+    canMatchChat,
     onlineCount,
     peer,
     peerMicEnabled,
@@ -1195,5 +1460,10 @@ export function useMatchmaking(
     unfriend,
     blockFriendAccount,
     dismissFriendToast,
+    // Friend chat — see friendMessages' own doc comment above for what's
+    // cache vs. authoritative here.
+    friendMessages,
+    sendFriendChatMessage,
+    markFriendChatRead,
   }
 }

@@ -5,5 +5,15 @@
     "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["**/*.mts", "../lib/**/*.ts", "../server/**/*.ts"]
+  "include": ["**/*.mts", "../lib/**/*.ts", "../server/**/*.ts"],
+  // The root tsconfig's own `exclude: ["node_modules", "tests"]` is
+  // otherwise inherited as-is via `extends` — paths in an inherited
+  // `exclude` resolve relative to the config file they were WRITTEN in
+  // (the project root), not this one, so "tests" there actually means
+  // <root>/tests: this config's own directory, silently excluding every
+  // test file this `include` above is trying to list. `tsc -p
+  // tests/tsconfig.json` was effectively type-checking almost nothing.
+  // Overriding `exclude` here (an empty array beats inheriting the
+  // parent's) is what actually restores real checking of these tests.
+  "exclude": []
 }

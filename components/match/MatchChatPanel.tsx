@@ -163,7 +163,11 @@ export function MatchChatPanel({
                           </div>
                         )}
                         <div className={`mt-1 px-1 text-[10px] text-muted ${isMine ? "text-right" : ""}`}>
-                          {formatTime(message.ts)}
+                          {isMine && message.status === "sending"
+                            ? "Sending…"
+                            : isMine && message.status === "failed"
+                              ? "Not delivered"
+                              : formatTime(message.ts)}
                         </div>
                       </div>
                     </div>

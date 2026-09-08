@@ -4,7 +4,6 @@ import { startTestServer, connectAndHello } from "./helpers/wsHarness.mts"
 import { resetDbMockState } from "./helpers/dbMock.mts"
 import { setProviderForTesting } from "../lib/imageModeration/provider.ts"
 import { buildPngDataUrl } from "./helpers/pngFixture.mts"
-import { CHAT_BLOCKED_MESSAGE } from "../lib/textFilter.ts"
 
 test("chat text: server blocks unsafe messages from raw clients but forwards normal text", async () => {
   resetDbMockState()
@@ -17,11 +16,14 @@ test("chat text: server blocks unsafe messages from raw clients but forwards nor
     const matched = await a.waitForType("matched")
     await b.waitForType("matched")
     for (const text of ["rape", "sex", "murder", "s3x", "nigga", "nigger", "n1gg3r"]) {
-      a.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text } })
-      assert.equal((await a.waitForType("error")).message, CHAT_BLOCKED_MESSAGE)
+      const clientMessageId = crypto.randomUUID()
+      a.send({ type: "chat", roomId: matched.roomId, clientMessageId, content: { kind: "text", text } })
+      const failed = await a.waitForType("chat-failed")
+      assert.equal(failed.clientMessageId, clientMessageId)
+      assert.equal(failed.reason, "blocked")
     }
     await assert.rejects(() => b.waitForType("chat", 300), /timed out/)
-    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text: "hello there" } })
+    a.send({ type: "chat", roomId: matched.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "text", text: "hello there" } })
     assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "hello there" })
     a.close()
     b.close()
@@ -66,7 +68,7 @@ test("chat image: an allowed image is forwarded to the matched partner", async (
     await b.waitForType("matched")
 
     const dataUrl = buildPngDataUrl(8, 8)
-    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "image", dataUrl } })
+    a.send({ type: "chat", roomId: matched.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "image", dataUrl } })
     const received = await b.waitForType("chat")
     assert.equal(received.content.kind, "image")
     if (received.content.kind === "image") assert.equal(received.content.dataUrl, dataUrl)
@@ -95,9 +97,11 @@ test("chat image: a moderation-blocked image is NEVER forwarded to the partner �
     const matched = await a.waitForType("matched")
     await b.waitForType("matched")
 
-    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "image", dataUrl: buildPngDataUrl(8, 8) } })
-    const errorMsg = await a.waitForType("error")
-    assert.equal(errorMsg.message, "Image blocked.")
+    const clientMessageId = crypto.randomUUID()
+    a.send({ type: "chat", roomId: matched.roomId, clientMessageId, content: { kind: "image", dataUrl: buildPngDataUrl(8, 8) } })
+    const failed = await a.waitForType("chat-failed")
+    assert.equal(failed.clientMessageId, clientMessageId)
+    assert.equal(failed.reason, "blocked")
 
     // The partner must never receive it — race a short timeout against any
     // "chat" message actually arriving; timing out is the success case.
@@ -127,9 +131,11 @@ test("chat image: a provider failure (unavailable) also fails closed — the ima
     const matched = await a.waitForType("matched")
     await b.waitForType("matched")
 
-    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "image", dataUrl: buildPngDataUrl(8, 8) } })
-    const errorMsg = await a.waitForType("error")
-    assert.equal(errorMsg.message, "Image blocked.")
+    const clientMessageId = crypto.randomUUID()
+    a.send({ type: "chat", roomId: matched.roomId, clientMessageId, content: { kind: "image", dataUrl: buildPngDataUrl(8, 8) } })
+    const failed = await a.waitForType("chat-failed")
+    assert.equal(failed.clientMessageId, clientMessageId)
+    assert.equal(failed.reason, "blocked")
     await assert.rejects(() => b.waitForType("chat", 300), /timed out/)
 
     a.close()
@@ -160,7 +166,7 @@ test("chat image: a raw, hand-crafted WS message with an oversized/malformed dat
     await b.waitForType("matched")
 
     // Not even a data URL — a malicious/broken client sending garbage.
-    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "image", dataUrl: "not a data url" } })
+    a.send({ type: "chat", roomId: matched.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "image", dataUrl: "not a data url" } })
     await assert.rejects(() => b.waitForType("chat", 300), /timed out/)
 
     a.close()

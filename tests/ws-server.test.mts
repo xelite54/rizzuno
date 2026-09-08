@@ -19,7 +19,7 @@ test("a delayed find retry cannot end an established random match", async () => 
     a.send({ type: "find" }); b.send({ type: "find" })
     await assert.rejects(() => a.waitForType("peer-left", 100), /timed out/)
     await assert.rejects(() => c.waitForType("matched", 100), /timed out/)
-    a.send({ type: "chat", roomId: matched.roomId, content: { kind: "text", text: "still connected" } })
+    a.send({ type: "chat", roomId: matched.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "text", text: "still connected" } })
     assert.deepEqual((await b.waitForType("chat")).content, { kind: "text", text: "still connected" })
     b.send({ type: "signal", roomId: matched.roomId, data: { kind: "ice-restart-request" } })
     assert.equal((await a.waitForType("signal")).data.kind, "ice-restart-request")
@@ -142,7 +142,7 @@ test("Test B/D/E — a duplicate same-account hello during an active call is rej
 
     // And the original connection genuinely still works — not just "not
     // closed", but actually still the live, functioning owner of the room.
-    a.send({ type: "chat", roomId: matchedA.roomId, content: { kind: "text", text: "still here" } })
+    a.send({ type: "chat", roomId: matchedA.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "text", text: "still here" } })
     assert.deepEqual((await partner.waitForType("chat")).content, { kind: "text", text: "still here" })
 
     a.close(); partner.close()
