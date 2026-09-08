@@ -462,7 +462,7 @@ export function useMatchmaking(
   const [rtcStartRoomId, setRtcStartRoomId] = useState<string | null>(null)
   const rtcStart = rtcStartRoomId !== null && rtcStartRoomId === roomId
 
-  const { remoteStream, remoteVideoReady, rtcInitialized, status: rtcStatus, reportPlaybackConfirmed } = useWebRTC({
+  const { remoteStream, remoteVideoReady, rtcInitialized, connectionFailed, status: rtcStatus, reportPlaybackConfirmed } = useWebRTC({
     roomId,
     initiator,
     videoTrack,
@@ -1502,6 +1502,40 @@ export function useMatchmaking(
     const timer = setTimeout(findMatch, 900)
     return () => clearTimeout(timer)
   }, [serverState, realtimeReady, findMatch])
+
+  /**
+   * useWebRTC.ts's tiered recovery (grace window -> bounded ICE restart ->
+   * one fresh RTCPeerConnection for the same room) genuinely exhausted —
+   * every real recovery option has failed. This hook is what actually
+   * leaves the room from here: sends "leave" (the server's own close
+   * handler already covers every OTHER way a room ends — a genuine
+   * disconnect, an explicit skip/block/leave — but this is a case only
+   * THIS side can detect, since the transport itself may still look
+   * perfectly fine; the peer would otherwise be left thinking they're
+   * still in a live room with someone who's silently gone), then applies
+   * the exact same local cleanup + source-aware routing "peer-left"
+   * itself uses just above — a friend call lands on idle (never implying
+   * random-match intent), a random match's own peer-left auto-retry
+   * effect (right above this one) is what actually resumes searching.
+   */
+  useEffect(() => {
+    if (!connectionFailed || !roomRef.current) return
+    const failedRoomId = roomRef.current
+    const endedRoomSource = roomSourceRef.current
+    console.warn("matchmaking: local WebRTC recovery exhausted — leaving this room", { roomId: failedRoomId, source: endedRoomSource })
+    send({ type: "leave" })
+    recordHistory(peerRef.current)
+    setRoomId(null, "connection_failed")
+    setPeer(null)
+    setPeerMicEnabled(true)
+    setPeerTyping(false)
+    if (endedRoomSource === "friend") {
+      setServerState((prev) => nextMatchState(prev, { type: "reset-idle" }))
+      if (wantsMatchingRef.current) findMatch()
+    } else {
+      setServerState((prev) => nextMatchState(prev, { type: "peer-left-received" }))
+    }
+  }, [connectionFailed, send, recordHistory, setRoomId, findMatch])
 
   // Bounded acknowledgement timeout — "queue-pending" means a "find"/
   // "skip"/block-resume was actually SENT, but neither "queued" nor

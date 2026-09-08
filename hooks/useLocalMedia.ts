@@ -4,13 +4,21 @@ import { useCallback, useEffect, useState } from "react"
 
 export type MediaPermissionState = "idle" | "requesting" | "granted" | "denied" | "unavailable"
 
-// Prefer 1080p for clearer faces in the large matching panels. Dimensions
-// are ideals, not requirements: lower-resolution cameras still work.
-// Keep 30fps as the ceiling to limit capture/encoding cost. The outgoing
-// encoder remains free to reduce resolution and frame rate under pressure.
+// 720p, not 1080p, as the default target for random 1:1 chat — a face
+// fills most of the frame in these panels either way, and 1080p's extra
+// detail was mostly spent on slower startup, more packet loss on marginal
+// networks, more TURN relay bandwidth when relaying is needed, and more
+// CPU/battery on mobile, for very little perceptible clarity gain at this
+// framing. Dimensions are ideals, not requirements — a camera that can't
+// do 720p still works, and one capable of more is still allowed to send
+// less under real network pressure (this is capture, not an encoder cap —
+// see MAX_VIDEO_BITRATE_BPS in useWebRTC.ts for that). Keep 30fps as the
+// ceiling to limit capture/encoding cost; the outgoing encoder remains
+// free to reduce resolution and frame rate further under congestion
+// (degradationPreference: "balanced", also in useWebRTC.ts).
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
-  width: { ideal: 1920 },
-  height: { ideal: 1080 },
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
   frameRate: { ideal: 30, max: 30 },
   facingMode: "user",
 }

@@ -2,7 +2,60 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRtcNegotiation } from "@/lib/rtcNegotiation"
+import { decideConnectionRecoveryAction, decideAfterIceRecoveryDeadline } from "@/lib/webrtcRecovery"
 import type { RtcSignal } from "@/lib/signaling/protocol"
+
+/**
+ * A short-lived TURN credential fetched from app/api/realtime/turn (see
+ * lib/turnCredentials.ts) — module-level, not React state, and shared by
+ * every RTCPeerConnection this tab ever creates for the rest of the
+ * session (kept warm by refreshTurnCredentials/the effect that schedules
+ * it further down), not re-fetched per room/per skip. `null` means either
+ * "haven't fetched yet" or "this deployment has no TURN configured at
+ * all" — buildIceServers() below treats both the same way: fall through to
+ * whatever legacy static config exists, or STUN-only.
+ */
+let ephemeralTurnServer: { iceServer: RTCIceServer; expiresAt: number } | null = null
+
+/**
+ * Refetches the short-lived TURN credential. Never throws — a failed
+ * refresh (network hiccup, not signed in yet, deployment has no TURN)
+ * just leaves whatever was already cached in place (or null) for
+ * buildIceServers() to fall back from; the caller (the keep-warm effect
+ * below) is what decides when to try again.
+ */
+async function refreshTurnCredentials(): Promise<void> {
+  try {
+    const res = await fetch("/api/realtime/turn", { cache: "no-store" })
+    if (!res.ok) return
+    const data = (await res.json()) as
+      | { configured: true; urls: string[]; username: string; credential: string; ttlSeconds: number }
+      | { configured: false }
+    if (!data.configured) {
+      ephemeralTurnServer = null
+      return
+    }
+    ephemeralTurnServer = {
+      iceServer: { urls: sortUdpFirst(data.urls), username: data.username, credential: data.credential },
+      expiresAt: Date.now() + data.ttlSeconds * 1000,
+    }
+  } catch {
+    // Network hiccup — leave whatever's cached as-is; see this function's
+    // own doc comment.
+  }
+}
+
+// Refresh this far ahead of actual expiry — a room effect that happens to
+// start constructing an RTCPeerConnection right as the cached credential
+// is about to lapse must never risk using one that's already invalid, or
+// that invalidates mid-call.
+const TURN_REFRESH_MARGIN_SECONDS = 60
+// How long to wait before checking again when this deployment currently
+// has no TURN configured at all — cheap enough to just periodically
+// re-check (an operator can add TURN_STATIC_AUTH_SECRET/NEXT_PUBLIC_TURN_URL
+// without every open tab needing a hard reload to pick it up), rare enough
+// that it's not meaningful background traffic.
+const TURN_RECHECK_WHEN_UNCONFIGURED_MS = 5 * 60_000
 
 /**
  * Google's public STUN servers are always present as a fallback. A TURN
@@ -10,24 +63,27 @@ import type { RtcSignal } from "@/lib/signaling/protocol"
  * peers behind symmetric NATs or restrictive corporate/mobile-carrier
  * firewalls can fail to establish a direct connection at all (STUN alone
  * can't traverse those; it only helps discover a public address, it can't
- * relay traffic). `NEXT_PUBLIC_TURN_URL` accepts one or several
- * comma-separated URLs (e.g. `turn:host:3478,turns:host:5349`).
- *
- * Credentials are necessarily readable in the shipped browser bundle
- * (`NEXT_PUBLIC_*`) — that's inherent to configuring `RTCPeerConnection`
- * client-side, the same way any TURN client credential has to reach the
- * browser one way or another. For a production deployment at meaningful
- * scale, prefer a TURN provider that supports short-lived, per-session
- * credentials minted by a server endpoint over a long-lived static secret
- * baked into the build (this file doesn't assume which — it just uses
- * whatever's configured, and works with neither at all, falling back to
- * STUN-only, exactly as before).
+ * relay traffic). Prefers a fresh, short-lived credential from
+ * app/api/realtime/turn (see lib/turnCredentials.ts) whenever one is
+ * cached and not yet expired; falls back to legacy static
+ * NEXT_PUBLIC_TURN_URL/USERNAME/CREDENTIAL (still supported, for a TURN
+ * provider that doesn't support short-lived credentials, or during a
+ * migration to TURN_STATIC_AUTH_SECRET) if the ephemeral one isn't
+ * available; falls back to STUN-only if neither is configured. Called
+ * fresh every time an RTCPeerConnection is actually created (never cached
+ * as a frozen module constant) specifically so a rotated ephemeral
+ * credential is always picked up by the NEXT room/skip/fresh-connection
+ * recovery, not just whatever was true the first time this file loaded.
  */
 export function buildIceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
   ]
+  if (ephemeralTurnServer && ephemeralTurnServer.expiresAt > Date.now()) {
+    servers.push(ephemeralTurnServer.iceServer)
+    return servers
+  }
   const turnUrl = process.env.NEXT_PUBLIC_TURN_URL
   if (turnUrl) {
     const urls = sortUdpFirst(
@@ -49,6 +105,14 @@ export function buildIceServers(): RTCIceServer[] {
   return servers
 }
 
+/** Whether `servers` (as returned by buildIceServers()) actually includes a TURN entry, of either kind — used only for the dev-only "is TURN even configured" diagnostic below; never for any behavioral decision. */
+function includesTurn(servers: RTCIceServer[]): boolean {
+  return servers.some((s) => {
+    const urls = Array.isArray(s.urls) ? s.urls : [s.urls]
+    return urls.some((u) => u.startsWith("turn:") || u.startsWith("turns:"))
+  })
+}
+
 /**
  * Orders a TURN url list so UDP-capable entries (`turn:` without an
  * explicit `?transport=tcp`) come before TCP-forced ones (`turns:`, or any
@@ -68,17 +132,20 @@ export function sortUdpFirst(urls: string[]): string[] {
   return [...urls].sort((a, b) => Number(isTcpForced(a)) - Number(isTcpForced(b)))
 }
 
-const ICE_SERVERS: RTCIceServer[] = buildIceServers()
-
-// Give the preferred 1080p capture more encoding headroom on good networks.
-// This is a ceiling, never a required/forced sending rate. WebRTC congestion
-// control and balanced degradation can still reduce bitrate, resolution,
-// and frame rate when bandwidth or the device cannot sustain them.
-const MAX_VIDEO_BITRATE_BPS = 4_000_000
+// A ceiling sized for the 720p default capture (see useLocalMedia.ts's
+// VIDEO_CONSTRAINTS) — 1.8 Mbps is comfortably enough for clear face
+// quality at that resolution without unnecessarily pushing bandwidth,
+// packet loss risk, TURN relay cost, and mobile CPU/battery the way the
+// previous 4 Mbps ceiling (sized for 1080p) did. This is a ceiling, never
+// a required/forced sending rate — WebRTC congestion control and balanced
+// degradation (see configureVideoEncoding's own doc comment) can still
+// reduce bitrate, resolution, and frame rate further when bandwidth or the
+// device can't sustain even this much.
+const MAX_VIDEO_BITRATE_BPS = 1_800_000
 const MAX_VIDEO_FRAMERATE = 30
 
 /**
- * Applies a 1080p-oriented realtime ceiling to the outgoing video sender —
+ * Applies a 720p-oriented realtime ceiling to the outgoing video sender —
  * called once, right after the video transceiver/sender is created, not
  * re-applied on every camera toggle or device switch (replaceTrack doesn't
  * reset a sender's already-set encoding parameters, so there's nothing to
@@ -115,9 +182,25 @@ const LOG_EVERY_N_TICKS = 5
 
 // Detect connected-without-video using the existing stats tick; recovery never leaves the room.
 const MEDIA_READY_TIMEOUT_MS = 12_000
-// Diagnostic deadline only: never tears down a room or schedules another
-// attempt. Use the existing stats tick, not a second recovery timer.
+// How long the existing bounded ICE restart (lib/rtcNegotiation.ts — one
+// attempt, never a loop) is given to actually resolve, checked via the
+// existing stats tick rather than a second timer. Exceeding this no longer
+// means "give up silently" — see decideAfterIceRecoveryDeadline: the FIRST
+// time, it triggers the one additional fresh-RTCPeerConnection recovery
+// level (same room, same tracks, one renegotiation); the second time (that
+// fresh connection's own ICE restart also not resolving in time), it means
+// genuinely giving up and leaving the room — see attemptFreshConnectionRecovery
+// and the tick() call site below for both.
 const ICE_RECOVERY_DEADLINE_MS = 30_000
+// A short, bounded grace window for `disconnected` (never `failed`, which
+// recovers immediately — see decideConnectionRecoveryAction) to resolve on
+// its own before treating it as needing ICE recovery at all. `disconnected`
+// is exactly the transient state a brief Wi-Fi handoff or a few seconds of
+// weak signal produces on its own, and the ICE agent frequently returns to
+// `connected` within a couple of seconds with no recovery action needed —
+// starting an ICE restart immediately on every such blip would make
+// ordinary network jitter feel like the call keeps breaking.
+const DISCONNECTED_GRACE_MS = 4_000
 
 type CollectedStats = {
   candidateType: string | null
@@ -360,6 +443,10 @@ type RtcPhase =
   | "ice-connecting"
   | "connected"
   | "media-ready"
+  /** The bounded ICE restart didn't resolve in time — closing the broken RTCPeerConnection and building a fresh one for this same room (see attemptFreshConnectionRecovery). */
+  | "fresh-connection-recovery"
+  /** The fresh connection ALSO didn't resolve — recovery is exhausted; useMatchmaking.ts (via the `connectionFailed` return value) is what actually leaves the room from here. */
+  | "connection-failed"
 
 /**
  * One RTCPeerConnection per room. A video and an audio transceiver are
@@ -447,31 +534,85 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
   // exact pattern immediately above. Reassigned fresh by every room effect
   // instance; cleared to null on that instance's own cleanup.
   const startNegotiationRef = useRef<(() => void) | null>(null)
+  // True once THIS room's recovery is genuinely exhausted — the bounded
+  // ICE restart didn't resolve, the one fresh-RTCPeerConnection recovery
+  // that followed it didn't either. useMatchmaking.ts watches this and is
+  // what actually leaves the room from here (sends "leave", clears local
+  // state, decides random-resume vs. idle exactly like an ordinary
+  // peer-left — see its own effect). This hook's own job stops at
+  // reporting the fact; it never decides to leave a room on its own.
+  const [connectionFailed, setConnectionFailed] = useState(false)
   const [mediaRoom, setMediaRoom] = useState<string | null>(null)
+
+  // Keeps the module-level ephemeral TURN credential warm for the whole
+  // session — started once, independent of `roomId` (so it's very likely
+  // already cached before this account's very first match, not fetched
+  // lazily on demand), and reschedules itself before the current
+  // credential's own expiry. See buildIceServers()/refreshTurnCredentials()
+  // above for what actually consumes/produces this. Deliberately NOT part
+  // of the room effect below — TURN credentials rotating must never tear
+  // down or recreate an active RTCPeerConnection; only a NEW pc (a new
+  // room, a skip, or this file's own fresh-connection recovery) ever reads
+  // the current cache, via a fresh buildIceServers() call.
+  useEffect(() => {
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    async function tick() {
+      await refreshTurnCredentials()
+      if (cancelled) return
+      const delayMs = ephemeralTurnServer
+        ? Math.max(30_000, ephemeralTurnServer.expiresAt - Date.now() - TURN_REFRESH_MARGIN_SECONDS * 1000)
+        : TURN_RECHECK_WHEN_UNCONFIGURED_MS
+      timer = setTimeout(tick, delayMs)
+    }
+    void tick()
+
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [])
 
   useEffect(() => {
     if (!roomId) return
+    // Narrowed once, used by the few call sites below that need a `string`
+    // (not `string | null`) argument — TypeScript's null-narrowing of
+    // `roomId` above doesn't persist into the nested named functions
+    // further down (setupPeerConnection, etc.), even though `roomId`
+    // itself is fixed for this whole effect instance.
+    const currentRoomId = roomId
     // eslint-disable-next-line react-hooks/set-state-in-effect -- a fresh room starts with neither known yet, same as `status` below
     setRemoteStream(null)
     setMediaRoom(roomId)
     setRemoteVideoReady(false)
     setRtcInitialized(false)
+    setConnectionFailed(false)
 
-    // Explicit, not just the implicit default — "all" (never "relay")
-    // means every candidate type is gathered and ICE's own priority
-    // ordering (RFC 8445: host/srflx always outrank relay by type alone,
-    // independent of anything below) is what actually picks a direct
-    // path over TURN whenever one exists. TURN only ever gets used when
-    // it's the only pair that actually connects — this is what makes it a
-    // genuine fallback rather than a forced relay.
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS, iceTransportPolicy: "all" })
-    pcRef.current = pc
-    console.log("webrtc: peer created", { roomId, initiator })
     let cancelled = false
-    let recoveryStartedAt: number | null = null
-    let recoveryBaseline = 0
-    let lastDecodedFrames = 0
-    let videoReadyLocal = false
+    // Bumped every time a NEW RTCPeerConnection is created for this room —
+    // the initial one, and (at most once — see freshRecoveryUsed below)
+    // the fresh-connection recovery attempt. Every handler attached
+    // directly to a SPECIFIC pc closes over its own `myGeneration` and
+    // checks it against the live value before doing anything, so a late
+    // event from an already-closed previous-generation pc can never affect
+    // current room state — belt-and-suspenders on top of `pc.close()`
+    // itself already stopping further events; see setupPeerConnection.
+    let generation = 0
+    // Bounds the fresh-connection recovery tier to exactly ONE attempt per
+    // room, ever — never reset once used, even if the fresh connection
+    // itself later needs (and gets) its own single ICE restart.
+    let freshRecoveryUsed = false
+
+    // ROOM-scoped (survive a fresh-connection recovery, unlike everything
+    // declared inside setupPeerConnection below) — the persistent remote
+    // MediaStream VideoTile's srcObject binds to exactly once, same as
+    // before a fresh-connection recovery could ever happen: reused across
+    // a fresh pc too, so a recovered call's video reattaches into the SAME
+    // stream object (and the SAME <video> element binding) rather than
+    // needing VideoTile to notice a brand new stream reference.
+    const combinedRemoteStream = new MediaStream()
+    let remoteStreamAttached = false
 
     // See RtcPhase's own doc comment above — purely diagnostic, logged
     // only, never returned/rendered.
@@ -482,77 +623,34 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       console.debug("webrtc: phase", { roomId, phase: next })
     }
 
-    const negotiation = createRtcNegotiation(pc, initiator, (data) => sendSignal(roomId, data), (event) => {
-      console.debug(`webrtc: ${event}`, { roomId })
-      if (event === "offer sent") setPhase("offer-sent")
-      else if (event === "offer received") setPhase("offer-received")
-      else if (event === "answer sent") setPhase("answer-sent")
-      else if (event === "answer received") setPhase("answer-received")
-      if (event === "ICE restart started") {
-        recoveryStartedAt = Date.now()
-        recoveryBaseline = lastDecodedFrames
-        videoReadyLocal = false
-        setRemoteVideoReady(false)
-      }
-    })
-
-    // A brand-new RTCPeerConnection was just created for this room — this is
-    // resource initialization, not mirroring some other piece of state.
-    setStatus("connecting")
-
-    const videoTransceiver = pc.addTransceiver("video", { direction: "sendrecv" })
-    const audioTransceiver = pc.addTransceiver("audio", { direction: "sendrecv" })
-    sendersRef.current = { video: videoTransceiver.sender, audio: audioTransceiver.sender }
-    configureVideoEncoding(videoTransceiver.sender)
-
-    // Groups both senders under one explicit local stream (their own msid)
-    // as a courtesy to the far side's own negotiation — still correct and
-    // worth doing even though this end no longer DEPENDS on it (see
-    // pc.ontrack below, which merges into its own persistent stream
-    // regardless of how the far side grouped anything). sender.setStreams
-    // is a relatively recent addition (not in every browser) — called
-    // defensively; nothing here depends on it succeeding.
-    try {
-      const localGroupStream = new MediaStream()
-      videoTransceiver.sender.setStreams?.(localGroupStream)
-      audioTransceiver.sender.setStreams?.(localGroupStream)
-    } catch (err) {
-      console.error("webrtc: sender.setStreams failed (non-fatal — remote grouping doesn't depend on it)", {
-        roomId,
-        error: err instanceof Error ? err.name : "RTCError",
-      })
-    }
-
-    if (videoTrack) {
-      videoTransceiver.sender
-        .replaceTrack(videoTrack)
-        .catch((err) => console.error("webrtc: replaceTrack (initial video) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
-    }
-    // Muted-at-room-start (e.g. a fresh match landed on right after a skip
-    // made mid-mute) must never briefly attach the real audio track before
-    // some later effect gets around to detaching it again — `micEnabledRef`
-    // (see its own doc comment) already reflects the current mute state by
-    // the time this runs, so the sender simply never receives a track to
-    // begin with rather than attaching-then-immediately-removing one.
-    if (audioTrack && micEnabledRef.current) {
-      audioTransceiver.sender
-        .replaceTrack(audioTrack)
-        .catch((err) => console.error("webrtc: replaceTrack (initial audio) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
-    }
-
-    // ONE persistent MediaStream for this room's entire lifetime — the
-    // object VideoTile's srcObject actually binds to, exactly once. Never
-    // replaced by whatever `event.streams[0]` happens to be on a given
-    // ontrack call: if that ever differs between the video and audio
-    // track's own ontrack firing (setStreams() above only partially
-    // landing, an older browser, a renegotiation producing a new track),
-    // naively swapping the active stream to match would silently drop
-    // whichever track this side already had. Instead, every real track
-    // that ever arrives gets merged into THIS stream — genuinely correct
-    // regardless of how (or whether) the far side grouped anything.
-    const combinedRemoteStream = new MediaStream()
-    let remoteStreamAttached = false
+    // PER-GENERATION — all reassigned fresh by setupPeerConnection() every
+    // time a new RTCPeerConnection is created. tick()/checkSenderHealth()/
+    // markVideoNotReady()/reportPlaybackConfirmedForThisRoom()/recover()
+    // are each defined ONCE for this whole room effect and read these
+    // through closure, so they always operate on whichever generation is
+    // CURRENT without needing to be redefined per-generation themselves.
+    let pc: RTCPeerConnection
+    let negotiation: ReturnType<typeof createRtcNegotiation>
+    let unsubscribeSignal: () => void = () => {}
+    let collectStats: ReturnType<typeof makeStatsCollector>
+    let recoveryStartedAt: number | null = null
+    let recoveryBaseline = 0
+    let lastDecodedFrames = 0
+    let videoReadyLocal = false
     let remoteVideoTrackLive = false
+    // Tracks how long the CURRENT generation's connection has been
+    // "connected" per ICE/DTLS — the media-readiness timeout below
+    // measures from here, independent of (and deliberately more skeptical
+    // than) connectionState alone. Reset on every fresh generation.
+    let connectedAt: number | null = null
+    let disconnectedGraceTimer: ReturnType<typeof setTimeout> | null = null
+
+    function clearDisconnectedGrace() {
+      if (disconnectedGraceTimer) {
+        clearTimeout(disconnectedGraceTimer)
+        disconnectedGraceTimer = null
+      }
+    }
 
     function markVideoNotReady(reason: string) {
       videoReadyLocal = false
@@ -586,103 +684,35 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     }
     reportPlaybackConfirmedRef.current = reportPlaybackConfirmedForThisRoom
 
-    pc.ontrack = (event) => {
-      const track = event.track
-      // Track diagnostics — see makeStatsCollector's own doc comment
-      // for the broader "connected but no video renders" investigation
-      // this is part of. `track.muted` here is WebRTC's own "no RTP data
-      // is currently arriving for this track" signal (distinct from the
-      // UI's mic-mute concept) — false at ontrack time is a good sign
-      // real packets are already flowing; true means the track exists but
-      // nothing has been received for it yet.
-      console.log("webrtc: ontrack fired", {
-        roomId,
-        kind: track.kind,
-        readyState: track.readyState,
-        muted: track.muted,
-        negotiatedStreamTrackCount: event.streams[0]?.getTracks().length ?? 0,
-      })
-
-      // Merge into the persistent stream — replace any STALE track of the
-      // same kind first (a renegotiation/ICE-restart producing a new
-      // track for an existing kind), never just accumulate duplicates.
-      for (const existing of track.kind === "video" ? combinedRemoteStream.getVideoTracks() : combinedRemoteStream.getAudioTracks()) {
-        if (existing !== track) combinedRemoteStream.removeTrack(existing)
-      }
-      if (!combinedRemoteStream.getTracks().includes(track)) {
-        combinedRemoteStream.addTrack(track)
-      }
-
-      if (track.kind === "video") {
-        remoteVideoTrackLive = track.readyState === "live"
-        // Confirms the actual MediaStream object VideoTile will receive
-        // really does contain this video track — not just that ontrack
-        // fired, which on its own doesn't guarantee the merge above
-        // landed correctly.
-        console.log("webrtc: combined remote stream now has a video track", {
-          roomId,
-          videoTrackCount: combinedRemoteStream.getVideoTracks().length,
-          audioTrackCount: combinedRemoteStream.getAudioTracks().length,
-        })
-      }
-
-      track.onended = () => {
-        console.log("webrtc: remote track ended", { roomId, kind: track.kind })
-        if (track.kind === "video") markVideoNotReady("track ended")
-      }
-      track.onmute = () => {
-        console.log("webrtc: remote track muted (no data arriving)", { roomId, kind: track.kind })
-        if (track.kind === "video") {
-          remoteVideoTrackLive = false
-          markVideoNotReady("track muted")
-        }
-      }
-      track.onunmute = () => {
-        console.log("webrtc: remote track unmuted (data flowing)", { roomId, kind: track.kind })
-        if (track.kind === "video") remoteVideoTrackLive = true
-      }
-
-      if (!remoteStreamAttached) {
-        remoteStreamAttached = true
-        setRemoteStream(combinedRemoteStream)
-      }
-    }
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        console.log("webrtc: ICE candidate", { roomId, type: event.candidate.type ?? "unknown" })
-        sendSignal(roomId, { kind: "ice", candidate: event.candidate.toJSON() })
-      }
-    }
-
-    // Tracks how long this connection has been "connected" per ICE/DTLS —
-    // the media-readiness timeout below measures from here, independent of
-    // (and deliberately more skeptical than) this connectionState alone.
-    let connectedAt: number | null = null
-
+    // Always acts on whichever generation's negotiation is CURRENT — see
+    // this effect's own top comment on `negotiation` being a `let`.
     const recover = () => { void negotiation.recover() }
-    pc.onicegatheringstatechange = () => {
-      if (!cancelled) console.debug("webrtc: ICE gathering state", { roomId, state: pc.iceGatheringState })
-    }
-    pc.oniceconnectionstatechange = () => {
-      if (cancelled) return
-      console.debug("webrtc: ICE connection state", { roomId, state: pc.iceConnectionState })
-      if (pc.iceConnectionState === "checking") setPhase("ice-connecting")
-      if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") recover()
-    }
-    pc.onconnectionstatechange = () => {
-      if (cancelled) return
-      console.debug("webrtc: peer connection state", { roomId, state: pc.connectionState })
-      if (pc.connectionState === "connected") {
-        setPhase("connected")
-        setStatus("connected")
-        connectedAt = Date.now()
-      } else {
-        connectedAt = null
-        setStatus(pc.connectionState === "closed" ? "closed" : "connecting")
-        markVideoNotReady("transport not connected")
-        if (pc.connectionState === "failed" || pc.connectionState === "disconnected") recover()
+
+    // The disconnected-grace mechanism — see DISCONNECTED_GRACE_MS's own
+    // doc comment for why `disconnected` gets a short window to self-
+    // resolve before this schedules a real recovery attempt, while
+    // `failed` (a terminal ICE state — nothing to wait out) recovers right
+    // away. Re-checks the LIVE state when the grace window actually
+    // elapses (not the state at the moment it was scheduled) so a
+    // connection that already bounced back to healthy in the meantime
+    // (which would have already cleared this timer via `clear-grace`
+    // anyway) can never trigger a redundant recovery.
+    function scheduleRecoveryCheck(immediate: boolean) {
+      clearDisconnectedGrace()
+      if (immediate) {
+        recover()
+        return
       }
+      disconnectedGraceTimer = setTimeout(() => {
+        disconnectedGraceTimer = null
+        if (cancelled) return
+        const stillUnhealthy =
+          pc.connectionState === "disconnected" ||
+          pc.connectionState === "failed" ||
+          pc.iceConnectionState === "disconnected" ||
+          pc.iceConnectionState === "failed"
+        if (stillUnhealthy) recover()
+      }, DISCONNECTED_GRACE_MS)
     }
 
     // Sender self-heal — confirms the video/audio RTCRtpSender still
@@ -727,7 +757,331 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       }
     }
 
-    const collectStats = makeStatsCollector(pc)
+    // Closes and fully detaches the CURRENT generation's pc/negotiation/
+    // signal-subscription/grace-timer — used both by the final effect
+    // cleanup (room genuinely ending) and by attemptFreshConnectionRecovery
+    // (this room continuing, just with a brand-new pc). Never touches
+    // combinedRemoteStream/tickInterval/React state that's meant to
+    // survive a fresh-connection swap.
+    function teardownCurrentPeerConnection() {
+      clearDisconnectedGrace()
+      unsubscribeSignal()
+      negotiation.dispose()
+      pc.close()
+    }
+
+    // Builds one RTCPeerConnection generation — the initial one
+    // (isFreshRecovery=false), or the single allowed fresh-connection
+    // recovery attempt (isFreshRecovery=true, called only from
+    // attemptFreshConnectionRecovery, only after teardownCurrentPeerConnection
+    // has already closed the previous generation). Reuses videoTrackRef.
+    // current/audioTrackRef.current (the SAME live camera/mic tracks —
+    // getUserMedia is never called again here) and combinedRemoteStream
+    // (the same remote MediaStream object) either way.
+    function setupPeerConnection(isFreshRecovery: boolean) {
+      generation += 1
+      const myGeneration = generation
+
+      // Explicit, not just the implicit default — "all" (never "relay")
+      // means every candidate type is gathered and ICE's own priority
+      // ordering (RFC 8445: host/srflx always outrank relay by type alone,
+      // independent of anything below) is what actually picks a direct
+      // path over TURN whenever one exists. TURN only ever gets used when
+      // it's the only pair that actually connects — this is what makes it
+      // a genuine fallback rather than a forced relay. buildIceServers()
+      // is called fresh here (never a frozen module constant) so a
+      // rotated short-lived TURN credential is always picked up by the
+      // next pc this function ever creates, including a fresh-connection
+      // recovery's own one.
+      const iceServers = buildIceServers()
+      if (process.env.NODE_ENV !== "production") {
+        console.log(
+          includesTurn(iceServers)
+            ? "webrtc: TURN is configured for this connection attempt"
+            : "webrtc: STUN-only — no TURN configured for this deployment; connections behind symmetric NAT/restrictive firewalls may fail",
+          { roomId }
+        )
+      }
+      const pcLocal = new RTCPeerConnection({ iceServers, iceTransportPolicy: "all" })
+      pc = pcLocal
+      pcRef.current = pcLocal
+      console.log("webrtc: peer created", { roomId, initiator, isFreshRecovery })
+
+      recoveryStartedAt = null
+      recoveryBaseline = 0
+      lastDecodedFrames = 0
+      videoReadyLocal = false
+      remoteVideoTrackLive = false
+      connectedAt = null
+      clearDisconnectedGrace()
+
+      negotiation = createRtcNegotiation(pcLocal, initiator, (data) => sendSignal(currentRoomId, data), (event) => {
+        if (generation !== myGeneration) return
+        console.debug(`webrtc: ${event}`, { roomId })
+        if (event === "offer sent") setPhase("offer-sent")
+        else if (event === "offer received") setPhase("offer-received")
+        else if (event === "answer sent") setPhase("answer-sent")
+        else if (event === "answer received") setPhase("answer-received")
+        if (event === "ICE restart started") {
+          recoveryStartedAt = Date.now()
+          recoveryBaseline = lastDecodedFrames
+          videoReadyLocal = false
+          setRemoteVideoReady(false)
+        }
+      })
+
+      // A brand-new RTCPeerConnection was just created — this is resource
+      // initialization, not mirroring some other piece of state. True for
+      // a fresh-connection recovery too: the call genuinely is
+      // reconnecting, and the UI should say so exactly like it would for
+      // any other in-room recovery.
+      setStatus("connecting")
+
+      const videoTransceiver = pcLocal.addTransceiver("video", { direction: "sendrecv" })
+      const audioTransceiver = pcLocal.addTransceiver("audio", { direction: "sendrecv" })
+      sendersRef.current = { video: videoTransceiver.sender, audio: audioTransceiver.sender }
+      configureVideoEncoding(videoTransceiver.sender)
+
+      // Groups both senders under one explicit local stream (their own msid)
+      // as a courtesy to the far side's own negotiation — still correct and
+      // worth doing even though this end no longer DEPENDS on it (see
+      // pc.ontrack below, which merges into its own persistent stream
+      // regardless of how the far side grouped anything). sender.setStreams
+      // is a relatively recent addition (not in every browser) — called
+      // defensively; nothing here depends on it succeeding.
+      try {
+        const localGroupStream = new MediaStream()
+        videoTransceiver.sender.setStreams?.(localGroupStream)
+        audioTransceiver.sender.setStreams?.(localGroupStream)
+      } catch (err) {
+        console.error("webrtc: sender.setStreams failed (non-fatal — remote grouping doesn't depend on it)", {
+          roomId,
+          error: err instanceof Error ? err.name : "RTCError",
+        })
+      }
+
+      // Reads videoTrackRef/audioTrackRef (kept live by the replaceTrack-
+      // syncing effect further down), not the `videoTrack`/`audioTrack`
+      // props directly — for a fresh-connection recovery this IS the
+      // point: the exact same current camera/mic tracks this account was
+      // already sending, reused as-is, never a fresh getUserMedia() call.
+      if (videoTrackRef.current) {
+        videoTransceiver.sender
+          .replaceTrack(videoTrackRef.current)
+          .catch((err) => console.error("webrtc: replaceTrack (initial video) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
+      }
+      // Muted-at-setup (e.g. a fresh match landed on right after a skip
+      // made mid-mute, or a fresh-connection recovery happening while
+      // already muted) must never briefly attach the real audio track
+      // before some later effect gets around to detaching it again —
+      // `micEnabledRef` already reflects the current mute state by the
+      // time this runs, so the sender simply never receives a track to
+      // begin with rather than attaching-then-immediately-removing one.
+      if (audioTrackRef.current && micEnabledRef.current) {
+        audioTransceiver.sender
+          .replaceTrack(audioTrackRef.current)
+          .catch((err) => console.error("webrtc: replaceTrack (initial audio) failed", { roomId, error: err instanceof Error ? err.name : "RTCError" }))
+      }
+
+      pcLocal.ontrack = (event) => {
+        if (generation !== myGeneration) return
+        const track = event.track
+        // Track diagnostics — see makeStatsCollector's own doc comment
+        // for the broader "connected but no video renders" investigation
+        // this is part of. `track.muted` here is WebRTC's own "no RTP data
+        // is currently arriving for this track" signal (distinct from the
+        // UI's mic-mute concept) — false at ontrack time is a good sign
+        // real packets are already flowing; true means the track exists but
+        // nothing has been received for it yet.
+        console.log("webrtc: ontrack fired", {
+          roomId,
+          kind: track.kind,
+          readyState: track.readyState,
+          muted: track.muted,
+          negotiatedStreamTrackCount: event.streams[0]?.getTracks().length ?? 0,
+        })
+
+        // Merge into the ROOM's persistent stream (see its own doc
+        // comment above) — replace any STALE track of the same kind
+        // first (a renegotiation/ICE-restart/fresh-connection recovery
+        // producing a new track for an existing kind), never just
+        // accumulate duplicates.
+        for (const existing of track.kind === "video" ? combinedRemoteStream.getVideoTracks() : combinedRemoteStream.getAudioTracks()) {
+          if (existing !== track) combinedRemoteStream.removeTrack(existing)
+        }
+        if (!combinedRemoteStream.getTracks().includes(track)) {
+          combinedRemoteStream.addTrack(track)
+        }
+
+        if (track.kind === "video") {
+          remoteVideoTrackLive = track.readyState === "live"
+          // Confirms the actual MediaStream object VideoTile will receive
+          // really does contain this video track — not just that ontrack
+          // fired, which on its own doesn't guarantee the merge above
+          // landed correctly.
+          console.log("webrtc: combined remote stream now has a video track", {
+            roomId,
+            videoTrackCount: combinedRemoteStream.getVideoTracks().length,
+            audioTrackCount: combinedRemoteStream.getAudioTracks().length,
+          })
+        }
+
+        track.onended = () => {
+          if (generation !== myGeneration) return
+          console.log("webrtc: remote track ended", { roomId, kind: track.kind })
+          if (track.kind === "video") markVideoNotReady("track ended")
+        }
+        track.onmute = () => {
+          if (generation !== myGeneration) return
+          console.log("webrtc: remote track muted (no data arriving)", { roomId, kind: track.kind })
+          if (track.kind === "video") {
+            remoteVideoTrackLive = false
+            markVideoNotReady("track muted")
+          }
+        }
+        track.onunmute = () => {
+          if (generation !== myGeneration) return
+          console.log("webrtc: remote track unmuted (data flowing)", { roomId, kind: track.kind })
+          if (track.kind === "video") remoteVideoTrackLive = true
+        }
+
+        // Only ever set once per ROOM (combinedRemoteStream's own object
+        // reference never changes across a fresh-connection recovery), not
+        // once per generation — a fresh generation's own tracks merge into
+        // the SAME stream React already has a reference to, so there's
+        // nothing new to hand it.
+        if (!remoteStreamAttached) {
+          remoteStreamAttached = true
+          setRemoteStream(combinedRemoteStream)
+        }
+      }
+
+      pcLocal.onicecandidate = (event) => {
+        if (generation !== myGeneration) return
+        if (event.candidate) {
+          console.log("webrtc: ICE candidate", { roomId, type: event.candidate.type ?? "unknown" })
+          sendSignal(currentRoomId, { kind: "ice", candidate: event.candidate.toJSON() })
+        }
+      }
+
+      pcLocal.onicegatheringstatechange = () => {
+        if (cancelled || generation !== myGeneration) return
+        console.debug("webrtc: ICE gathering state", { roomId, state: pcLocal.iceGatheringState })
+      }
+      pcLocal.oniceconnectionstatechange = () => {
+        if (cancelled || generation !== myGeneration) return
+        console.debug("webrtc: ICE connection state", { roomId, state: pcLocal.iceConnectionState })
+        if (pcLocal.iceConnectionState === "checking") setPhase("ice-connecting")
+        const state =
+          pcLocal.iceConnectionState === "connected" || pcLocal.iceConnectionState === "completed"
+            ? "connected"
+            : pcLocal.iceConnectionState === "disconnected"
+              ? "disconnected"
+              : pcLocal.iceConnectionState === "failed"
+                ? "failed"
+                : "other"
+        const action = decideConnectionRecoveryAction(state)
+        if (action === "clear-grace") clearDisconnectedGrace()
+        else if (action === "recover-now") scheduleRecoveryCheck(true)
+        else if (action === "grace-then-recover") scheduleRecoveryCheck(false)
+      }
+      pcLocal.onconnectionstatechange = () => {
+        if (cancelled || generation !== myGeneration) return
+        console.debug("webrtc: peer connection state", { roomId, state: pcLocal.connectionState })
+        if (pcLocal.connectionState === "connected") {
+          setPhase("connected")
+          setStatus("connected")
+          connectedAt = Date.now()
+          clearDisconnectedGrace()
+        } else {
+          connectedAt = null
+          setStatus(pcLocal.connectionState === "closed" ? "closed" : "connecting")
+          markVideoNotReady("transport not connected")
+          const state = pcLocal.connectionState === "disconnected" ? "disconnected" : pcLocal.connectionState === "failed" ? "failed" : "other"
+          const action = decideConnectionRecoveryAction(state)
+          if (action === "recover-now") scheduleRecoveryCheck(true)
+          else if (action === "grace-then-recover") scheduleRecoveryCheck(false)
+        }
+      }
+
+      collectStats = makeStatsCollector(pcLocal)
+
+      unsubscribeSignal()
+      unsubscribeSignal = onSignal(currentRoomId, (incomingRoomId, data) => {
+        if (cancelled || generation !== myGeneration || incomingRoomId !== currentRoomId) return
+        void negotiation.receive(data)
+      })
+
+      // Everything the room-establishment handshake actually needed is
+      // true right here: the RTCPeerConnection exists, both transceivers
+      // exist, and the signal listener for THIS room is now registered —
+      // see "rtc-ready" in lib/signaling/protocol.ts for the exact bullet
+      // list this satisfies. useMatchmaking.ts sends "rtc-ready" once this
+      // AND its own remaining conditions (realtimeReady, a live local
+      // video track) hold. Meaningful only the FIRST time (a
+      // fresh-connection recovery doesn't repeat the handshake — see
+      // below) but harmless to re-set either way.
+      setRtcInitialized(true)
+
+      if (isFreshRecovery) {
+        setPhase("fresh-connection-recovery")
+        // This room's own rtc-ready/rtc-start handshake already completed
+        // once — a fresh-connection recovery renegotiates the SAME peer
+        // immediately, it does not repeat that server round trip (the
+        // non-initiator side is, as always, purely offer-reactive and
+        // needs nothing further here). Any earlier startNegotiationRef
+        // callback is now meaningless (its own `generation !== myGeneration`
+        // guard would already no-op it), cleared anyway for clarity.
+        startNegotiationRef.current = null
+        if (initiator) {
+          setPhase("rtc-start-received")
+          void negotiation.start()
+        }
+      } else {
+        setPhase("rtc-initialized")
+        setPhase("waiting-for-peer-ready")
+        // THE fix for "matched" alone never proving the other side would
+        // ever actually receive an offer: negotiation.start() (the
+        // initiator-only call that creates and sends the first SDP offer)
+        // does not fire unconditionally the instant this runs — see
+        // UseWebRTCParams' own doc comment on `rtcStart` for the full
+        // reasoning. It only ever fires once the server's "rtc-start"
+        // arrives (confirming BOTH sides are genuinely rtc-ready), via the
+        // small separate effect further down that watches `rtcStart` and
+        // calls through this ref — never as a dependency of THIS effect,
+        // which would tear down and recreate the whole RTCPeerConnection
+        // on every readiness-handshake tick. The non-initiator's own flow
+        // is completely unaffected: it never called negotiation.start()
+        // before and still doesn't — it only ever reacts to an incoming
+        // offer via onSignal above.
+        let negotiationStarted = false
+        startNegotiationRef.current = () => {
+          if (cancelled || negotiationStarted || !initiator || generation !== myGeneration) return
+          negotiationStarted = true
+          setPhase("rtc-start-received")
+          void negotiation.start()
+        }
+      }
+    }
+
+    // The ONE additional recovery level above the existing bounded ICE
+    // restart — see decideAfterIceRecoveryDeadline's own doc comment and
+    // the tick() call site below for exactly when this runs. Reuses the
+    // SAME current camera/mic tracks (never getUserMedia again), the SAME
+    // combinedRemoteStream, the SAME room/roomId, and renegotiates the
+    // SAME peer exactly once. Never leaves the old and new
+    // RTCPeerConnection coexisting: teardownCurrentPeerConnection() always
+    // fully closes the broken one, synchronously, before
+    // setupPeerConnection() ever constructs the new one.
+    function attemptFreshConnectionRecovery() {
+      if (cancelled) return
+      console.warn("webrtc: ICE restart did not recover in time — attempting one fresh RTCPeerConnection for this same room", { roomId })
+      teardownCurrentPeerConnection()
+      setupPeerConnection(true)
+    }
+
+    setupPeerConnection(false)
+
     let tickCount = 0
     let collecting = false
 
@@ -741,6 +1095,15 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       if (recoveryStartedAt !== null && Date.now() - recoveryStartedAt > ICE_RECOVERY_DEADLINE_MS) {
         negotiation.failed()
         recoveryStartedAt = null
+        const decision = decideAfterIceRecoveryDeadline(freshRecoveryUsed)
+        if (decision === "attempt-fresh-connection") {
+          freshRecoveryUsed = true
+          attemptFreshConnectionRecovery()
+        } else {
+          console.error("webrtc: recovery exhausted (ICE restart, then a fresh connection) — giving up on this room", { roomId })
+          setPhase("connection-failed")
+          setConnectionFailed(true)
+        }
       }
       if (stats) {
         lastDecodedFrames = stats.incoming.framesDecoded ?? 0
@@ -773,62 +1136,25 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     }
     const tickInterval = setInterval(tick, TICK_INTERVAL_MS)
 
-    const unsubscribe = onSignal(roomId, (incomingRoomId, data) => {
-      if (!cancelled && incomingRoomId === roomId) void negotiation.receive(data)
-    })
-
-    // Everything the room-establishment handshake actually needed is true
-    // right here: the RTCPeerConnection exists, both transceivers exist,
-    // and the signal listener for THIS room is now registered — see
-    // "rtc-ready" in lib/signaling/protocol.ts for the exact bullet list
-    // this satisfies. useMatchmaking.ts sends "rtc-ready" once this AND
-    // its own remaining conditions (realtimeReady, a live local video
-    // track) hold.
-    setPhase("rtc-initialized")
-    setRtcInitialized(true)
-    setPhase("waiting-for-peer-ready")
-
-    // THE fix for "matched" alone never proving the other side would ever
-    // actually receive an offer: negotiation.start() (the initiator-only
-    // call that creates and sends the first SDP offer) no longer fires
-    // unconditionally the instant this effect runs — see UseWebRTCParams'
-    // own doc comment on `rtcStart` for the full reasoning. It now only
-    // ever fires once the server's "rtc-start" arrives (confirming BOTH
-    // sides are genuinely rtc-ready), via the small separate effect below
-    // that watches `rtcStart` and calls through this ref — never as a
-    // dependency of THIS effect, which would tear down and recreate the
-    // whole RTCPeerConnection on every readiness-handshake tick. The
-    // non-initiator's own flow is completely unaffected: it never called
-    // negotiation.start() before and still doesn't — it only ever reacts
-    // to an incoming offer via onSignal above.
-    let negotiationStarted = false
-    function startNegotiationForThisRoom() {
-      if (cancelled || negotiationStarted || !initiator) return
-      negotiationStarted = true
-      setPhase("rtc-start-received")
-      void negotiation.start()
-    }
-    startNegotiationRef.current = startNegotiationForThisRoom
-
     return () => {
       cancelled = true
-      negotiation.dispose()
+      teardownCurrentPeerConnection()
       console.debug("webrtc: peer disposed", { roomId, reason: "room_effect_cleanup" })
       clearInterval(tickInterval)
-      unsubscribe()
-      pc.close()
       pcRef.current = null
       sendersRef.current = { video: null, audio: null }
-      if (startNegotiationRef.current === startNegotiationForThisRoom) startNegotiationRef.current = null
+      startNegotiationRef.current = null
       if (reportPlaybackConfirmedRef.current === reportPlaybackConfirmedForThisRoom) reportPlaybackConfirmedRef.current = null
       setStatus("closed")
       setRemoteStream(null)
       setRemoteVideoReady(false)
     }
-    // videoTrack/audioTrack are deliberately excluded: the effect below keeps
-    // them in sync via replaceTrack (and this effect's own checkSenderHealth
-    // self-heal) without recreating the connection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // videoTrack/audioTrack/micEnabled are deliberately never read directly
+    // in this effect — only via videoTrackRef/audioTrackRef/micEnabledRef,
+    // kept in sync by the replaceTrack-syncing effect below (and this
+    // effect's own checkSenderHealth self-heal) — specifically so neither
+    // one needs to be a dependency here, which would otherwise tear down
+    // and recreate the whole RTCPeerConnection on every camera/mic toggle.
   }, [roomId, initiator, sendSignal, onSignal])
 
   // Swap the outgoing tracks whenever the camera/mic device is toggled or
@@ -874,6 +1200,12 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     remoteStream: mediaRoom === roomId ? remoteStream : null,
     remoteVideoReady: mediaRoom === roomId && remoteVideoReady,
     rtcInitialized: mediaRoom === roomId && rtcInitialized,
+    // True once this room's tiered recovery (grace window -> bounded ICE
+    // restart -> one fresh RTCPeerConnection) is genuinely exhausted — see
+    // connectionFailed's own doc comment above. useMatchmaking.ts is what
+    // actually leaves the room in response; this hook only ever reports
+    // the fact.
+    connectionFailed: mediaRoom === roomId && connectionFailed,
     status,
     reportPlaybackConfirmed,
   }
