@@ -1,8 +1,9 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { WS_PATH } from "@/lib/signaling/protocol"
 import type { ClientMessage, ServerMessage } from "@/lib/signaling/protocol"
+import { shouldReconnectAfterClose } from "@/lib/realtimeLifecycle"
 
 type Listener = (message: ServerMessage) => void
 
@@ -82,7 +83,43 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
   const wsRef = useRef<WebSocket | null>(null)
   const listenersRef = useRef(new Set<Listener>())
 
+  // Lifecycle-reason bookkeeping for the dev logs below only — never holds
+  // or logs the actual accountId, just whether it changed.
+  //
+  // `prevStartDepsRef` is read/written entirely within the effect's own
+  // setup phase (see "effect started" below), so it just needs to remember
+  // what the deps were the last time this effect started.
+  //
+  // `latestDepsRef` is mirrored from props every render via a layout
+  // effect (refs must never be written during render itself — see
+  // react-hooks/refs), which runs before this hook's own passive
+  // `useEffect` cleanup/setup in the same commit. That ordering is exactly
+  // what makes it useful for CLEANUP specifically: a cleanup closure still
+  // holds the enabled/accountId values from whenever ITS effect instance
+  // was set up, but by the time cleanup actually runs, the layout effect
+  // for whichever render triggered it has already run. If that render
+  // changed enabled or accountId, `latestDepsRef.current` already reflects
+  // the new value and the diff below names exactly which one changed. If
+  // cleanup is instead running because the component is genuinely
+  // unmounting, there was no further render at all — `latestDepsRef.current`
+  // still equals the closed-over values exactly, and the diff falls
+  // through to "unmounted".
+  const prevStartDepsRef = useRef<{ enabled: boolean; accountId?: string } | null>(null)
+  const latestDepsRef = useRef({ enabled, accountId })
+  useLayoutEffect(() => {
+    latestDepsRef.current = { enabled, accountId }
+  })
+
   useEffect(() => {
+    const prevStart = prevStartDepsRef.current
+    const startReason = !prevStart
+      ? "initial_mount"
+      : prevStart.enabled !== enabled
+        ? "enabled_changed"
+        : "account_changed"
+    prevStartDepsRef.current = { enabled, accountId }
+    console.debug("signaling: effect started", { reason: startReason, enabled, hasAccount: Boolean(accountId) })
+
     if (!enabled) {
       // Nothing to do if we were never connected in the first place (e.g.
       // signed out from the start). If we WERE connected, `enabled` just
@@ -97,6 +134,13 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     let retryDelay = 500
     let socket: WebSocket | null = null
     let retryTimer: ReturnType<typeof setTimeout> | undefined
+    // Purely a log-correlation label — one physical socket attempt per
+    // increment. The actual "is this callback about a socket we've since
+    // moved on from" guard is (and remains) the `wsRef.current !==
+    // currentSocket` identity check on each handler below; this just makes
+    // that sequence legible in the logs without ever printing account/
+    // ticket/credential data.
+    let generation = 0
 
     function connect() {
       if (cancelled) return
@@ -108,6 +152,9 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
       const configuredUrl = process.env.NEXT_PUBLIC_WS_URL
       const protocol = window.location.protocol === "https:" ? "wss" : "ws"
       const url = configuredUrl ? normalizeWsUrl(configuredUrl) : `${protocol}://${window.location.host}${WS_PATH}`
+      generation += 1
+      const thisGeneration = generation
+      console.debug("signaling: socket created", { generation: thisGeneration })
       socket = new WebSocket(url)
       wsRef.current = socket
       const currentSocket = socket
@@ -121,7 +168,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
         // is flushed/replayed here on purpose — see the module doc comment
         // above; useMatchmaking.ts reacts to `connected` itself and sends a
         // fresh "hello" from scratch instead.
-        console.log("signaling: transport connected")
+        console.debug("signaling: socket opened", { generation: thisGeneration })
         retryDelay = 500
         setConnected(true)
       }
@@ -138,9 +185,31 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
 
       socket.onclose = (event) => {
         if (cancelled || wsRef.current !== currentSocket) return
-        console.debug("signaling: transport closed", { reason: "socket_closed", code: event.code, wasClean: event.wasClean, willRetryInMs: retryDelay })
+        // The server closes with this specific code (see
+        // server/ws-server.ts's hello handler + WS_CLOSE_SUPERSEDED's own
+        // doc comment) exactly when another, already-healthy connection
+        // for this same account exists elsewhere — a second tab/device, or
+        // a reconnect that arrived while the previous socket here hadn't
+        // actually died yet. That is NOT a transient network failure, and
+        // must not be treated like one: reconnecting would just walk
+        // straight back into the same ownership check and lose again,
+        // which — before this check existed — is exactly what produced an
+        // infinite replace/reconnect fight between two sockets for one
+        // account (each side's blind "any close retries" logic kept
+        // re-triggering the other's own supersession). This socket simply
+        // stops here; a future genuine reason to reconnect (sign-out and
+        // back in, an account switch, this tab reloading) starts a whole
+        // new effect instance with its own fresh retry budget, not this one.
+        const willReconnect = shouldReconnectAfterClose(event.code)
+        console.debug("signaling: socket closed", {
+          generation: thisGeneration,
+          reason: willReconnect ? "network_close" : "superseded",
+          code: event.code,
+          wasClean: event.wasClean,
+          willRetry: willReconnect,
+        })
         setConnected(false)
-        if (cancelled) return
+        if (!willReconnect) return
         retryTimer = setTimeout(connect, retryDelay)
         retryDelay = Math.min(retryDelay * 1.6, 8000)
       }
@@ -155,7 +224,10 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     return () => {
       cancelled = true
       clearTimeout(retryTimer)
-      console.debug("signaling: transport cleanup", { reason: "disabled_or_unmounted" })
+      const latest = latestDepsRef.current
+      const cleanupReason =
+        latest.enabled !== enabled ? "enabled_changed" : latest.accountId !== accountId ? "account_changed" : "unmounted"
+      console.debug("signaling: effect cleanup", { reason: cleanupReason })
       if (wsRef.current === socket) wsRef.current = null
       setConnected(false)
       socket?.close()

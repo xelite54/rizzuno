@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from "ws"
 import type { RawData } from "ws"
 import { matchmaker } from "./matchmaker"
 import type { QueuedClient } from "./matchmaker"
-import { MAX_CHAT_IMAGE_LENGTH, isValidGender } from "../lib/signaling/protocol"
+import { MAX_CHAT_IMAGE_LENGTH, isValidGender, WS_CLOSE_SUPERSEDED } from "../lib/signaling/protocol"
 import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from "../lib/signaling/protocol"
 import { verifyTicket } from "../lib/realtimeTicket"
 import {
@@ -113,6 +113,20 @@ type ConnectionState = {
   searchGeneration: number
   /** The last "profile-update" revision this connection actually applied. Starts at 0 — the "hello" snapshot itself counts as revision 0 — so the first real profile-update only needs revision 1. A message whose revision isn't strictly greater than this is stale (arrived out of order relative to one already applied) and is dropped. */
   profileRevision: number
+  /**
+   * Heartbeat liveness, not transport state — `ws.readyState === OPEN` only
+   * means the TCP connection hasn't been torn down yet, which for a client
+   * that vanished without a clean close (lost signal, phone killed in the
+   * background, network switch) can stay true for a long time with no one
+   * actually listening on the other end. Set true on every "hello" and on
+   * every "pong" this socket sends back; flipped false right before each
+   * ping goes out. The heartbeat interval below terminates any connection
+   * that's still false when its next ping would go out — i.e. it missed a
+   * full cycle. This is what makes "existing.ws.readyState === OPEN" in the
+   * hello handler's ownership check below actually mean "someone is still
+   * there", not just "the OS hasn't noticed yet".
+   */
+  isAlive: boolean
 }
 
 // userId -> live connection. A reconnect (e.g. after a network blip) simply
@@ -542,6 +556,14 @@ export function createRizzunoWebSocketServer() {
   wss.on("connection", (ws: WebSocket) => {
     console.log("ws-server: connection accepted")
     let state: ConnectionState | null = null
+    // Keeps `state.isAlive` honest for the heartbeat below — registered
+    // once per physical connection (not per-hello) since `state` itself
+    // may be reassigned (an account switch, a re-hello) without this
+    // socket ever actually closing; reading the outer `let state` here
+    // always sees whichever ConnectionState currently owns it.
+    ws.on("pong", () => {
+      if (state) state.isAlive = true
+    })
     const checkRate = createRateLimiter()
     // Block/report/match checks are now real database round trips, so
     // handling one message can involve a genuine await. Messages from the
@@ -719,14 +741,39 @@ export function createRizzunoWebSocketServer() {
         // Pending invitations are rebound to the authenticated replacement
         // below, rather than canceled by a routine repeat handshake.
         // A second "hello" for the same account on a *different* socket
-        // means the old one is superseded (e.g. a duplicated tab, or a
-        // reconnect that raced with the old socket's own close) — close it
-        // rather than leaving it dangling in memory with no room and no
-        // future messages.
+        // used to ALWAYS mean the old one was superseded — close it,
+        // destroy whatever room/search it had, let the new one take over.
+        // That was correct for a genuine reconnect (the old socket really
+        // is dead), but wrong for a duplicate tab/device opened WHILE the
+        // old one is still healthy: it let any second tab silently steal
+        // ownership and tear down an active call out from under the first
+        // one, and — because the displaced client then auto-reconnected —
+        // produced an infinite replace/reconnect fight between the two.
+        //
+        // OWNERSHIP POLICY: the existing connection keeps ownership for as
+        // long as it's actually alive (`isAlive`, driven by the heartbeat
+        // below — not just `readyState === OPEN`, which a truly-vanished
+        // client can still show for a long time). A healthy existing
+        // connection is never torn down by a duplicate hello, active room
+        // or not — this new one is rejected instead. Only once the
+        // existing connection has genuinely gone quiet (dead transport, or
+        // missed heartbeats) does a new hello legitimately take over.
         if (existing && existing.ws !== ws) {
-          // A new transport has no surviving WebRTC session. Retire the
-          // old room before any async profile reads, not in its delayed
-          // close callback (which races with registering this connection).
+          if (existing.ws.readyState === WebSocket.OPEN && existing.isAlive) {
+            console.log("ws-server: hello rejected — account already has a healthy connection", {
+              existingDisplayId: existing.displayId,
+            })
+            send(ws, { type: "superseded" })
+            ws.close(WS_CLOSE_SUPERSEDED, "superseded")
+            return
+          }
+          // The previous connection for this account is dead or not
+          // responding to heartbeats — a legitimate reconnect (real
+          // network drop, refresh, etc.), not a live duplicate. A new
+          // transport has no surviving WebRTC session either way, so
+          // retire the old room before any async profile reads, not in
+          // its own delayed close callback (which races with registering
+          // this connection).
           cleanUpAccount(existing, "socket_replaced", true)
           existing.ws.close()
           existing = undefined
@@ -761,6 +808,7 @@ export function createRizzunoWebSocketServer() {
           seeking: existing?.seeking ?? false,
           searchGeneration: existing?.searchGeneration ?? 0,
           profileRevision: 0,
+          isAlive: true,
         }
         connections.set(userId, state)
         connectionsByDisplayId.set(state.displayId, userId)
@@ -1171,6 +1219,33 @@ export function createRizzunoWebSocketServer() {
       cleanUpAccount(state, "socket_closed", true)
     })
   })
+
+  // Heartbeat: the only thing that makes `existing.isAlive` in the hello
+  // handler's ownership check (above) mean anything beyond "the OS hasn't
+  // noticed the TCP connection is gone yet" — a client that vanished
+  // without a clean close (lost signal, backgrounded and killed, network
+  // switch) can otherwise leave `readyState === OPEN` for a long time with
+  // nothing actually listening, which would make a genuine reconnect
+  // attempt for that account keep losing the ownership race forever.
+  // Standard `ws`-library ping/pong pattern: every cycle, anything that
+  // didn't answer the *previous* ping is terminated (its own "close"
+  // handler above runs cleanUpAccount normally); everything else is
+  // marked not-yet-answered and pinged again. `unref()` so this interval
+  // alone never keeps the process alive past `server.ts`'s own shutdown.
+  const HEARTBEAT_INTERVAL_MS = 20_000
+  const heartbeatTimer = setInterval(() => {
+    for (const connectionState of connections.values()) {
+      if (connectionState.ws.readyState !== WebSocket.OPEN) continue // its own close handler already cleans it up
+      if (!connectionState.isAlive) {
+        console.log("ws-server: heartbeat missed — terminating unresponsive connection", { displayId: connectionState.displayId })
+        connectionState.ws.terminate()
+        continue
+      }
+      connectionState.isAlive = false
+      connectionState.ws.ping()
+    }
+  }, HEARTBEAT_INTERVAL_MS)
+  heartbeatTimer.unref()
 
   return wss
 }

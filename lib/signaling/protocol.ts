@@ -190,6 +190,20 @@ export type ServerMessage =
   | { type: "unblocked"; ok: boolean; targetUserId: string }
   /** "hello" was rejected — an expired/invalid ticket, or an account status (banned/suspended) that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket) or stop trying (banned/suspended). */
   | { type: "rejected"; reason: "invalid_ticket" | "banned" | "suspended" }
+  /**
+   * This connection lost a race for the same account against another,
+   * already-healthy connection (a second tab/device, or a reconnect that
+   * arrived before the previous socket had actually died) — sent right
+   * before the server closes this socket with WS_CLOSE_SUPERSEDED below.
+   * Deliberately NOT folded into "rejected" above: unlike an
+   * invalid-ticket/banned/suspended rejection, this says nothing about the
+   * *account* — the other connection is healthy and keeps working — so it
+   * must never be treated as a reason to show an account-restricted
+   * screen. See useSignalingSocket.ts, whose only reaction to this is to
+   * stop retrying this specific socket rather than fighting the winner for
+   * ownership forever.
+   */
+  | { type: "superseded" }
   /** `context` names which action the error is about, so the client can react appropriately (e.g. retry a failed "find" or "hello") instead of just logging it — "Message blocked." (chat) carries no context since there's nothing to retry there. `"hello"` specifically means hello was received but processing it threw (e.g. a database error) before "ready" could be sent — without this, the client would otherwise just wait for a "ready" that's never coming. */
   | { type: "error"; message: string; context?: "find" | "hello" }
   /**
@@ -214,3 +228,17 @@ export type ServerMessage =
   | { type: "friend-request-result"; targetDisplayId: string; result: FriendRequestResult }
 
 export const WS_PATH = "/rizzuno-ws"
+
+/**
+ * Close code the server sends to a "hello" that lost the ownership race
+ * for its account (see the "superseded" ServerMessage above and
+ * server/ws-server.ts's hello handler). In the 4000-4999 range RFC 6455
+ * §7.4.2 reserves for private/application use, so it can never collide
+ * with a standard or `ws`-library-assigned code. useSignalingSocket.ts
+ * checks for exactly this code in `onclose` to tell "the network dropped,
+ * retry" apart from "another connection already owns this account, stop" —
+ * conflating the two is what previously made a superseded socket
+ * auto-reconnect forever, repeatedly re-triggering the same supersession
+ * against whichever connection currently held the account.
+ */
+export const WS_CLOSE_SUPERSEDED = 4409

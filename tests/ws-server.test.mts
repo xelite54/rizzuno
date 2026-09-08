@@ -61,7 +61,16 @@ test("refreshing hello while queued preserves matching intent", async () => {
   } finally { await server.close() }
 })
 
-test("a replacement socket can search again after its old call is retired", async () => {
+// This used to assert the OLD (buggy) ownership policy: a duplicate hello
+// for an already-connected, already-matched account always won and killed
+// the existing call. That is precisely the production bug (Railway logs:
+// "room destroyed: socket_replaced" immediately after a real match, plus
+// an infinite replace/reconnect loop between the two sockets fighting over
+// the same account). See the "Test B/D/E" block below for the corrected
+// behavior while the original connection is still healthy, and this test
+// for the still-legitimate case: reconnecting for real, AFTER the original
+// socket has actually closed.
+test("a genuinely new connection for the same account, after the old socket actually closed, can search again", async () => {
   resetDbMockState()
   const server = await startTestServer()
   try {
@@ -69,12 +78,89 @@ test("a replacement socket can search again after its old call is retired", asyn
     const b = await connectAndHello(server.url, "replace-b", { gender: "female" })
     a.send({ type: "find" }); b.send({ type: "find" })
     await a.waitForType("matched"); await b.waitForType("matched")
-    const replacement = await connectAndHello(server.url, "replace-a", { gender: "male" })
+    a.close() // a REAL disconnect this time, not a live duplicate
     await b.waitForType("peer-left")
+    const replacement = await connectAndHello(server.url, "replace-a", { gender: "male" })
     const c = await connectAndHello(server.url, "replace-c", { gender: "female" })
     replacement.send({ type: "find" }); c.send({ type: "find" })
     assert.equal((await replacement.waitForType("matched")).roomId, (await c.waitForType("matched")).roomId)
     replacement.close(); b.close(); c.close()
+  } finally { await server.close() }
+})
+
+// Test A (see AGENTS' matchmaking-lifecycle audit) — a stable, healthy
+// connection produces exactly one hello/ready cycle and nothing else on
+// its own: no spontaneous second "ready", no close, while it just sits
+// there. This is the negative-space check for the reconnect-war bug —
+// a healthy connection must never trigger the server into treating it as
+// superseded by itself.
+test("Test A — a stable connection produces one hello/ready cycle and no replacement activity", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, uid("stable"), { gender: "male" })
+    await new Promise((r) => setTimeout(r, 250))
+    await assert.rejects(a.waitForType("ready", 50), /timed out/, "no second 'ready' — no replacement connection occurred")
+    a.close()
+  } finally { await server.close() }
+})
+
+// Test B/D/E combined — these three scenarios in the audit (same-account
+// duplicate socket / an active match surviving / a second tab opened
+// during a live call) are the same underlying case exercised three
+// different ways, so one test covers all three rather than repeating
+// identical assertions three times.
+test("Test B/D/E — a duplicate same-account hello during an active call is rejected; the call is untouched", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const id = uid("dup")
+    const a = await connectAndHello(server.url, id, { gender: "male" })
+    const partner = await connectAndHello(server.url, uid("dup-partner"), { gender: "female" })
+    a.send({ type: "find" }); partner.send({ type: "find" })
+    const matchedA = await a.waitForType("matched") // Test D: matched sent to A
+    await partner.waitForType("matched") // Test D: matched sent to B (pair committed)
+
+    // Test E: "open another page logged into the same account" — a second
+    // physical socket authenticates as the SAME account while `a` is still
+    // open and healthy (mirrors a second tab/device, not a reconnect).
+    const { mintTicket } = await import("../lib/realtimeTicket")
+    const duplicate = new TestClient(server.url)
+    await duplicate.waitForOpen()
+    const closeEvent = new Promise<number>((resolve) => duplicate.ws.once("close", (code) => resolve(code)))
+    duplicate.send({ type: "hello", ticket: mintTicket(id), handle: "dup-handle", gender: "male", profilePhoto: null })
+
+    // Test B: rejected, not silently promoted to authoritative.
+    await duplicate.waitForType("superseded")
+    assert.equal(await closeEvent, 4409, "closed with the dedicated superseded code, not a generic close")
+    await assert.rejects(duplicate.waitForType("ready", 100), /timed out/, "a rejected duplicate never becomes authoritative")
+
+    // Test D: the existing room is untouched — no "peer-left" to either
+    // side, i.e. no "room destroyed: socket_replaced" happened.
+    await assert.rejects(a.waitForType("peer-left", 200), /timed out/)
+    await assert.rejects(partner.waitForType("peer-left", 100), /timed out/)
+
+    // And the original connection genuinely still works — not just "not
+    // closed", but actually still the live, functioning owner of the room.
+    a.send({ type: "chat", roomId: matchedA.roomId, content: { kind: "text", text: "still here" } })
+    assert.deepEqual((await partner.waitForType("chat")).content, { kind: "text", text: "still here" })
+
+    a.close(); partner.close()
+  } finally { await server.close() }
+})
+
+// Test C — a real, honest disconnect (not a live duplicate) still lets the
+// same account reconnect normally: one hello, one ready, no rejection.
+test("Test C — after a real disconnect, the same account reconnects and authenticates once", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const id = uid("reconnect")
+    const a = await connectAndHello(server.url, id, { gender: "male" })
+    a.close()
+    await new Promise((r) => setTimeout(r, 100)) // let the server's own close handler actually run first
+    const b = await connectAndHello(server.url, id, { gender: "male" }) // connectAndHello itself asserts exactly one "ready"
+    b.close()
   } finally { await server.close() }
 })
 function uid(label: string): string {
