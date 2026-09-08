@@ -1288,3 +1288,48 @@ export async function checkAndIncrementImageModerationRateLimit(
   )
   return (rows[0]?.count ?? 0) > limit
 }
+
+/**
+ * The shared, distributed replacement for lib/apiRateLimit.ts's in-memory
+ * isRateLimited() — specifically for TURN credential issuance (see
+ * app/api/realtime/turn/route.ts and lib/turnCredentials.ts), where Vercel
+ * may run that route on any of several serverless instances that share no
+ * memory with each other, so an in-memory limiter there was never actually
+ * authoritative across them.
+ *
+ * Same atomic fixed-window UPSERT technique as
+ * checkAndIncrementImageModerationRateLimit() just above — see its own doc
+ * comment for the full reasoning (race-safety via Postgres's own row-level
+ * serialization on the UPSERT, the accepted "up to ~2x across a window
+ * boundary" fixed-window tradeoff, bounded storage with no cleanup job
+ * needed since each account owns exactly one row, reused/reset in place
+ * rather than accumulated). Kept as its own dedicated
+ * turn_credential_rate_limits table rather than reusing
+ * image_moderation_rate_limits — a different feature's own table, with its
+ * own (userId, surface) shape this doesn't need.
+ *
+ * The caller (app/api/realtime/turn/route.ts) is what actually fails
+ * closed: this function throws like any other query on a genuine database
+ * failure (never silently treats an error as "not limited") and the route
+ * itself refuses to mint a credential unless this resolves successfully —
+ * a database outage means no credentials are issued, not unlimited ones.
+ *
+ * Returns whether this attempt is OVER the limit (true = rate limited).
+ */
+export async function checkAndIncrementTurnCredentialRateLimit(userId: string, limit: number, windowMs: number): Promise<boolean> {
+  const windowStart = Math.floor(Date.now() / windowMs) * windowMs
+  const { rows } = await q<{ count: number }>(
+    `INSERT INTO turn_credential_rate_limits (user_id, window_start, count)
+     VALUES ($1, $2, 1)
+     ON CONFLICT (user_id) DO UPDATE
+     SET count = CASE
+           WHEN turn_credential_rate_limits.window_start = EXCLUDED.window_start
+           THEN turn_credential_rate_limits.count + 1
+           ELSE 1
+         END,
+         window_start = EXCLUDED.window_start
+     RETURNING count`,
+    [userId, windowStart]
+  )
+  return (rows[0]?.count ?? 0) > limit
+}

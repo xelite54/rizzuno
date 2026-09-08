@@ -3,19 +3,30 @@ import assert from "node:assert/strict"
 import { SignalBacklog, MAX_BUFFERED_SIGNALS_PER_ROOM } from "../lib/signalBacklog"
 import type { RtcSignal } from "../lib/signaling/protocol"
 
+// `negotiationId` values here are arbitrary placeholders — SignalBacklog
+// itself never inspects a signal beyond `.kind` (see its own eviction
+// logic), so what these hold doesn't matter to anything under test in
+// this file; see tests/rtcNegotiation.test.mts for negotiationId's actual
+// validation semantics.
+const NID = "test-negotiation"
+
 test("ICE backlog overflow does not discard the offer needed to negotiate", () => {
   const backlog = new SignalBacklog()
-  backlog.push("room", { kind: "offer", sdp: "required-offer" })
-  for (let i = 0; i < 100; i++) backlog.push("room", { kind: "ice", candidate: {} })
+  backlog.push("room", { kind: "offer", sdp: "required-offer", negotiationId: NID })
+  for (let i = 0; i < 100; i++) backlog.push("room", { kind: "ice", candidate: {}, negotiationId: NID })
   const delivered: RtcSignal[] = []
   backlog.drain("room", (_, signal) => delivered.push(signal))
   assert.equal(delivered.length, MAX_BUFFERED_SIGNALS_PER_ROOM)
-  assert.deepEqual(delivered[0], { kind: "offer", sdp: "required-offer" })
+  assert.deepEqual(delivered[0], { kind: "offer", sdp: "required-offer", negotiationId: NID })
 })
 
 test("room-specific subscription preserves another room's early SDP and ICE", () => {
   const backlog = new SignalBacklog()
-  const signals: RtcSignal[] = [{ kind: "offer", sdp: "offer" }, { kind: "answer", sdp: "answer" }, { kind: "ice", candidate: {} }]
+  const signals: RtcSignal[] = [
+    { kind: "offer", sdp: "offer", negotiationId: NID },
+    { kind: "answer", sdp: "answer", negotiationId: NID },
+    { kind: "ice", candidate: {}, negotiationId: NID },
+  ]
   for (const signal of signals) backlog.push("new-room", signal)
   backlog.drain("old-room", () => assert.fail("wrong room subscriber"))
   const received: RtcSignal[] = []
@@ -27,9 +38,9 @@ test("room-specific subscription preserves another room's early SDP and ICE", ()
 // Test 8 — "offer arrives before useWebRTC listener → stored → delivered".
 test("signal arriving before a listener subscribes is buffered, then delivered in order once one does", () => {
   const backlog = new SignalBacklog()
-  const offer: RtcSignal = { kind: "offer", sdp: "offer-sdp" }
-  const ice1: RtcSignal = { kind: "ice", candidate: { candidate: "candidate-1" } }
-  const ice2: RtcSignal = { kind: "ice", candidate: { candidate: "candidate-2" } }
+  const offer: RtcSignal = { kind: "offer", sdp: "offer-sdp", negotiationId: NID }
+  const ice1: RtcSignal = { kind: "ice", candidate: { candidate: "candidate-1" }, negotiationId: NID }
+  const ice2: RtcSignal = { kind: "ice", candidate: { candidate: "candidate-2" }, negotiationId: NID }
 
   backlog.push("room-1", offer)
   backlog.push("room-1", ice1)
@@ -49,8 +60,8 @@ test("signal arriving before a listener subscribes is buffered, then delivered i
 
 test("drainAll replays every room's backlog, letting the (self-filtering) handler sort out which it wants", () => {
   const backlog = new SignalBacklog()
-  backlog.push("room-a", { kind: "offer", sdp: "a" })
-  backlog.push("room-b", { kind: "offer", sdp: "b" })
+  backlog.push("room-a", { kind: "offer", sdp: "a", negotiationId: NID })
+  backlog.push("room-b", { kind: "offer", sdp: "b", negotiationId: NID })
 
   const seenRooms: string[] = []
   backlog.drainAll((roomId) => seenRooms.push(roomId))
@@ -60,8 +71,8 @@ test("drainAll replays every room's backlog, letting the (self-filtering) handle
 
 test("clear(roomId) discards only that room's backlog, leaving others intact", () => {
   const backlog = new SignalBacklog()
-  backlog.push("room-a", { kind: "ice", candidate: {} })
-  backlog.push("room-b", { kind: "ice", candidate: {} })
+  backlog.push("room-a", { kind: "ice", candidate: {}, negotiationId: NID })
+  backlog.push("room-b", { kind: "ice", candidate: {}, negotiationId: NID })
 
   backlog.clear("room-a")
 
@@ -71,8 +82,8 @@ test("clear(roomId) discards only that room's backlog, leaving others intact", (
 
 test("clearAll() wipes every room's backlog", () => {
   const backlog = new SignalBacklog()
-  backlog.push("room-a", { kind: "ice", candidate: {} })
-  backlog.push("room-b", { kind: "ice", candidate: {} })
+  backlog.push("room-a", { kind: "ice", candidate: {}, negotiationId: NID })
+  backlog.push("room-b", { kind: "ice", candidate: {}, negotiationId: NID })
 
   backlog.clearAll()
 
@@ -83,7 +94,7 @@ test("clearAll() wipes every room's backlog", () => {
 test("a room's backlog is capped — the oldest signal is dropped, not the newest, once full", () => {
   const backlog = new SignalBacklog()
   for (let i = 0; i < MAX_BUFFERED_SIGNALS_PER_ROOM + 10; i++) {
-    backlog.push("room-1", { kind: "ice", candidate: { candidate: `candidate-${i}` } })
+    backlog.push("room-1", { kind: "ice", candidate: { candidate: `candidate-${i}` }, negotiationId: NID })
   }
 
   assert.equal(backlog.sizeFor("room-1"), MAX_BUFFERED_SIGNALS_PER_ROOM, "never exceeds the cap")

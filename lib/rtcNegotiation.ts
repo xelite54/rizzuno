@@ -2,7 +2,9 @@ import type { RtcSignal } from "./signaling/protocol"
 
 /** One serialized SDP pipeline per room. Only the designated initiator offers.
  * Recovery is bounded to one attempt until new decoded video proves recovery.
- * No timers, automatic skip, SDP/candidate/address logging, or browser globals.
+ * No timers, automatic skip, SDP/candidate/address logging, or browser globals
+ * beyond crypto.randomUUID() (see currentNegotiationId's own doc comment —
+ * opaque, never identifying).
  */
 export function createRtcNegotiation(
   pc: RTCPeerConnection,
@@ -18,6 +20,37 @@ export function createRtcNegotiation(
   let lastAnswer = ""
   let candidates: RTCIceCandidateInit[] = []
   let restartRequested = false
+
+  /**
+   * Proves which negotiation a signal belongs to — see RtcSignal's own doc
+   * comment in lib/signaling/protocol.ts for why the local `generation`
+   * counter useWebRTC.ts already keeps (which only guards a side's own
+   * stale callbacks from its OWN already-closed RTCPeerConnection) isn't
+   * enough on its own: it has no shared meaning with the peer, so it can't
+   * catch a late signal describing the PEER's own already-abandoned
+   * negotiation. One createRtcNegotiation() instance == one negotiation ==
+   * one RTCPeerConnection generation (useWebRTC.ts creates a fresh
+   * instance for the initial connection AND for its one allowed
+   * fresh-connection recovery attempt, never reuses one across a pc swap).
+   *
+   * The INITIATOR mints this once, immediately, right when this instance
+   * is created — every offer/ICE-candidate/ICE-restart-request it ever
+   * sends through THIS instance carries it, including through an in-place
+   * ICE restart (offer({iceRestart:true})): that's still the SAME
+   * underlying negotiation, just with fresh ICE credentials, not a new
+   * one, so it deliberately reuses the same id rather than minting a
+   * fresh one.
+   *
+   * The NON-INITIATOR starts with none and ADOPTS whichever id the most
+   * recently accepted offer declares (see receive()'s "offer" branch).
+   * This is also what correctly handles the initiator's own
+   * fresh-connection-recovery offer arriving at a non-initiator whose OWN
+   * RTCPeerConnection was never recreated — from THAT side's point of
+   * view, it's simply "another offer, with a new id", answered the exact
+   * same way any other offer is.
+   */
+  let currentNegotiationId: string | null = initiator ? crypto.randomUUID() : null
+
   const enqueue = (work: () => Promise<void>) => {
     chain = chain.then(async () => { if (!disposed) await work() }).catch(() => {
       if (!disposed) log(recoveryPending ? "ICE restart failed" : "negotiation failed")
@@ -37,12 +70,12 @@ export function createRtcNegotiation(
     }
   }
   async function offer(restart: boolean) {
-    if (!alive() || !initiator || pc.signalingState !== "stable") return
+    if (!alive() || !initiator || pc.signalingState !== "stable" || !currentNegotiationId) return
     const description = await pc.createOffer(restart ? { iceRestart: true } : undefined)
     if (!alive()) return
     await pc.setLocalDescription(description)
     if (!alive()) return
-    send({ kind: "offer", sdp: pc.localDescription?.sdp ?? description.sdp ?? "" })
+    send({ kind: "offer", sdp: pc.localDescription?.sdp ?? description.sdp ?? "", negotiationId: currentNegotiationId })
     log(restart ? "restart offer sent" : "offer sent")
   }
   async function maybeRestart() {
@@ -59,20 +92,42 @@ export function createRtcNegotiation(
       if (initiator) {
         restartRequested = true
         await maybeRestart()
-      } else {
-        send({ kind: "ice-restart-request" })
+      } else if (currentNegotiationId) {
+        send({ kind: "ice-restart-request", negotiationId: currentNegotiationId })
       }
     })
   }
   return {
     start: () => enqueue(() => offer(false)),
     recover,
+    /**
+     * The negotiationId this instance is currently using to tag/validate
+     * signals — null only for a non-initiator that hasn't adopted one
+     * from an offer yet. Read by hooks/useWebRTC.ts to tag its OWN
+     * directly-sent ICE candidates (pc.onicecandidate fires outside this
+     * module — it isn't routed through this file's own `send`).
+     */
+    getNegotiationId: () => currentNegotiationId,
     receive: (data: RtcSignal) => {
-      if (data.kind === "ice-restart-request") return initiator ? recover() : chain
+      if (data.kind === "ice-restart-request") {
+        // Only ever meaningful to the initiator (the non-initiator is the
+        // one that SENDS this); the initiator's own negotiationId is
+        // fixed at creation time, never adopted from anything, so this
+        // check is safe to make synchronously, before the serialized
+        // chain even matters here.
+        if (data.negotiationId !== currentNegotiationId) return chain
+        return initiator ? recover() : chain
+      }
       return enqueue(async () => {
         if (data.kind === "offer") {
           // Fixed roles eliminate glare; duplicate SDP must not re-answer.
           if (initiator || data.sdp === lastOffer || pc.signalingState !== "stable") return
+          // A genuinely new negotiationId (the very first offer ever, or
+          // the initiator's own fresh-connection-recovery offer) is
+          // always adopted as current — see currentNegotiationId's own
+          // doc comment for why that's correct even when THIS side's own
+          // RTCPeerConnection was never recreated to match.
+          currentNegotiationId = data.negotiationId
           log("offer received")
           await pc.setRemoteDescription({ type: "offer", sdp: data.sdp })
           if (!alive()) return
@@ -88,10 +143,10 @@ export function createRtcNegotiation(
           if (!alive()) return
           await pc.setLocalDescription(answer)
           if (!alive()) return
-          send({ kind: "answer", sdp: pc.localDescription?.sdp ?? answer.sdp ?? "" })
+          send({ kind: "answer", sdp: pc.localDescription?.sdp ?? answer.sdp ?? "", negotiationId: currentNegotiationId })
           log("answer sent")
         } else if (data.kind === "answer") {
-          if (!initiator || data.sdp === lastAnswer || pc.signalingState !== "have-local-offer") return
+          if (!initiator || data.negotiationId !== currentNegotiationId || data.sdp === lastAnswer || pc.signalingState !== "have-local-offer") return
           log("answer received")
           await pc.setRemoteDescription({ type: "answer", sdp: data.sdp })
           if (!alive()) return
@@ -99,8 +154,20 @@ export function createRtcNegotiation(
           await flush()
           await maybeRestart()
         } else if (data.kind === "ice") {
-          // Includes candidates from the next ICE generation arriving before
-          // its SDP. Limit memory, but never apply them to the old credentials.
+          // A candidate belonging to a negotiation this side doesn't
+          // currently recognize (an obsolete one from the peer's own
+          // already-abandoned negotiation, or one that's simply arrived
+          // with no matching offer/answer ever received) is discarded
+          // outright — never buffered, never applied. One that DOES
+          // match the current negotiation but arrives before the
+          // matching remote description exists is still buffered by the
+          // EXISTING applicable()/flush() mechanism below, unchanged —
+          // this is a strictly earlier, stricter filter on top of it, not
+          // a replacement for it.
+          if (data.negotiationId !== currentNegotiationId) {
+            log("ICE candidate discarded — stale negotiation")
+            return
+          }
           candidates.push(data.candidate)
           if (candidates.length > 64) candidates.shift()
           await flush()

@@ -296,4 +296,27 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_friend_messages_unread ON friend_messages(recipient_id, friendship_id) WHERE read_at IS NULL;
     `,
   },
+  {
+    // The distributed replacement for app/api/realtime/turn's previous
+    // in-memory (per-process) rate limit — Vercel may run that route on
+    // any of several serverless instances that share no memory with each
+    // other, so an in-memory limiter there was never actually authoritative
+    // across them. Same fixed-window-counter shape as migration
+    // 0007_image_moderation_rate_limits (see its own comment for the full
+    // reasoning behind that design) but kept as its own dedicated table,
+    // one row per user_id: TURN credential issuance is a different
+    // feature with its own (much simpler — no `surface` dimension) key,
+    // and reusing image_moderation_rate_limits would muddy a table that's
+    // already a different feature's own. See lib/db.ts's
+    // checkAndIncrementTurnCredentialRateLimit for the atomic upsert that
+    // reads and increments this in one round trip.
+    id: "0010_turn_credential_rate_limits",
+    sql: `
+      CREATE TABLE IF NOT EXISTS turn_credential_rate_limits (
+        user_id TEXT PRIMARY KEY,
+        window_start BIGINT NOT NULL,
+        count INTEGER NOT NULL
+      );
+    `,
+  },
 ]

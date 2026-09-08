@@ -25,10 +25,43 @@ import { createHmac, timingSafeEqual } from "node:crypto"
  * unset) means TURN isn't configured at all — mintTurnCredential returns
  * null rather than throwing, and callers fall back to STUN-only, exactly
  * like an unconfigured TURN always has in this codebase.
+ *
+ * IMPORTANT — code support here is not the same thing as this actually
+ * being active in production. This client/server pair only ever mints a
+ * credential in the shape ExpressTURN's own "TURN REST API"/"Auth
+ * Secret"/shared-secret authentication documents; it does not, and
+ * cannot from here, confirm that a given ExpressTURN account/plan has
+ * that mode actually turned on, or that TURN_STATIC_AUTH_SECRET here
+ * matches whatever secret is configured on ExpressTURN's own side. Check
+ * ExpressTURN's dashboard directly for that, and see the dev-only
+ * "webrtc: TURN is configured for this connection attempt" log in
+ * hooks/useWebRTC.ts plus getStats()'s own candidateType (host/srflx/
+ * relay) for what a REAL connection attempt actually reveals once
+ * deployed.
  */
 
-/** How long a minted credential remains valid — long enough to cover a realistic call's full setup and duration without needing mid-call rotation (the client also proactively refetches well before this elapses — see hooks/useWebRTC.ts), short enough that a leaked credential is useless well before the next one would even be needed. */
-export const TURN_CREDENTIAL_TTL_SECONDS = 600
+/**
+ * How long a minted credential remains valid. Long — 24 hours, matching
+ * ExpressTURN's own documented temporary-credential example — deliberately
+ * NOT sized to "a bit longer than one call": the module-level cache this
+ * backs (see hooks/useWebRTC.ts's refreshTurnCredentials/buildIceServers)
+ * only ever affects which credential a NEW RTCPeerConnection is
+ * constructed with. A credential already baked into an EXISTING, ACTIVE
+ * RTCPeerConnection is never swapped out from under it — this codebase
+ * doesn't call `setConfiguration()` to rotate a live connection's ICE
+ * servers, on purpose, to keep this change scoped to credential issuance
+ * only. That means a call (or this file's own fresh-connection recovery,
+ * which reuses buildIceServers() for its own new pc but still never
+ * touches an already-running one) must never be allowed to run into an
+ * ALREADY-EXPIRED credential simply because the call outlasted a
+ * short TTL — 24 hours comfortably exceeds any realistic call duration,
+ * closing that risk without needing live-rotation complexity. Short
+ * enough that a leaked credential still isn't a standing secret — a
+ * fresh one is minted well before this elapses either way (the client
+ * proactively refetches — see TURN_REFRESH_MARGIN_SECONDS in
+ * hooks/useWebRTC.ts).
+ */
+export const TURN_CREDENTIAL_TTL_SECONDS = 24 * 60 * 60
 
 export type MintedTurnCredential = {
   urls: string[]

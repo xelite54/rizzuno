@@ -49,11 +49,27 @@ export type IceCandidateInit = {
   usernameFragment?: string | null
 }
 
+/**
+ * `negotiationId` proves which negotiation — equivalently, which
+ * RTCPeerConnection "generation" (see hooks/useWebRTC.ts's own local
+ * `generation` counter) — a signal actually belongs to, from BOTH peers'
+ * shared point of view. That local `generation` counter alone was never
+ * enough: it only guards a side's own stale callbacks from its own
+ * already-closed RTCPeerConnection, but has no way to tell that an
+ * incoming signal describes the PEER's own already-abandoned negotiation
+ * (e.g. the peer did a fresh-connection recovery and a late offer/ICE
+ * candidate from its OLD one is still in flight). `negotiationId` is
+ * opaque (crypto.randomUUID(), minted client-side — see
+ * lib/rtcNegotiation.ts) and carries no account identity, IP, or other
+ * sensitive information; the server never inspects it, only relays it
+ * (see server/ws-server.ts's "signal" case) exactly like every other
+ * field of an RtcSignal.
+ */
 export type RtcSignal =
-  | { kind: "ice-restart-request" }
-  | { kind: "offer"; sdp: string }
-  | { kind: "answer"; sdp: string }
-  | { kind: "ice"; candidate: IceCandidateInit }
+  | { kind: "ice-restart-request"; negotiationId: string }
+  | { kind: "offer"; sdp: string; negotiationId: string }
+  | { kind: "answer"; sdp: string; negotiationId: string }
+  | { kind: "ice"; candidate: IceCandidateInit; negotiationId: string }
 
 export type ReportCategory =
   | "sexual_content"

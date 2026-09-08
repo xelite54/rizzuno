@@ -959,8 +959,25 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       pcLocal.onicecandidate = (event) => {
         if (generation !== myGeneration) return
         if (event.candidate) {
+          // Tagged with THIS negotiation's own id — see RtcSignal's own
+          // doc comment in lib/signaling/protocol.ts for why. Reads it
+          // fresh from `negotiation` (not captured once at setup time)
+          // since a non-initiator's own id starts null and is only
+          // adopted once an offer actually arrives; `negotiation` itself
+          // is this generation's own instance either way, never a stale
+          // one (this handler is only ever attached to `pcLocal`, torn
+          // down alongside it). A null id here (should not happen for a
+          // healthy negotiation — ICE candidates only start flowing after
+          // an offer/answer has already been created, which is exactly
+          // what sets it) means there's nothing legitimate to tag this
+          // candidate with, so it's dropped rather than sent unlabeled.
+          const negotiationId = negotiation.getNegotiationId()
+          if (!negotiationId) {
+            console.error("webrtc: ICE candidate generated with no current negotiationId — dropping", { roomId })
+            return
+          }
           console.log("webrtc: ICE candidate", { roomId, type: event.candidate.type ?? "unknown" })
-          sendSignal(currentRoomId, { kind: "ice", candidate: event.candidate.toJSON() })
+          sendSignal(currentRoomId, { kind: "ice", candidate: event.candidate.toJSON(), negotiationId })
         }
       }
 

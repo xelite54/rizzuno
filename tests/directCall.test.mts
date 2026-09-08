@@ -90,10 +90,10 @@ test("direct call: matched carries source \"friend\", both rtc-ready produces ex
 
     // The initiator sends exactly one initial offer, which reaches the
     // recipient; the recipient's answer reaches the initiator back.
-    a.send({ type: "signal", roomId: am.roomId, data: { kind: "offer", sdp: "initial-offer" } })
-    assert.deepEqual((await b.waitForType("signal")).data, { kind: "offer", sdp: "initial-offer" })
-    b.send({ type: "signal", roomId: bm.roomId, data: { kind: "answer", sdp: "initial-answer" } })
-    assert.deepEqual((await a.waitForType("signal")).data, { kind: "answer", sdp: "initial-answer" })
+    a.send({ type: "signal", roomId: am.roomId, data: { kind: "offer", sdp: "initial-offer", negotiationId: "n1" } })
+    assert.deepEqual((await b.waitForType("signal")).data, { kind: "offer", sdp: "initial-offer", negotiationId: "n1" })
+    b.send({ type: "signal", roomId: bm.roomId, data: { kind: "answer", sdp: "initial-answer", negotiationId: "n1" } })
+    assert.deepEqual((await a.waitForType("signal")).data, { kind: "answer", sdp: "initial-answer", negotiationId: "n1" })
 
     a.close(); b.close()
   } finally {

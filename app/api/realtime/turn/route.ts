@@ -2,7 +2,20 @@ import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { mintTurnCredential } from "@/lib/turnCredentials"
-import { isRateLimited } from "@/lib/apiRateLimit"
+import { checkAndIncrementTurnCredentialRateLimit, describeDbError } from "@/lib/db"
+
+// ~20 requests/account/minute — a fresh credential is fetched on connect
+// and proactively refreshed well before its own expiry (see
+// hooks/useWebRTC.ts), never per-call or per-ICE-candidate, so this limit
+// is about catching a runaway/malicious client, not routine use. Enforced
+// via lib/db.ts's checkAndIncrementTurnCredentialRateLimit — a shared,
+// Postgres-backed fixed-window counter, not lib/apiRateLimit.ts's
+// in-memory one (which is per-process and therefore not authoritative
+// across Vercel's multiple serverless instances for this route
+// specifically — see that function's own doc comment for the full
+// reasoning).
+const TURN_CREDENTIAL_RATE_LIMIT = 20
+const TURN_CREDENTIAL_RATE_WINDOW_MS = 60_000
 
 /**
  * Mints a short-lived TURN credential (see lib/turnCredentials.ts) for the
@@ -25,12 +38,24 @@ export async function GET() {
   if (!userId) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
-  // Generous but real — a fresh credential is fetched on connect and
-  // proactively refreshed well before its own expiry (see
-  // hooks/useWebRTC.ts), never per-call or per-ICE-candidate, so this
-  // limit is about catching a runaway/malicious client, not routine use.
-  if (isRateLimited(`turn-credentials:${userId}`, 20, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+
+  let limited: boolean
+  try {
+    limited = await checkAndIncrementTurnCredentialRateLimit(userId, TURN_CREDENTIAL_RATE_LIMIT, TURN_CREDENTIAL_RATE_WINDOW_MS)
+  } catch (err) {
+    // FAIL CLOSED — a database failure must never be read as "not rate
+    // limited" and mint an unlimited credential; see
+    // checkAndIncrementTurnCredentialRateLimit's own doc comment. The
+    // client's own fallback (any non-2xx response here just means "no
+    // fresh ephemeral credential this time" — see refreshTurnCredentials()
+    // in hooks/useWebRTC.ts) handles this the same safe way it handles a
+    // genuine rate limit: STUN-only, or the legacy static TURN vars if
+    // configured, until the next scheduled retry.
+    console.error("realtime/turn: rate limit check failed — failing closed, no credential issued", describeDbError(err))
+    return NextResponse.json({ error: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } })
+  }
+  if (limited) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Cache-Control": "no-store" } })
   }
 
   // A random, opaque per-request label — never the real account id (see
