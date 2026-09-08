@@ -163,6 +163,61 @@ test("Test C — after a real disconnect, the same account reconnects and authen
     b.close()
   } finally { await server.close() }
 })
+
+// A second device/tab connecting while the first is healthy but IDLE (no
+// room, not searching — e.g. just sitting on the home screen or friends
+// list) must be allowed to take over normally, exactly like a genuine
+// reconnect — there's nothing exclusive in progress for a duplicate to
+// destroy. Without this, a laptop tab left open would silently lock a
+// phone out of the same account, unable to see live data (a newly added
+// friend, an updated unread count, ...) until that other tab closed.
+test("a duplicate hello while the existing connection is idle (no room, not searching) takes over normally", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const id = uid("idle-takeover")
+    const a = await connectAndHello(server.url, id, { gender: "male" })
+    // `a` is authenticated but has done nothing else — no find, no room.
+    const b = await connectAndHello(server.url, id, { gender: "male" }) // must succeed normally, not get "superseded"
+    // The new connection is fully functional — it can search and match.
+    const other = await connectAndHello(server.url, uid("idle-takeover-partner"), { gender: "female" })
+    b.send({ type: "find" })
+    other.send({ type: "find" })
+    const matched = await b.waitForType("matched")
+    assert.ok(matched.roomId)
+    b.close()
+    other.close()
+    a.close()
+  } finally { await server.close() }
+})
+
+// The narrowed policy above only applies while the existing connection is
+// idle — an existing connection that's actively SEARCHING (queued/queue-
+// pending, no room yet) is still protected exactly like an active room
+// would be: a duplicate hello must not silently abandon a search already
+// in flight.
+test("a duplicate hello while the existing connection is actively searching (no room yet) is still rejected", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const id = uid("searching-protected")
+    const a = await connectAndHello(server.url, id, { gender: "male" })
+    a.send({ type: "find" })
+    await a.waitForType("queued")
+
+    const { mintTicket } = await import("../lib/realtimeTicket")
+    const duplicate = new TestClient(server.url)
+    await duplicate.waitForOpen()
+    const closeEvent = new Promise<number>((resolve) => duplicate.ws.once("close", (code) => resolve(code)))
+    duplicate.send({ type: "hello", ticket: mintTicket(id), handle: "dup-handle", gender: "male", profilePhoto: null })
+    await duplicate.waitForType("superseded")
+    assert.equal(await closeEvent, 4409)
+
+    // `a` is still genuinely searching, untouched by the rejected duplicate.
+    await assert.rejects(a.waitForType("queued", 200), /timed out/, "no second 'queued' — the original search was never disturbed")
+    a.close()
+  } finally { await server.close() }
+})
 function uid(label: string): string {
   counter += 1
   return `${label}-${counter}`

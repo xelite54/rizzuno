@@ -755,17 +755,27 @@ export function createRizzunoWebSocketServer() {
         // one, and — because the displaced client then auto-reconnected —
         // produced an infinite replace/reconnect fight between the two.
         //
-        // OWNERSHIP POLICY: the existing connection keeps ownership for as
-        // long as it's actually alive (`isAlive`, driven by the heartbeat
-        // below — not just `readyState === OPEN`, which a truly-vanished
-        // client can still show for a long time). A healthy existing
-        // connection is never torn down by a duplicate hello, active room
-        // or not — this new one is rejected instead. Only once the
-        // existing connection has genuinely gone quiet (dead transport, or
-        // missed heartbeats) does a new hello legitimately take over.
+        // OWNERSHIP POLICY: the existing connection only keeps ownership
+        // while it's actually doing something a duplicate could destroy —
+        // an active room, or a live search (`seeking`) that a takeover
+        // would silently abandon mid-attempt. An existing connection just
+        // sitting idle (home screen, browsing friends, freshly signed in —
+        // nothing exclusive in progress) has nothing worth protecting, so
+        // a second device's hello is free to take over exactly like a
+        // normal reconnect. Without this narrowing, a healthy-but-idle
+        // connection on one device (e.g. a laptop tab left open) silently
+        // locked out every other device on the same account — a phone
+        // opening the app would get rejected and never see live data (a
+        // newly added friend, an updated unread count, ...) until that
+        // other tab actually closed.
+        //
+        // `isAlive` (driven by the heartbeat below) is what keeps
+        // `readyState === OPEN` honest — a truly-vanished client can still
+        // show OPEN for a long time otherwise.
         if (existing && existing.ws !== ws) {
-          if (existing.ws.readyState === WebSocket.OPEN && existing.isAlive) {
-            console.log("ws-server: hello rejected — account already has a healthy connection", {
+          const existingIsExclusive = Boolean(existing.roomId) || existing.seeking
+          if (existing.ws.readyState === WebSocket.OPEN && existing.isAlive && existingIsExclusive) {
+            console.log("ws-server: hello rejected — account already has a healthy connection in a room/search", {
               existingDisplayId: existing.displayId,
             })
             send(ws, { type: "superseded" })
