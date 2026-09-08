@@ -78,7 +78,52 @@ function normalizeWsUrl(configuredUrl: string): string {
  * effect's own cleanup (below) closes it and cancels any pending retry the
  * instant `enabled` flips.
  */
+// How long `enabled`/`accountId` have to hold STILL at "off" (disabled, or
+// no account) before the connection effect below actually reacts to it —
+// see the debounce effect's own doc comment just below for the full
+// reasoning. Comfortably longer than the ~2s reconnect cadence Railway
+// showed for a genuinely flapping account, so a real instance of that
+// flapping (wherever it's ultimately coming from upstream) can never
+// actually reach the socket-owning effect at all.
+const DISABLE_DEBOUNCE_MS = 3000
+
 export function useSignalingSocket(enabled: boolean, accountId?: string) {
+  // `enabled`/`accountId` as this hook ACTUALLY reacts to them — everything
+  // below (the connection-owning effect, its own start/cleanup-reason
+  // logs) is keyed on these, never the raw props directly. This exists
+  // because a real, confirmed production case (see the audit that added
+  // the diagnostics further down) can make the RAW `enabled`/`accountId`
+  // flap rapidly for reasons still being traced upstream (legal status,
+  // profile hydration, or the account id itself briefly reporting
+  // undefined) — and reacting to every single flap is exactly what tears
+  // down and recreates an otherwise perfectly healthy socket over and
+  // over. Turning ON (a real sign-in, finishing onboarding, a genuine
+  // account switch landing on a real account) is never delayed — nothing
+  // about starting a session should feel sluggish. Turning OFF is what
+  // gets debounced, and only that direction, because it's the only one
+  // that can tear down a healthy connection: if it flips back on before
+  // DISABLE_DEBOUNCE_MS elapses, the effect's own cleanup below cancels
+  // the pending timer automatically (the dependency changing tears down
+  // and restarts this effect, same as any other effect), and the "off"
+  // never actually reaches the socket at all. A genuine, LASTING sign-out
+  // or account loss still takes effect, just delayed by at most this much.
+  const [stable, setStable] = useState({ enabled, accountId })
+  useEffect(() => {
+    const isOn = enabled && Boolean(accountId)
+    if (isOn) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to enabled/accountId actually turning on, applied immediately and deliberately (see this effect's own doc comment) — not mirroring unrelated state
+      setStable({ enabled, accountId })
+      return
+    }
+    console.debug("signaling: enabled/accountId turned off — debouncing before acting on it", {
+      willApplyInMs: DISABLE_DEBOUNCE_MS,
+    })
+    const timer = setTimeout(() => setStable({ enabled, accountId }), DISABLE_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [enabled, accountId])
+  const stableEnabled = stable.enabled
+  const stableAccountId = stable.accountId
+
   // A random, opaque label for THIS hook instance (i.e. this browser
   // tab's lifetime) — never derived from account/session identity, purely
   // for correlating console lines across MULTIPLE effect instances (every
@@ -147,28 +192,28 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
   // still equals the closed-over values exactly, and the diff falls
   // through to "unmounted".
   const prevStartDepsRef = useRef<{ enabled: boolean; accountId?: string } | null>(null)
-  const latestDepsRef = useRef({ enabled, accountId })
+  const latestDepsRef = useRef({ enabled: stableEnabled, accountId: stableAccountId })
   useLayoutEffect(() => {
-    latestDepsRef.current = { enabled, accountId }
+    latestDepsRef.current = { enabled: stableEnabled, accountId: stableAccountId }
   })
 
   useEffect(() => {
     const prevStart = prevStartDepsRef.current
     const startReason = !prevStart
       ? "initial_mount"
-      : prevStart.enabled !== enabled
+      : prevStart.enabled !== stableEnabled
         ? "enabled_changed"
         : "account_changed"
-    prevStartDepsRef.current = { enabled, accountId }
+    prevStartDepsRef.current = { enabled: stableEnabled, accountId: stableAccountId }
     console.debug("signaling: effect started", {
       tabId,
       reason: startReason,
-      enabled,
-      hasAccount: Boolean(accountId),
+      enabled: stableEnabled,
+      hasAccount: Boolean(stableAccountId),
       priorGenerationCount: generationRef.current,
     })
 
-    if (!enabled) {
+    if (!stableEnabled) {
       // Nothing to do if we were never connected in the first place (e.g.
       // signed out from the start). If we WERE connected, `enabled` just
       // flipped from true to false, which means THIS effect run is really
@@ -364,7 +409,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
       clearTimeout(retryTimer)
       const latest = latestDepsRef.current
       const cleanupReason =
-        latest.enabled !== enabled ? "enabled_changed" : latest.accountId !== accountId ? "account_changed" : "unmounted"
+        latest.enabled !== stableEnabled ? "enabled_changed" : latest.accountId !== stableAccountId ? "account_changed" : "unmounted"
       console.debug("signaling: effect cleanup", { tabId, reason: cleanupReason })
       if (wsRef.current === socket) wsRef.current = null
       manualRetryRef.current = null
@@ -376,7 +421,7 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     // lifetime (see its own useState lazy-initializer above) — included
     // here only to satisfy exhaustive-deps; it can never actually cause
     // this effect to re-run.
-  }, [enabled, accountId, tabId])
+  }, [stableEnabled, stableAccountId, tabId])
 
   const send = useCallback((message: ClientMessage) => {
     const socket = wsRef.current
