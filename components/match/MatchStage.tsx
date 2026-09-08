@@ -26,6 +26,7 @@ import { AccountRestricted } from "./AccountRestricted"
 import { ChooseUsername } from "./ChooseUsername"
 import { ChooseGender } from "./ChooseGender"
 import { PeerProfileSheet } from "./PeerProfileSheet"
+import { ActiveOnAnotherDevice } from "./ActiveOnAnotherDevice"
 import { MatchChatPanel } from "./MatchChatPanel"
 import { MyProfileSheet } from "./MyProfileSheet"
 import { UndoSkipToast } from "./UndoSkipToast"
@@ -167,6 +168,8 @@ export function MatchStage() {
 
   const {
     realtimeReady,
+    activeOnAnotherDevice,
+    retryRealtimeConnection,
     state,
     canMatchChat,
     onlineCount,
@@ -603,8 +606,8 @@ export function MatchStage() {
           }}
           className={
             useHomeSplit
-              ? "absolute left-4 top-20 z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-none md:border-0 md:shadow-none"
-              : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
+              ? "absolute left-4 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-none md:border-0 md:shadow-none"
+              : "absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
           }
         >
           <SelfPanel
@@ -620,7 +623,7 @@ export function MatchStage() {
               {/* Deliberately faint until touched — this is your own utility
                   corner, not the point of the screen, so it should recede
                   rather than compete with the person you're talking to. */}
-              <div className={`absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-3 top-3 opacity-75" : "right-1 top-1 opacity-45 md:right-4 md:top-4 md:z-10 md:opacity-25"}`}>
+              <div className={`absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : "right-[max(0.25rem,env(safe-area-inset-right))] top-[max(0.25rem,env(safe-area-inset-top))] opacity-45 md:right-4 md:top-4 md:z-10 md:opacity-25"}`}>
                 {FRIENDS_ENABLED && (
                   <button
                     type="button"
@@ -643,7 +646,7 @@ export function MatchStage() {
                   onOpenProfile={() => setMyProfileOpen(true)}
                 />
               </div>
-              <div className={onHomeScreen ? "absolute bottom-4 right-4 z-30 flex items-center justify-end" : "fixed bottom-4 right-4 z-30 flex items-center justify-end md:absolute md:z-10"}>
+              <div className={onHomeScreen ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : "fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end md:absolute md:bottom-4 md:right-4 md:z-10"}>
                 <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-25"}`}>
                   <ControlBar
                     micEnabled={micEnabled}
@@ -691,6 +694,13 @@ export function MatchStage() {
             <ChooseUsername onChosen={myProfile.setUsername} />
           ) : !hasGender ? (
             <ChooseGender onChosen={myProfile.setGender} />
+          ) : activeOnAnotherDevice ? (
+            // A genuinely different, still-active device/tab already owns
+            // this account's realtime connection right now (see
+            // useSignalingSocket.ts's `supersededElsewhere`) — matching
+            // never starts here until that changes, same as the other
+            // gates above, but this one is informational, not punitive.
+            <ActiveOnAnotherDevice onRetry={retryRealtimeConnection} />
           ) : (
             <>
               <SwipeStage

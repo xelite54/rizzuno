@@ -133,7 +133,7 @@ export function useMatchmaking(
   myProfilePhoto?: string | null,
   accountId?: string
 ) {
-  const { connected, send, subscribe } = useSignalingSocket(enabled, accountId)
+  const { connected, send, subscribe, supersededElsewhere, retryNow: retryRealtimeConnection } = useSignalingSocket(enabled, accountId)
 
   // `connected` only means the WebSocket transport opened — it says nothing
   // about whether the realtime server has actually verified our ticket and
@@ -1449,6 +1449,16 @@ export function useMatchmaking(
   return {
     connected,
     realtimeReady,
+    // True once this account's connection attempt has confirmed a
+    // genuinely different, still-active device/tab owns the realtime
+    // connection right now (an OmeTV-style single-active-session policy —
+    // see useSignalingSocket's own doc comment on `supersededElsewhere`).
+    // `retryRealtimeConnection` is the explicit, person-initiated way out
+    // — e.g. once the other device has actually gone idle/closed — never
+    // retried automatically beyond the one bounded attempt already built
+    // into the transport layer itself.
+    activeOnAnotherDevice: supersededElsewhere,
+    retryRealtimeConnection,
     state,
     // Chat availability — deliberately separate from `state`'s video
     // meaning; see canMatchChat's own doc comment above. `hasCurrentRoom`

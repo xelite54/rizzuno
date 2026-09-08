@@ -91,6 +91,68 @@ export function useLocalMedia() {
     return () => videoTrack.removeEventListener("ended", ended)
   }, [videoTrack])
 
+  // Mobile OSes can suspend or fully kill camera/mic capture while a tab
+  // is backgrounded — a screen lock, switching apps, an extended
+  // background period — sometimes cleanly (the track's own "ended" event
+  // above already covers that, live or backgrounded alike), sometimes
+  // silently, with nothing observable until the track is actually touched
+  // again. Checking on regaining visibility is what catches the silent
+  // case, and is also what lets "permission denied, then enabled in
+  // browser settings while the tab was backgrounded" recover on its own
+  // instead of requiring a manual reload — a plain retry after a denial
+  // triggers no repeated system prompt either way, so there's nothing to
+  // lose by trying.
+  //
+  // Reuses the existing track (does nothing at all) whenever it's still
+  // genuinely live — reacquiring unconditionally on every foreground
+  // return would create a second, redundant MediaStream/track pair for
+  // the overwhelmingly common case where nothing actually died, which is
+  // exactly the duplicate-tracks outcome this must avoid. Skipped
+  // entirely while the very first acquisition is still in flight
+  // (`status === "requesting"`) so this can never race that initial call.
+  useEffect(() => {
+    async function handleVisibility() {
+      if (document.visibilityState !== "visible") return
+      if (!stream || status === "requesting") return
+      if (!navigator.mediaDevices?.getUserMedia) return
+      const videoDead = !videoTrack || videoTrack.readyState === "ended"
+      const audioDead = !audioTrack || audioTrack.readyState === "ended"
+      if (!videoDead && !audioDead) return
+      console.log("useLocalMedia: reacquiring on resume — a track was found dead", { videoDead, audioDead })
+      try {
+        const acquired = await navigator.mediaDevices.getUserMedia({
+          video: videoDead ? VIDEO_CONSTRAINTS : false,
+          audio: audioDead,
+        })
+        if (videoDead) {
+          const track = acquired.getVideoTracks()[0]
+          if (track) {
+            const old = stream.getVideoTracks()[0]
+            if (old) { stream.removeTrack(old); old.stop() }
+            stream.addTrack(track)
+            setVideoTrack(track)
+          }
+        }
+        if (audioDead) {
+          const track = acquired.getAudioTracks()[0]
+          if (track) {
+            const old = stream.getAudioTracks()[0]
+            if (old) { stream.removeTrack(old); old.stop() }
+            stream.addTrack(track)
+            setAudioTrack(track)
+          }
+        }
+        setStatus("granted")
+      } catch {
+        // Still can't capture (hardware busy, still denied, ...) — leave
+        // existing state exactly as it was; no worse off than before the
+        // attempt, and the next visibility change tries again.
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility)
+    return () => document.removeEventListener("visibilitychange", handleVisibility)
+  }, [stream, videoTrack, audioTrack, status])
+
   const selectCamera = useCallback(
     async (deviceId: string) => {
       if (!stream) return

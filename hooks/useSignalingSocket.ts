@@ -80,6 +80,28 @@ function normalizeWsUrl(configuredUrl: string): string {
  */
 export function useSignalingSocket(enabled: boolean, accountId?: string) {
   const [connected, setConnected] = useState(false)
+  // True once a superseded close has exhausted its one bounded retry (see
+  // nextSupersededRetryDelayMs) — at that point this is confident a
+  // genuinely different, still-active connection for this account exists
+  // elsewhere (an OmeTV-style single-active-session policy), not just this
+  // device's own stale connection racing its replacement. Exposed so the
+  // UI can show a clean, honest "active on another device" state instead
+  // of a frozen/disconnected-looking screen with no explanation — never
+  // true for an ordinary network close, which keeps reconnecting normally
+  // and never touches this at all.
+  const [supersededElsewhere, setSupersededElsewhere] = useState(false)
+  // Set inside the effect below to whatever its own `connect()` currently
+  // is — lets `retryNow()` (a stable, always-safe-to-call function this
+  // hook returns) trigger a real, fresh attempt through that SAME
+  // connect(), without needing connect() itself to be a dependency
+  // anywhere. A no-op whenever nothing is listening (enabled is false, or
+  // between effect instances) — retryNow() is meant for "the person
+  // tapped a retry action while this was showing supersededElsewhere",
+  // not a general-purpose external trigger.
+  const manualRetryRef = useRef<(() => void) | null>(null)
+  const retryNow = useCallback(() => {
+    manualRetryRef.current?.()
+  }, [])
   const wsRef = useRef<WebSocket | null>(null)
   const listenersRef = useRef(new Set<Listener>())
 
@@ -147,6 +169,10 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
 
     function connect() {
       if (cancelled) return
+      // A genuinely new attempt starting — whatever "active on another
+      // device" state a previous attempt's exhausted retry budget left
+      // showing no longer describes what's happening right now.
+      setSupersededElsewhere(false)
       // Same-origin by default (the current single-process deployment —
       // server.ts serves both Next.js and the WebSocket on one host). If
       // the realtime server is ever deployed separately from the frontend
@@ -221,7 +247,15 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
           retryDelay = Math.min(retryDelay * 1.6, 8000)
           return
         }
-        if (supersededRetryDelay === null) return
+        if (supersededRetryDelay === null) {
+          // The one bounded retry already happened and got superseded
+          // again — this account genuinely has another active connection
+          // elsewhere right now. Nothing left to do automatically; see
+          // `retryNow` (returned by this hook) for the explicit,
+          // person-initiated way out of this state.
+          setSupersededElsewhere(true)
+          return
+        }
         supersededRetriesUsed += 1
         retryTimer = setTimeout(connect, supersededRetryDelay)
       }
@@ -231,17 +265,56 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
       }
     }
 
+    // Lets retryNow() (returned by this hook) trigger a real, fresh
+    // attempt on demand — through this SAME connect(), with its own
+    // bounded superseded-retry budget restored, not a second parallel
+    // reconnect path. Cleared below on teardown so a stale call afterward
+    // is a safe no-op instead of reaching into a torn-down closure.
+    manualRetryRef.current = () => {
+      clearTimeout(retryTimer)
+      supersededRetriesUsed = 0
+      connect()
+    }
+
     connect()
+
+    // Mobile OSes can silently kill a backgrounded tab's WebSocket with no
+    // close event ever reaching JS until the tab is actually looked at
+    // again — a screen lock, an extended app-switch, network suspension.
+    // Left alone, that just means this waits out whatever backoff (up to
+    // 8s) or superseded-retry (45s) delay was already ticking down while
+    // nobody could see the result anyway. Reconnecting the instant the tab
+    // is visible again — through this SAME connect(), never a second,
+    // parallel one — is what makes "return to the app" feel immediate.
+    // Does nothing if the transport already reports OPEN or is actively
+    // CONNECTING; a socket that merely LOOKS open but is actually a
+    // zombie connection is a real, if rare, browser-API limitation
+    // (there's no client-exposed way to force-verify a WebSocket's live
+    // state) — the existing per-action ack-timeouts (queue-pending, chat)
+    // are what catch that if it ever actually matters, not a new,
+    // additional verification timer layered on here too.
+    function handleVisibilityChange() {
+      if (document.visibilityState !== "visible") return
+      const current = wsRef.current
+      if (current && (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING)) return
+      console.debug("signaling: tab visible again while disconnected — reconnecting now")
+      clearTimeout(retryTimer)
+      connect()
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange)
 
     return () => {
       cancelled = true
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
       clearTimeout(retryTimer)
       const latest = latestDepsRef.current
       const cleanupReason =
         latest.enabled !== enabled ? "enabled_changed" : latest.accountId !== accountId ? "account_changed" : "unmounted"
       console.debug("signaling: effect cleanup", { reason: cleanupReason })
       if (wsRef.current === socket) wsRef.current = null
+      manualRetryRef.current = null
       setConnected(false)
+      setSupersededElsewhere(false)
       socket?.close()
     }
   }, [enabled, accountId])
@@ -266,5 +339,5 @@ export function useSignalingSocket(enabled: boolean, accountId?: string) {
     }
   }, [])
 
-  return { connected, send, subscribe }
+  return { connected, send, subscribe, supersededElsewhere, retryNow }
 }

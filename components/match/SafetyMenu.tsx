@@ -49,7 +49,7 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
     // corner still free. The dropdown itself flips to open upward from a
     // bottom-anchored trigger instead of downward, so it doesn't run off
     // the bottom of the screen.
-    <div className="absolute bottom-5 left-5 z-20 md:bottom-auto md:left-auto md:right-5 md:top-5">
+    <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-[max(1.25rem,env(safe-area-inset-left))] z-20 md:bottom-auto md:left-auto md:right-5 md:top-5">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}

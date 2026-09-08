@@ -18,7 +18,7 @@ type PausedNoticeProps = {
 export function PausedNotice({ onlineCount = null, paused = false }: PausedNoticeProps) {
   return (
     <div className={`${styles.background} pointer-events-none absolute inset-0 isolate overflow-hidden text-left`}>
-      <header className="absolute inset-x-6 top-6 z-20 flex flex-wrap items-center justify-between gap-4 md:inset-x-10 md:top-8 xl:inset-x-14">
+      <header className="absolute inset-x-6 top-[max(1.5rem,env(safe-area-inset-top))] z-20 flex flex-wrap items-center justify-between gap-4 md:inset-x-10 md:top-8 xl:inset-x-14">
         <div className="flex items-center gap-3">
           <BrandMark size={28} />
           <span className="text-[17px] font-semibold tracking-[-0.025em] text-white/95">Rizzuno<span className="text-white/55">.com</span></span>
@@ -30,7 +30,7 @@ export function PausedNotice({ onlineCount = null, paused = false }: PausedNotic
           </div>
         )}
       </header>
-      <div className="relative z-10 flex h-full items-end justify-center px-6 pb-10 pt-24 md:items-center md:px-10 md:pb-12 xl:px-14">
+      <div className="relative z-10 flex h-full items-end justify-center px-6 pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] pt-24 md:items-center md:px-10 md:pb-12 xl:px-14">
         <section className="w-full max-w-[38rem] text-center">
           <h1 className="text-[clamp(2rem,6.2vw,4.5rem)] font-semibold leading-[1.08] tracking-[-0.045em] text-white/95 md:text-[clamp(2rem,4.6vw,4.75rem)]">
             Different sides.
