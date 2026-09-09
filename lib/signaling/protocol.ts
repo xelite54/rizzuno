@@ -50,43 +50,21 @@ export type IceCandidateInit = {
 }
 
 /**
- * `negotiationId` proves which negotiation — equivalently, which
- * RTCPeerConnection "generation" (see hooks/useWebRTC.ts's own local
- * `generation` counter) — a signal actually belongs to, from BOTH peers'
- * shared point of view. That local `generation` counter alone was never
- * enough: it only guards a side's own stale callbacks from its own
- * already-closed RTCPeerConnection, but has no way to tell that an
- * incoming signal describes the PEER's own already-abandoned negotiation
- * (e.g. the peer did a fresh-connection recovery and a late offer/ICE
- * candidate from its OLD one is still in flight). `negotiationId` is
- * opaque (crypto.randomUUID(), minted client-side — see
- * lib/rtcNegotiation.ts) and carries no account identity, IP, or other
- * sensitive information; the server never inspects it, only relays it
- * (see server/ws-server.ts's "signal" case) exactly like every other
- * field of an RtcSignal.
+ * A room has exactly one RTCPeerConnection per side, for its entire
+ * lifetime (see hooks/useWebRTC.ts) — there is no fresh-RTCPeerConnection
+ * recovery tier to disambiguate signals against, so unlike an earlier
+ * version of this type, none of these carry a negotiation/generation id.
+ * A signal that reaches a room's signal listener at all is already known
+ * to belong to that room's one negotiation; room-level staleness (a signal
+ * for a room that's already ended) is handled upstream, by
+ * useMatchmaking.ts's own per-room signal routing, before any of these are
+ * ever delivered.
  */
 export type RtcSignal =
-  | { kind: "ice-restart-request"; negotiationId: string }
-  /**
-   * Sent ONLY by a non-initiator, ONLY when ITS OWN local fresh-connection
-   * recovery (see hooks/useWebRTC.ts's attemptFreshConnectionRecovery) has
-   * just built a brand-new RTCPeerConnection for this room. Only the
-   * INITIATOR ever creates offers — a non-initiator's fresh pc otherwise
-   * has no path to ever get negotiated at all: the initiator's own
-   * connection may be perfectly healthy and has no reason to know
-   * anything happened on the other side. This is what tells it to mint a
-   * brand new negotiationId and send a fresh offer, unconditionally
-   * (never bounded by the existing one-shot ICE-restart budget — this
-   * isn't restarting the OLD negotiation, it's negotiating an entirely
-   * different, already-existing new RTCPeerConnection on the other end).
-   * Deliberately carries no negotiationId of its own: the sender's fresh
-   * pc doesn't have one yet — that's exactly the problem this exists to
-   * solve.
-   */
-  | { kind: "fresh-negotiation-request" }
-  | { kind: "offer"; sdp: string; negotiationId: string }
-  | { kind: "answer"; sdp: string; negotiationId: string }
-  | { kind: "ice"; candidate: IceCandidateInit; negotiationId: string }
+  | { kind: "ice-restart-request" }
+  | { kind: "offer"; sdp: string }
+  | { kind: "answer"; sdp: string }
+  | { kind: "ice"; candidate: IceCandidateInit }
 
 export type ReportCategory =
   | "sexual_content"
