@@ -184,15 +184,20 @@ const DISCONNECTED_GRACE_MS = 5_000
 // loop, never a second RTCPeerConnection) is given to actually resolve
 // this problem — see terminate()'s own call site below. Not cleared merely
 // by the transport reaching "connected" again: real success is measured by
-// genuine video playback (reportPlaybackConfirmedForThisRoom), so a
-// restart that reconnects the transport but never actually gets video
-// flowing again still counts as failed once this elapses.
+// remoteVideoReady's own two proofs (stats or playback — see its doc
+// comment), so a restart that reconnects the transport but never actually
+// gets video flowing again still counts as failed once this elapses.
 const ICE_RESTART_DEADLINE_MS = 15_000
 
-// Diagnostic-only, decoupled entirely from any recovery/readiness decision
-// (see collectStats' own doc comment) — how often to poll and log getStats()
-// purely so a stalled/degraded call is diagnosable from the console.
-const DIAGNOSTIC_STATS_INTERVAL_MS = 5_000
+// One tick drives both readiness detection (see the stats-based proof in
+// reportVideoReadyIfDecoding below) and checkSenderHealth's self-heal —
+// fast enough that "connected" -> real video showing up doesn't feel
+// laggy. Full diagnostic logging is throttled to every 5th tick (see
+// LOG_EVERY_N_TICKS) so the console stays "a handful of log lines" at a
+// roughly 5s cadence, not a firehose, while the readiness check itself
+// stays responsive.
+const TICK_INTERVAL_MS = 1_000
+const LOG_EVERY_N_TICKS = 5
 
 type CollectedStats = {
   candidateType: string | null
@@ -219,18 +224,19 @@ type CollectedStats = {
 }
 
 /**
- * Parses one getStats() report into the numbers worth logging — the
+ * Parses one getStats() report into the numbers this file needs — the
  * selected ICE candidate pair's type (host/srflx/relay) and transport
  * (udp/tcp), round-trip time, and both directions' video packet/frame/byte
- * counters. Purely diagnostic: nothing in this file reads the returned
- * value to decide readiness or trigger recovery — "active" is decided
- * solely by transport state + genuine <video> playback (see
- * reportPlaybackConfirmedForThisRoom below), and recovery is decided
- * solely by connectionState/iceConnectionState (see
- * decideConnectionRecoveryAction). This exists so a stalled or degraded
- * call is still diagnosable from the browser console (candidate type,
- * RTT, whether bytes/frames are moving at all) without any of that being
- * load-bearing for what the UI actually shows or does.
+ * counters. Most of this is diagnostic-only logging (candidate type, RTT,
+ * bitrate); `incoming.framesDecoded` is the one field that IS load-bearing
+ * — see reportVideoReadyIfDecoding below, one of the two independent
+ * proofs "genuinely playing" can rest on. The other is real <video>
+ * playback (reportPlaybackConfirmedForThisRoom) — two proofs, not one,
+ * because neither is reliable on every browser on its own: some browsers
+ * can decode real frames (this proof) while the <video> element itself is
+ * slow to reach a "playing" state or never fires it reliably; recovery
+ * itself is decided independently of both, solely by
+ * connectionState/iceConnectionState (see decideConnectionRecoveryAction).
  *
  * NEVER returns a candidate's address/port, `relatedAddress`, or any TURN
  * credential — only `candidateType` and `protocol`, which reveal nothing
@@ -470,16 +476,29 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
   // has a stream" while it might still have zero actual tracks. null here
   // means exactly what it says: no remote media has arrived yet.
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
-  // True once remote video is genuinely proven ready — see
-  // reportPlaybackConfirmedForThisRoom below, this hook's single source of
-  // truth for it. Proof is the peer's actual <video> element reaching a
-  // real "playing" state, with a genuinely live track and real decoded
-  // dimensions attached (see VideoTile.tsx's own onPlaybackReady doc
-  // comment) — not merely "ICE/DTLS says connected", which on its own can
-  // be true with zero video ever actually rendering. This is what
-  // useMatchmaking.ts's `state` derivation gates "active" on, instead of
-  // `status === "connected"` alone, so the matched-profile UI never shows
-  // over what would otherwise be an empty peer tile.
+  // True once remote video is genuinely proven ready — by EITHER of two
+  // independent proofs, never "ICE/DTLS says connected" alone (that can be
+  // true with zero video ever actually rendering):
+  //
+  // 1. Stats proof (reportVideoReadyIfDecoding, the tick loop further
+  //    down): a live remote video track has arrived AND getStats()
+  //    confirms real frames are actually decoding.
+  //
+  // 2. Playback proof (reportPlaybackConfirmedForThisRoom below, called
+  //    from VideoTile.tsx via useMatchmaking.ts): the peer's actual
+  //    <video> element reached "playing", with a real track/stream
+  //    attached and real decoded dimensions.
+  //
+  // Neither is reliable enough alone on every browser — some decode real
+  // frames while the <video> element is slow to (or never reliably does)
+  // reach "playing"; others can render correctly while framesDecoded stays
+  // missing or delayed. Both write into this SAME state, so "active"
+  // itself never needs to know which proof satisfied it, and both are
+  // reset by the identical set of real WebRTC-level events
+  // (markVideoNotReady, below). This is what useMatchmaking.ts's `state`
+  // derivation gates "active" on, instead of `status === "connected"`
+  // alone, so the matched-profile UI never shows over what would
+  // otherwise be an empty peer tile.
   const [remoteVideoReady, setRemoteVideoReady] = useState(false)
   // Lets reportPlaybackConfirmed (below, and this hook's return value)
   // reach into whichever room-effect instance is CURRENTLY live, without
@@ -599,6 +618,13 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
 
     let videoReadyLocal = false
     let remoteVideoTrackLive = false
+    // The stats proof's own baseline — see reportVideoReadyIfDecoding
+    // below. Reset (to whatever framesDecoded currently is) every time
+    // readiness is lost, so the proof requires NEW frames decoding after
+    // that point, never stale ones counted from before a track
+    // ended/muted or an ICE restart began.
+    let lastDecodedFrames = 0
+    let decodedFramesBaseline = 0
     let disconnectedGraceTimer: ReturnType<typeof setTimeout> | null = null
     let recoveryDeadlineTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -617,6 +643,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
 
     function markVideoNotReady(reason: string) {
       videoReadyLocal = false
+      decodedFramesBaseline = lastDecodedFrames
       console.log("webrtc: remote video no longer ready", { roomId, rtcInstanceId, reason })
       setRemoteVideoReady(false)
     }
@@ -691,9 +718,10 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       }, DISCONNECTED_GRACE_MS)
     }
 
-    // The playback-proof path — the ONLY thing that ever sets
-    // remoteVideoReady true. `forRoomId` is checked against this EFFECT
-    // INSTANCE's own `roomId` (not a live/mutable value — this whole
+    // The playback-proof path — one of the two things that can set
+    // remoteVideoReady true (see reportVideoReadyIfDecoding below for the
+    // other). `forRoomId` is checked against this EFFECT INSTANCE's own
+    // `roomId` (not a live/mutable value — this whole
     // effect tears down and a fresh one runs whenever the room actually
     // changes), so a stale report from a room that's already ended can
     // never mark a later room ready; useMatchmaking.ts's own
@@ -707,12 +735,31 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       if (cancelled || forRoomId !== roomId || videoReadyLocal || !remoteVideoTrackLive) return
       console.log("webrtc: remote video ready — confirmed by actual <video> playback", { roomId, rtcInstanceId })
       videoReadyLocal = true
+      decodedFramesBaseline = lastDecodedFrames
       setPhase("media-ready")
       setRemoteVideoReady(true)
       negotiation.recovered()
       clearRecoveryDeadline()
     }
     reportPlaybackConfirmedRef.current = reportPlaybackConfirmedForThisRoom
+
+    // The stats-proof path — the other of the two independent proofs (see
+    // remoteVideoReady's own doc comment above for why both exist). Called
+    // from the tick loop below with this generation's own latest
+    // getStats() read: a live remote video track has arrived AND real
+    // frames have decoded since the last reset (markVideoNotReady) —
+    // either alone was the exact kind of false positive this whole
+    // mechanism exists to rule out (ICE/DTLS "connected" with nothing
+    // actually decoding).
+    function reportVideoReadyIfDecoding(framesDecoded: number) {
+      if (videoReadyLocal || !remoteVideoTrackLive || framesDecoded <= decodedFramesBaseline) return
+      console.log("webrtc: remote video ready — live track + frames decoding", { roomId, rtcInstanceId, framesDecoded })
+      videoReadyLocal = true
+      setPhase("media-ready")
+      setRemoteVideoReady(true)
+      negotiation.recovered()
+      clearRecoveryDeadline()
+    }
 
     // Sender self-heal — confirms the video/audio RTCRtpSender still
     // actually has the track it's supposed to (`replaceTrack` calls are
@@ -974,26 +1021,39 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       void negotiation.start()
     }
 
-    // One slow interval doing two unrelated, non-recovery things: (1)
-    // diagnostic-only stats polling (see makeStatsCollector's own doc
-    // comment — nothing here decides readiness or triggers recovery, it
-    // only logs), and (2) checkSenderHealth's own self-heal, which needs
-    // no faster a cadence than this to catch a sender whose track has
-    // drifted from what it should be.
+    // One tick drives three unrelated things at once: (1) the stats proof
+    // of readiness (reportVideoReadyIfDecoding — see remoteVideoReady's
+    // own doc comment for why this exists alongside playback proof, not
+    // instead of it), (2) checkSenderHealth's self-heal, and (3)
+    // throttled diagnostic logging of the full stats snapshot (every
+    // LOG_EVERY_N_TICKS'th tick). None of this drives recovery — recovery
+    // is decided solely by connectionState/iceConnectionState (see
+    // pc.onconnectionstatechange/oniceconnectionstatechange above).
     const collectStats = makeStatsCollector(pc)
-    const diagnosticsInterval = setInterval(() => {
-      if (cancelled) return
-      checkSenderHealth()
+    let tickCount = 0
+    let collecting = false
+    const tickInterval = setInterval(() => {
+      if (cancelled || collecting) return
+      collecting = true
+      tickCount += 1
       void collectStats().then((stats) => {
-        if (stats) console.log("webrtc: stats", { roomId, rtcInstanceId, ...stats })
+        collecting = false
+        if (cancelled) return
+        checkSenderHealth()
+        if (!stats) return
+        lastDecodedFrames = stats.incoming.framesDecoded ?? 0
+        reportVideoReadyIfDecoding(lastDecodedFrames)
+        if (tickCount % LOG_EVERY_N_TICKS === 0) {
+          console.log("webrtc: stats", { roomId, rtcInstanceId, ...stats })
+        }
       })
-    }, DIAGNOSTIC_STATS_INTERVAL_MS)
+    }, TICK_INTERVAL_MS)
 
     return () => {
       cancelled = true
       clearDisconnectedGrace()
       clearRecoveryDeadline()
-      clearInterval(diagnosticsInterval)
+      clearInterval(tickInterval)
       unsubscribeSignal()
       negotiation.dispose()
       pc.close()
