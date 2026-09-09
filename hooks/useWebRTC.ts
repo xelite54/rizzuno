@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createRtcNegotiation } from "@/lib/rtcNegotiation"
-import { decideConnectionRecoveryAction, decideAfterIceRecoveryDeadline } from "@/lib/webrtcRecovery"
+import { decideConnectionRecoveryAction, decideAfterIceRecoveryDeadline, nextBytesReadyStreak, BYTES_READY_STREAK_TICKS } from "@/lib/webrtcRecovery"
 import type { RtcSignal } from "@/lib/signaling/protocol"
 
 /**
@@ -638,6 +638,14 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     let lastDecodedFrames = 0
     let videoReadyLocal = false
     let remoteVideoTrackLive = false
+    // The third readiness proof's own running state — see
+    // nextBytesReadyStreak's doc comment in lib/webrtcRecovery.ts. Reset
+    // alongside every other per-generation readiness field: a fresh
+    // RTCPeerConnection (an ICE restart's own new stats baseline, or a
+    // fresh-connection recovery) must never inherit a streak counted
+    // against the OLD generation's now-meaningless byte counters.
+    let lastInboundVideoBytesForReadyCheck: number | null = null
+    let bytesReadyStreak = 0
     // Tracks how long the CURRENT generation's connection has been
     // "connected" per ICE/DTLS — the media-readiness timeout below
     // measures from here, independent of (and deliberately more skeptical
@@ -655,6 +663,14 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     function markVideoNotReady(reason: string) {
       videoReadyLocal = false
       recoveryBaseline = lastDecodedFrames
+      // A real disappearance (track ended/muted, transport dropped) must
+      // never leave a stale streak that the THIRD proof (see
+      // nextBytesReadyStreak) could resume counting from once bytes start
+      // flowing again post-recovery — that counter is specifically about
+      // SUSTAINED growth from here forward, not growth that happened
+      // before whatever just went wrong.
+      lastInboundVideoBytesForReadyCheck = null
+      bytesReadyStreak = 0
       console.log("webrtc: remote video no longer ready", { roomId, reason })
       setRemoteVideoReady(false)
     }
@@ -812,6 +828,8 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       lastDecodedFrames = 0
       videoReadyLocal = false
       remoteVideoTrackLive = false
+      lastInboundVideoBytesForReadyCheck = null
+      bytesReadyStreak = 0
       connectedAt = null
       clearDisconnectedGrace()
 
@@ -1149,6 +1167,29 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
           console.log("webrtc: remote video ready — live track + frames decoding", {
             roomId,
             framesDecoded: stats.incoming.framesDecoded,
+          })
+          setPhase("media-ready")
+          setRemoteVideoReady(true)
+          negotiation.recovered()
+          recoveryStartedAt = null
+        }
+
+        // The THIRD readiness proof — see nextBytesReadyStreak's own doc
+        // comment in lib/webrtcRecovery.ts for exactly which real, observed
+        // gap this closes: a receiver whose framesDecoded never reports
+        // (or never exceeds recoveryBaseline) AND whose <video> element
+        // never reaches "playing", despite real RTP bytes for this video
+        // track genuinely, continuously arriving. Checked independently of
+        // (not instead of) the two proofs above — this only ever RUNS when
+        // neither of them has already succeeded, and only ever helps, it
+        // can never make an already-working proof path stricter.
+        bytesReadyStreak = nextBytesReadyStreak(lastInboundVideoBytesForReadyCheck, stats.incoming.bytesReceived, bytesReadyStreak)
+        lastInboundVideoBytesForReadyCheck = stats.incoming.bytesReceived
+        if (!videoReadyLocal && remoteVideoTrackLive && bytesReadyStreak >= BYTES_READY_STREAK_TICKS) {
+          videoReadyLocal = true
+          console.warn("webrtc: remote video ready — sustained real RTP bytes flowing (frames-decoded/playback proof never arrived)", {
+            roomId,
+            bytesReceived: stats.incoming.bytesReceived,
           })
           setPhase("media-ready")
           setRemoteVideoReady(true)

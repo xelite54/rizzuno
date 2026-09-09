@@ -60,3 +60,39 @@ export type PostIceRecoveryDecision = "attempt-fresh-connection" | "give-up"
 export function decideAfterIceRecoveryDeadline(freshConnectionRecoveryAlreadyUsed: boolean): PostIceRecoveryDecision {
   return freshConnectionRecoveryAlreadyUsed ? "give-up" : "attempt-fresh-connection"
 }
+
+/**
+ * Third readiness proof, alongside stats-based framesDecoded (useWebRTC.ts's
+ * tick()) and playback-based (VideoTile.tsx's "playing" event, relayed
+ * through reportPlaybackConfirmed) — see remoteVideoReady's own doc comment
+ * for why two proofs already existed: iOS Safari in particular can decode
+ * and render real video while framesDecoded stays missing, delayed, or
+ * unreliable, so playback proof exists as a fallback for that. This is the
+ * fallback for THAT fallback: a real, DETERMINISTIC gap neither of those
+ * two proofs can see through is a receiver whose decoder silently never
+ * reports framesDecoded AND whose <video> element never reaches "playing"
+ * (a specific browser/GPU/decoder combination failing to decode a given
+ * codec/resolution, or an element that never gets a compositor paint)
+ * despite genuinely live, real, monotonically growing inbound RTP bytes —
+ * proof the peer's media is actually arriving over the wire, independent of
+ * whether THIS side's own decoder or renderer ever manages to prove it.
+ * Left unresolved, this is indistinguishable from "no media is arriving at
+ * all" to the two existing proofs, and the connection sits on "Connecting"
+ * forever even though the underlying call is, in every way that matters to
+ * the two people on it, already working.
+ *
+ * Sustained over several consecutive ticks — not a single one — so one
+ * lone burst immediately before a real stall/track-end can never produce a
+ * false "ready": `nextBytesReadyStreak` is called once per tick (see
+ * useWebRTC.ts's own tick()) with each tick's own inbound-video
+ * bytesReceived counter, and resets to 0 the instant that counter fails to
+ * strictly increase (network stats are cumulative counters — a real,
+ * healthy stream always keeps growing tick over tick; anything else means
+ * the growth stopped, not just "hasn't grown *yet* this specific tick").
+ */
+export const BYTES_READY_STREAK_TICKS = 5
+
+export function nextBytesReadyStreak(previousBytes: number | null, currentBytes: number | null, streak: number): number {
+  if (currentBytes === null || previousBytes === null || currentBytes <= previousBytes) return 0
+  return streak + 1
+}
