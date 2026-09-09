@@ -101,6 +101,26 @@ export function createRtcNegotiation(
     start: () => enqueue(() => offer(false)),
     recover,
     /**
+     * Called ONLY by a non-initiator, ONLY right after ITS OWN
+     * fresh-connection recovery has built a brand-new RTCPeerConnection
+     * for this room (see hooks/useWebRTC.ts's attemptFreshConnectionRecovery)
+     * — the architectural gap this closes: only the initiator ever
+     * creates offers, so a non-initiator's own fresh pc otherwise has NO
+     * path to ever get negotiated at all. The initiator's own connection
+     * may be perfectly healthy the whole time and has no reason to know
+     * anything happened on the other side — this is what tells it.
+     * Unconditional, never bounded by recoveryUsed: the CALLER
+     * (attemptFreshConnectionRecovery) is already itself bounded to one
+     * fresh-connection attempt per room, and this isn't restarting the
+     * OLD negotiation anyway — see receive()'s own handling of
+     * "fresh-negotiation-request" for why it mints an entirely new
+     * negotiationId rather than reusing anything.
+     */
+    requestFreshNegotiation: () => {
+      if (initiator) return chain // only a non-initiator ever needs this
+      return enqueue(async () => { send({ kind: "fresh-negotiation-request" }) })
+    },
+    /**
      * The negotiationId this instance is currently using to tag/validate
      * signals — null only for a non-initiator that hasn't adopted one
      * from an offer yet. Read by hooks/useWebRTC.ts to tag its OWN
@@ -117,6 +137,49 @@ export function createRtcNegotiation(
         // chain even matters here.
         if (data.negotiationId !== currentNegotiationId) return chain
         return initiator ? recover() : chain
+      }
+      if (data.kind === "fresh-negotiation-request") {
+        // Only ever meaningful to the initiator — see
+        // requestFreshNegotiation's own doc comment for who sends this
+        // and why. The peer's OWN RTCPeerConnection is entirely new, so
+        // this is genuinely a fresh negotiation from scratch, never a
+        // restart of the old one: mint a brand new negotiationId (the
+        // peer's fresh pc has none of its own yet — that's the entire
+        // problem this solves) and clear every piece of the OLD
+        // negotiation's recovery bookkeeping, deliberately bypassing
+        // recoveryUsed's normal one-shot bound — that budget belonged to
+        // recovering THIS side's still-existing pc against the OLD
+        // negotiation, not to negotiating the peer's already-new one.
+        if (!initiator) return chain
+        return enqueue(async () => {
+          if (!alive()) return
+          currentNegotiationId = crypto.randomUUID()
+          recoveryUsed = false
+          recoveryPending = false
+          restartRequested = false
+          lastAnswer = ""
+          lastOffer = ""
+          log("fresh negotiation requested by peer")
+          // Deliberately does NOT go through offer()'s own
+          // signalingState === "stable" guard — this side may well still
+          // be sitting in "have-local-offer" (e.g. an earlier restart
+          // offer whose answer will now never come, because the peer's
+          // pc that would have answered it is already gone) at exactly
+          // the moment this arrives. That state describes a negotiation
+          // the peer has already abandoned, not a real in-flight
+          // exchange worth respecting — proceeding unconditionally is
+          // what actually lets this side ever answer the peer's brand
+          // new RTCPeerConnection instead of silently no-op'ing forever
+          // because of a stale precondition. iceRestart: true still
+          // mints fresh ICE credentials on THIS side's own (unchanged)
+          // pc, matching the peer's genuinely new one.
+          const description = await pc.createOffer({ iceRestart: true })
+          if (!alive()) return
+          await pc.setLocalDescription(description)
+          if (!alive()) return
+          send({ kind: "offer", sdp: pc.localDescription?.sdp ?? description.sdp ?? "", negotiationId: currentNegotiationId })
+          log("fresh offer sent")
+        })
       }
       return enqueue(async () => {
         if (data.kind === "offer") {

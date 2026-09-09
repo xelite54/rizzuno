@@ -67,6 +67,23 @@ export type IceCandidateInit = {
  */
 export type RtcSignal =
   | { kind: "ice-restart-request"; negotiationId: string }
+  /**
+   * Sent ONLY by a non-initiator, ONLY when ITS OWN local fresh-connection
+   * recovery (see hooks/useWebRTC.ts's attemptFreshConnectionRecovery) has
+   * just built a brand-new RTCPeerConnection for this room. Only the
+   * INITIATOR ever creates offers — a non-initiator's fresh pc otherwise
+   * has no path to ever get negotiated at all: the initiator's own
+   * connection may be perfectly healthy and has no reason to know
+   * anything happened on the other side. This is what tells it to mint a
+   * brand new negotiationId and send a fresh offer, unconditionally
+   * (never bounded by the existing one-shot ICE-restart budget — this
+   * isn't restarting the OLD negotiation, it's negotiating an entirely
+   * different, already-existing new RTCPeerConnection on the other end).
+   * Deliberately carries no negotiationId of its own: the sender's fresh
+   * pc doesn't have one yet — that's exactly the problem this exists to
+   * solve.
+   */
+  | { kind: "fresh-negotiation-request" }
   | { kind: "offer"; sdp: string; negotiationId: string }
   | { kind: "answer"; sdp: string; negotiationId: string }
   | { kind: "ice"; candidate: IceCandidateInit; negotiationId: string }

@@ -1044,15 +1044,27 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
         setPhase("fresh-connection-recovery")
         // This room's own rtc-ready/rtc-start handshake already completed
         // once — a fresh-connection recovery renegotiates the SAME peer
-        // immediately, it does not repeat that server round trip (the
-        // non-initiator side is, as always, purely offer-reactive and
-        // needs nothing further here). Any earlier startNegotiationRef
-        // callback is now meaningless (its own `generation !== myGeneration`
-        // guard would already no-op it), cleared anyway for clarity.
+        // immediately, it does not repeat that server round trip. Any
+        // earlier startNegotiationRef callback is now meaningless (its
+        // own `generation !== myGeneration` guard would already no-op
+        // it), cleared anyway for clarity.
         startNegotiationRef.current = null
         if (initiator) {
           setPhase("rtc-start-received")
           void negotiation.start()
+        } else {
+          // THE other half of this same fix — only the initiator ever
+          // creates offers, so THIS brand-new RTCPeerConnection otherwise
+          // has no path to ever get negotiated at all: the initiator's
+          // own connection may be perfectly healthy and has no reason to
+          // know anything happened here. requestFreshNegotiation() tells
+          // it to mint a new negotiationId and send a fresh offer — see
+          // its own doc comment in lib/rtcNegotiation.ts for the full
+          // reasoning. Without this, a non-initiator's own
+          // fresh-connection recovery just sat here forever, stuck on
+          // "Connecting" with no offer ever coming — exactly the failure
+          // mode this whole recovery tier exists to prevent.
+          negotiation.requestFreshNegotiation()
         }
       } else {
         setPhase("rtc-initialized")

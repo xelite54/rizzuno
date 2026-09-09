@@ -66,6 +66,61 @@ test("two separate negotiation instances (two RTCPeerConnection generations) min
   assert.notEqual(first.negotiation.getNegotiationId(), second.negotiation.getNegotiationId())
 })
 
+// --- requestFreshNegotiation: the non-initiator fresh-connection-recovery fix
+//
+// The bug this closes: only the initiator ever creates offers. When a
+// NON-initiator was the side whose local connection needed the tiered
+// fresh-connection recovery, its brand-new RTCPeerConnection had no way
+// to ever get negotiated — the initiator's own connection could be
+// perfectly healthy and had no reason to know anything happened. The
+// result was a permanently stuck "Connecting" on that side, with nothing
+// ever coming.
+
+test("a non-initiator's requestFreshNegotiation() is a no-op for the INITIATOR side — only a non-initiator ever needs this", async () => {
+  const { negotiation: n, sent } = fixture(true)
+  await n.requestFreshNegotiation()
+  assert.equal(sent.length, 0)
+})
+
+test("a non-initiator's requestFreshNegotiation() sends fresh-negotiation-request with no negotiationId of its own", async () => {
+  const { negotiation: n, sent } = fixture(false)
+  await n.requestFreshNegotiation()
+  assert.deepEqual(sent, [{ kind: "fresh-negotiation-request" }])
+})
+
+test("the initiator responds to fresh-negotiation-request by minting a BRAND NEW negotiationId and sending a fresh offer, bypassing the spent one-shot ICE-restart budget", async () => {
+  const { negotiation: n, calls, sent } = fixture(true)
+  const originalNid = n.getNegotiationId()!
+  await n.start()
+  await n.receive({ kind: "answer", sdp: "answer-1", negotiationId: originalNid })
+
+  // Spend the one-shot ICE-restart budget on the OLD negotiation first —
+  // requestFreshNegotiation must still work afterward; it isn't gated by
+  // recoveryUsed at all (a fresh peer pc has nothing to do with that
+  // spent budget).
+  await n.recover()
+  assert.equal(calls.includes("restart-offer"), true)
+
+  await n.receive({ kind: "fresh-negotiation-request" })
+  const newNid = n.getNegotiationId()!
+  assert.notEqual(newNid, originalNid, "a genuinely new negotiationId — the peer's own pc is entirely new")
+  const lastSent = sent[sent.length - 1]
+  assert.equal(lastSent.kind, "offer")
+  assert.ok(lastSent.kind === "offer" && lastSent.negotiationId === newNid)
+
+  // The peer's answer, tagged with the NEW id, is accepted normally —
+  // proving the recovery budget genuinely reset, not just the id.
+  await n.receive({ kind: "answer", sdp: "answer-2", negotiationId: newNid })
+  assert.equal(calls.filter((c) => c === "remote-answer").length, 2)
+})
+
+test("a non-initiator ignores a fresh-negotiation-request — it only ever makes sense received by an initiator", async () => {
+  const { negotiation: n, sent } = fixture(false)
+  await n.receive({ kind: "offer", sdp: "the-offer", negotiationId: "peer-nid" })
+  await n.receive({ kind: "fresh-negotiation-request" })
+  assert.equal(sent.filter((s) => s.kind === "offer").length, 0, "a non-initiator never sends offers, request or not")
+})
+
 // --- stale-negotiation rejection --------------------------------------------
 
 test("initiator rejects an answer tagged with a DIFFERENT (stale/obsolete) negotiationId, but accepts one tagged with its own", async () => {
