@@ -851,7 +851,7 @@ export function MyProfileSheet({
                               // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
                               <img src={person.profilePhoto} alt="" className="h-full w-full object-cover" />
                             ) : (
-                              identity.replace("@", "").charAt(0).toUpperCase()
+                              identity.charAt(0).toUpperCase()
                             )}
                           </span>
                           <span className="min-w-0 flex-1">

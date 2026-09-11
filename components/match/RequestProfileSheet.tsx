@@ -53,17 +53,23 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
             <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
               {request.displayName.charAt(0)}
             </span>
-            <div className="mt-4 flex items-center gap-1">
+            {/* The "•••" trigger sits absolutely off the name (see the
+                wrapper below) rather than in a shared flex row with it — a
+                row would size to name+button together, pulling the name
+                off-center from the avatar above it. */}
+            <div className="relative mt-4">
               <p className="text-[18px] font-semibold text-foreground">{request.displayName}</p>
-              <ProfileActionsMenu ariaLabel={`More options for ${request.displayName}`} align="center" compact>
-                {(closeMenu) => (
-                  <ReportButton
-                    onReport={(category) => onReport(request.senderId, category)}
-                    onSubmitted={() => setTimeout(closeMenu, 1100)}
-                    triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                  />
-                )}
-              </ProfileActionsMenu>
+              <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
+                <ProfileActionsMenu ariaLabel={`More options for ${request.displayName}`} align="center" compact>
+                  {(closeMenu) => (
+                    <ReportButton
+                      onReport={(category) => onReport(request.senderId, category)}
+                      onSubmitted={() => setTimeout(closeMenu, 1100)}
+                      triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                    />
+                  )}
+                </ProfileActionsMenu>
+              </div>
             </div>
             <p className="mt-2 text-[12px] text-muted">Wants to be friends</p>
 

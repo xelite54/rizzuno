@@ -616,7 +616,7 @@ export function FriendsPanel({
                                 openSearchProfile(person.username)
                               }
                             }}
-                            aria-label={`View @${person.username}'s profile`}
+                            aria-label={`View ${person.username}'s profile`}
                             className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 transition hover:bg-surface-2"
                           >
                             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
@@ -1111,17 +1111,23 @@ export function FriendsPanel({
                 <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
                   {viewingRequester.displayName.charAt(0)}
                 </span>
-                <div className="mt-4 flex items-center gap-1">
+                {/* The "•••" trigger is positioned absolutely off the name
+                    itself (see the wrapper below) rather than sharing a flex
+                    row with it — a row would size to name+button together,
+                    pulling the name off-center from the avatar above it. */}
+                <div className="relative mt-4">
                   <p className="text-[18px] font-semibold text-foreground">{viewingRequester.displayName}</p>
-                  <ProfileActionsMenu ariaLabel={`More options for ${viewingRequester.displayName}`} align="center" compact>
-                    {(closeMenu) => (
-                      <ReportButton
-                        onReport={(category) => onReportPerson(viewingRequester.senderId, category)}
-                        onSubmitted={() => setTimeout(closeMenu, 1100)}
-                        triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                      />
-                    )}
-                  </ProfileActionsMenu>
+                  <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
+                    <ProfileActionsMenu ariaLabel={`More options for ${viewingRequester.displayName}`} align="center" compact>
+                      {(closeMenu) => (
+                        <ReportButton
+                          onReport={(category) => onReportPerson(viewingRequester.senderId, category)}
+                          onSubmitted={() => setTimeout(closeMenu, 1100)}
+                          triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                        />
+                      )}
+                    </ProfileActionsMenu>
+                  </div>
                 </div>
                 <p className="mt-2 text-[12px] text-muted">Wants to be friends</p>
 
@@ -1225,65 +1231,71 @@ export function FriendsPanel({
                         <span className="absolute bottom-0.5 left-0.5 h-4 w-4 rounded-full border-2 border-surface bg-online" />
                       )}
                     </span>
-                    <div className="mt-4 flex items-center gap-1">
+                    {/* The "•••" trigger sits absolutely off the name (see
+                        the wrapper below) rather than in a shared flex row
+                        with it — a row would size to name+button together,
+                        pulling the name off-center from the avatar above. */}
+                    <div className="relative mt-4">
                       <p className="text-[18px] font-semibold text-foreground">
                         {friendProfile?.username ?? friendName}
                       </p>
-                      <ProfileActionsMenu ariaLabel={`More options for ${friendName}`} align="center" compact onClose={() => setFriendActionConfirm(null)}>
-                        {(closeMenu) =>
-                          friendActionConfirm ? (
-                            <div className="px-2 py-1.5">
-                              <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
-                                {friendActionConfirm === "unfriend"
-                                  ? `Unfriend ${friendName}?`
-                                  : `Block ${friendName}? They won't be able to contact you.`}
-                              </p>
-                              <div className="flex gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => setFriendActionConfirm(null)}
-                                  className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                                >
-                                  Cancel
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    friendActionConfirm === "block"
-                                      ? handleBlockPerson(viewingFriend.userId, friendName)
-                                      : handleRemoveFriend(viewingFriend.id)
-                                  }
-                                  className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
-                                >
-                                  {friendActionConfirm === "unfriend" ? "Unfriend" : "Block"}
-                                </button>
+                      <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
+                        <ProfileActionsMenu ariaLabel={`More options for ${friendName}`} align="center" compact onClose={() => setFriendActionConfirm(null)}>
+                          {(closeMenu) =>
+                            friendActionConfirm ? (
+                              <div className="px-2 py-1.5">
+                                <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
+                                  {friendActionConfirm === "unfriend"
+                                    ? `Unfriend ${friendName}?`
+                                    : `Block ${friendName}? They won't be able to contact you.`}
+                                </p>
+                                <div className="flex gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setFriendActionConfirm(null)}
+                                    className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      friendActionConfirm === "block"
+                                        ? handleBlockPerson(viewingFriend.userId, friendName)
+                                        : handleRemoveFriend(viewingFriend.id)
+                                    }
+                                    className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
+                                  >
+                                    {friendActionConfirm === "unfriend" ? "Unfriend" : "Block"}
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col">
-                              <button
-                                type="button"
-                                onClick={() => setFriendActionConfirm("unfriend")}
-                                className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
-                              >
-                                Unfriend
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setFriendActionConfirm("block")}
-                                className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                              >
-                                Block
-                              </button>
-                              <ReportButton
-                                onReport={(category) => onReportPerson(viewingFriend.userId, category)}
-                                onSubmitted={() => setTimeout(closeMenu, 1100)}
-                                triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                              />
-                            </div>
-                          )
-                        }
-                      </ProfileActionsMenu>
+                            ) : (
+                              <div className="flex flex-col">
+                                <button
+                                  type="button"
+                                  onClick={() => setFriendActionConfirm("unfriend")}
+                                  className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
+                                >
+                                  Unfriend
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFriendActionConfirm("block")}
+                                  className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                                >
+                                  Block
+                                </button>
+                                <ReportButton
+                                  onReport={(category) => onReportPerson(viewingFriend.userId, category)}
+                                  onSubmitted={() => setTimeout(closeMenu, 1100)}
+                                  triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                                />
+                              </div>
+                            )
+                          }
+                        </ProfileActionsMenu>
+                      </div>
                     </div>
                     {friendProfile?.bio && (
                       <p className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-muted">{friendProfile.bio}</p>
@@ -1318,7 +1330,7 @@ export function FriendsPanel({
             <motion.div
               role="dialog"
               aria-modal="true"
-              aria-label={`@${viewingSearchResult.username}'s profile`}
+              aria-label={`${viewingSearchResult.username}'s profile`}
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 24 }}
@@ -1342,7 +1354,7 @@ export function FriendsPanel({
                   <button
                     type="button"
                     onClick={() => setEnlargedSearchResultPhoto(viewingSearchResult.profilePhoto ?? null)}
-                    aria-label={`Enlarge @${viewingSearchResult.username}'s profile photo`}
+                    aria-label={`Enlarge ${viewingSearchResult.username}'s profile photo`}
                     className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo */}
@@ -1357,51 +1369,57 @@ export function FriendsPanel({
                     {viewingSearchResult.username.charAt(0).toUpperCase()}
                   </span>
                 )}
-                <div className="mt-4 flex items-center gap-1">
+                {/* The "•••" trigger sits absolutely off the username (see
+                    the wrapper below) rather than in a shared flex row with
+                    it — a row would size to name+button together, pulling
+                    the username off-center from the avatar above it. */}
+                <div className="relative mt-4">
                   <p className="text-[18px] font-semibold text-foreground">{viewingSearchResult.username}</p>
-                  <ProfileActionsMenu ariaLabel={`More options for ${viewingSearchResult.username}`} align="center" compact onClose={() => setSearchResultBlockConfirm(false)}>
-                    {(closeMenu) =>
-                      searchResultBlockConfirm ? (
-                        <div className="px-2 py-1.5">
-                          <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
-                            Block {viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
-                            show up in search.
-                          </p>
-                          <div className="flex gap-1.5">
+                  <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
+                    <ProfileActionsMenu ariaLabel={`More options for ${viewingSearchResult.username}`} align="center" compact onClose={() => setSearchResultBlockConfirm(false)}>
+                      {(closeMenu) =>
+                        searchResultBlockConfirm ? (
+                          <div className="px-2 py-1.5">
+                            <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
+                              Block {viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
+                              show up in search.
+                            </p>
+                            <div className="flex gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setSearchResultBlockConfirm(false)}
+                                className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleBlockSearchResult(viewingSearchResult.username)}
+                                className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
+                              >
+                                Block
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col">
                             <button
                               type="button"
-                              onClick={() => setSearchResultBlockConfirm(false)}
-                              className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleBlockSearchResult(viewingSearchResult.username)}
-                              className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
+                              onClick={() => setSearchResultBlockConfirm(true)}
+                              className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
                             >
                               Block
                             </button>
+                            <ReportButton
+                              onReport={(category) => handleReportSearchResult(viewingSearchResult.username, category)}
+                              onSubmitted={() => setTimeout(closeMenu, 1100)}
+                              triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                            />
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col">
-                          <button
-                            type="button"
-                            onClick={() => setSearchResultBlockConfirm(true)}
-                            className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                          >
-                            Block
-                          </button>
-                          <ReportButton
-                            onReport={(category) => handleReportSearchResult(viewingSearchResult.username, category)}
-                            onSubmitted={() => setTimeout(closeMenu, 1100)}
-                            triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                          />
-                        </div>
-                      )
-                    }
-                  </ProfileActionsMenu>
+                        )
+                      }
+                    </ProfileActionsMenu>
+                  </div>
                 </div>
 
                 <div className="mt-6 w-full max-w-xs">
