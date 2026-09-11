@@ -772,6 +772,14 @@ export function useMatchmaking(
     [send]
   )
 
+  /** Reports someone OUTSIDE a live call — a friend, a pending request's sender, or a searched profile — `targetUserId` is one the client already learned from a friends-snapshot/request/search result. See "user-report" in lib/signaling/protocol.ts; the in-call `report()` above stays roomId-scoped and unchanged. */
+  const reportUser = useCallback(
+    (targetUserId: string, category: ReportCategory, details?: string) => {
+      send({ type: "user-report", targetUserId, category, details })
+    },
+    [send]
+  )
+
   const dismissFriendToast = useCallback(() => setFriendToastRequestId(null), [])
 
   /**
@@ -1680,6 +1688,7 @@ export function useMatchmaking(
     respondToFriendRequest,
     unfriend,
     blockFriendAccount,
+    reportUser,
     dismissFriendToast,
     // Friend chat — see friendMessages' own doc comment above for what's
     // cache vs. authoritative here.

@@ -225,6 +225,7 @@ export function MatchStage() {
     respondToFriendRequest,
     unfriend,
     blockFriendAccount,
+    reportUser,
     dismissFriendToast,
     matchInvitations,
     matchInviteError,
@@ -778,6 +779,7 @@ export function MatchStage() {
             onDeclineRequest={(id) => respondToFriendRequest(id, false)}
             onRemoveFriend={unfriend}
             onBlockPerson={(userId) => blockFriendAccount(userId)}
+            onReportPerson={(userId, category) => reportUser(userId, category)}
             onUnreadMessagesChange={setUnreadMessages}
             friendMessages={friendMessages}
             onSendFriendMessage={sendFriendChatMessage}
@@ -807,6 +809,7 @@ export function MatchStage() {
               respondToFriendRequest(id, false)
               setViewingToastRequest(null)
             }}
+            onReport={(userId, category) => reportUser(userId, category)}
             onClose={() => setViewingToastRequest(null)}
           />
         </>

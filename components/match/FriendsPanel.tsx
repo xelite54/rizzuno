@@ -1,11 +1,13 @@
 "use client"
 import { PublicProfilePosts } from "./PublicProfilePosts"
+import { ReportButton } from "./ReportButton"
+import { ProfileMenu } from "./ProfileMenu"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useState } from "react"
 import { PostGallery } from "./PostGallery"
-import type { MatchInvitation } from "@/lib/signaling/protocol"
+import type { MatchInvitation, ReportCategory } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
@@ -65,6 +67,7 @@ type FriendsPanelProps = {
   onDeclineRequest: (id: string) => void
   onRemoveFriend: (id: string) => void
   onBlockPerson: (id: string, displayName: string) => void
+  onReportPerson: (userId: string, category: ReportCategory) => void
   /** Reported whenever unread message count changes, so the header's Friends icon can badge it. Now a real sum of each friend's server-computed `unreadCount` (see DemoFriend's own doc comment) — never a local counter. */
   onUnreadMessagesChange?: (count: number) => void
   /** This session's live friend-chat cache, keyed by friendshipId — see useMatchmaking's `friendMessages` doc comment. Merged with real fetched history (below) rather than trusted alone. */
@@ -89,6 +92,7 @@ export function FriendsPanel({
   onDeclineRequest,
   onRemoveFriend,
   onBlockPerson,
+  onReportPerson,
   onUnreadMessagesChange,
   friendMessages,
   onSendFriendMessage,
@@ -385,6 +389,18 @@ export function FriendsPanel({
     setViewingSearchResultUsername(null)
     setSearchResultBlockConfirm(false)
     setSearchResults((prev) => prev.filter((person) => person.username !== username))
+  }
+
+  // Fire-and-forget, same as handleBlockSearchResult above — ReportButton
+  // shows its own "sent" confirmation locally rather than waiting on this,
+  // and (unlike block) reporting doesn't end the interaction, so the
+  // profile stays open.
+  function handleReportSearchResult(username: string, category: ReportCategory) {
+    fetch("/api/friends/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, category }),
+    }).catch(() => {})
   }
 
   function handleAcceptRequest(id: string) {
@@ -743,6 +759,11 @@ export function FriendsPanel({
                                   >
                                     Block
                                   </button>
+                                  <ReportButton
+                                    onReport={(category) => onReportPerson(friend.userId, category)}
+                                    onSubmitted={() => setTimeout(() => setRowMenuFriendId(null), 1100)}
+                                    triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                                  />
                                 </>
                               )}
                             </motion.div>
@@ -985,6 +1006,15 @@ export function FriendsPanel({
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
+                <ProfileMenu ariaLabel={`More options for ${viewingRequester.displayName}`}>
+                  {(closeMenu) => (
+                    <ReportButton
+                      onReport={(category) => onReportPerson(viewingRequester.senderId, category)}
+                      onSubmitted={() => setTimeout(closeMenu, 1100)}
+                      triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                    />
+                  )}
+                </ProfileMenu>
                 <button
                   type="button"
                   onClick={() => setViewingRequesterId(null)}
@@ -1048,6 +1078,61 @@ export function FriendsPanel({
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
+                <ProfileMenu ariaLabel={`More options for ${friendName}`} onClose={() => setFriendActionConfirm(null)}>
+                  {(closeMenu) =>
+                    friendActionConfirm ? (
+                      <div className="px-2 py-1.5">
+                        <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
+                          {friendActionConfirm === "unfriend"
+                            ? `Unfriend ${friendName}?`
+                            : `Block ${friendName}? They won't be able to contact you.`}
+                        </p>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setFriendActionConfirm(null)}
+                            className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              friendActionConfirm === "block"
+                                ? handleBlockPerson(viewingFriend.userId, friendName)
+                                : handleRemoveFriend(viewingFriend.id)
+                            }
+                            className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
+                          >
+                            {friendActionConfirm === "unfriend" ? "Unfriend" : "Block"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col">
+                        <button
+                          type="button"
+                          onClick={() => setFriendActionConfirm("unfriend")}
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
+                        >
+                          Unfriend
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFriendActionConfirm("block")}
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                        >
+                          Block
+                        </button>
+                        <ReportButton
+                          onReport={(category) => onReportPerson(viewingFriend.userId, category)}
+                          onSubmitted={() => setTimeout(closeMenu, 1100)}
+                          triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                        />
+                      </div>
+                    )
+                  }
+                </ProfileMenu>
                 <button
                   type="button"
                   onClick={() => setViewingFriendId(null)}
@@ -1099,55 +1184,6 @@ export function FriendsPanel({
                   </>
                 )}
 
-                <div className="mt-8 w-full max-w-xs border-t border-border pt-4">
-                  {friendActionConfirm ? (
-                    <>
-                      <p className="mb-3 text-[13px] leading-relaxed text-muted">
-                        {friendActionConfirm === "unfriend"
-                          ? `Unfriend ${friendName}?`
-                          : `Block ${friendName}? They won't be able to contact you.`}
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setFriendActionConfirm(null)}
-                          className="flex-1 rounded-lg border border-border px-4 py-2.5 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            friendActionConfirm === "block"
-                              ? handleBlockPerson(viewingFriend.userId, friendName)
-                              : handleRemoveFriend(viewingFriend.id)
-                          }
-                          className="flex-1 rounded-lg bg-danger px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
-                        >
-                          {friendActionConfirm === "unfriend" ? "Unfriend" : "Block"}
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-col gap-1">
-                      <button
-                        type="button"
-                        onClick={() => setFriendActionConfirm("unfriend")}
-                        className="w-full rounded-xl px-3 py-2.5 text-[13px] text-foreground transition hover:bg-surface-2"
-                      >
-                        Unfriend
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFriendActionConfirm("block")}
-                        className="w-full rounded-xl px-3 py-2.5 text-[13px] text-danger transition hover:bg-surface-2"
-                      >
-                        Block
-                      </button>
-                    </div>
-                  )}
-                </div>
-
                 <div className="mt-8 w-full max-w-lg">
                   {loading ? (
                     <div className="grid grid-cols-3 gap-3">
@@ -1181,6 +1217,49 @@ export function FriendsPanel({
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
+                <ProfileMenu ariaLabel={`More options for @${viewingSearchResult.username}`} onClose={() => setSearchResultBlockConfirm(false)}>
+                  {(closeMenu) =>
+                    searchResultBlockConfirm ? (
+                      <div className="px-2 py-1.5">
+                        <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
+                          Block @{viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
+                          show up in search.
+                        </p>
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSearchResultBlockConfirm(false)}
+                            className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleBlockSearchResult(viewingSearchResult.username)}
+                            className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
+                          >
+                            Block
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col">
+                        <button
+                          type="button"
+                          onClick={() => setSearchResultBlockConfirm(true)}
+                          className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                        >
+                          Block
+                        </button>
+                        <ReportButton
+                          onReport={(category) => handleReportSearchResult(viewingSearchResult.username, category)}
+                          onSubmitted={() => setTimeout(closeMenu, 1100)}
+                          triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                        />
+                      </div>
+                    )
+                  }
+                </ProfileMenu>
                 <button
                   type="button"
                   onClick={() => setViewingSearchResultUsername(null)}
@@ -1201,56 +1280,22 @@ export function FriendsPanel({
                 <p className="mt-4 text-[18px] font-semibold text-foreground">@{viewingSearchResult.username}</p>
 
                 <div className="mt-6 w-full max-w-xs">
-                  {searchResultBlockConfirm ? (
-                    <>
-                      <p className="mb-3 text-[13px] leading-relaxed text-muted">
-                        Block @{viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
-                        show up in search.
-                      </p>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSearchResultBlockConfirm(false)}
-                          className="flex-1 rounded-lg border border-border px-4 py-2.5 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleBlockSearchResult(viewingSearchResult.username)}
-                          className="flex-1 rounded-lg bg-danger px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
-                        >
-                          Block
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => viewingSearchResult.alreadyFriends ? openSearchProfile(viewingSearchResult.username) : sendFriendRequest(viewingSearchResult.username)}
-                        disabled={
-                          viewingSearchResult.alreadyFriends
-                            ? !friends.some((friend) => friend.username === viewingSearchResult.username)
-                            : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
-                        }
-                        className="h-11 w-full rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background transition hover:opacity-90 disabled:opacity-50"
-                      >
-                        {viewingSearchResult.alreadyFriends
-                          ? "View profile"
-                          : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
-                            ? "Requested"
-                            : "Add friend"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSearchResultBlockConfirm(true)}
-                        className="mt-2 w-full rounded-lg px-4 py-2 text-[13px] font-medium text-danger transition hover:bg-surface-2"
-                      >
-                        Block
-                      </button>
-                    </>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => viewingSearchResult.alreadyFriends ? openSearchProfile(viewingSearchResult.username) : sendFriendRequest(viewingSearchResult.username)}
+                    disabled={
+                      viewingSearchResult.alreadyFriends
+                        ? !friends.some((friend) => friend.username === viewingSearchResult.username)
+                        : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
+                    }
+                    className="h-11 w-full rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background transition hover:opacity-90 disabled:opacity-50"
+                  >
+                    {viewingSearchResult.alreadyFriends
+                      ? "View profile"
+                      : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
+                        ? "Requested"
+                        : "Add friend"}
+                  </button>
                 </div>
 
                 <div className="mt-8 w-full max-w-lg">

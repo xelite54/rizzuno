@@ -192,6 +192,8 @@ export type ClientMessage =
   | { type: "unfriend"; friendshipId: string }
   /** Blocking someone you're already friends with (or have a pending request with) — `targetUserId` is one the client only ever learned from a prior friends-snapshot/request, i.e. a relationship it was already told about, not an arbitrary id it's guessing. */
   | { type: "friend-block"; targetUserId: string }
+  /** Reporting someone OUTSIDE a live call — a friend, a pending request's sender, or a searched profile — unlike "report" above (which is roomId-scoped), this targets a real account id the client already learned from a friends-snapshot/request/search result. Same categories, same fileReport() backend, just no matchId attached. */
+  | { type: "user-report"; targetUserId: string; category: ReportCategory; details?: string }
   /**
    * Sends a friend-chat text message — rides this same authenticated
    * socket (see AGENTS: "DO NOT create a second WebSocket for Friends
@@ -273,6 +275,8 @@ export type ServerMessage =
   | { type: "typing"; roomId: string }
   | { type: "peer-left"; roomId: string }
   | { type: "reported" }
+  /** Ack for "user-report" — the client shows its "Report sent" confirmation on receiving this, the same way "reported" already does for the in-call report. */
+  | { type: "user-reported" }
   /** `ok: false` means the block was NOT actually persisted (e.g. a database failure, or there was no live partner to block by the time this was processed) — the client must not present the interaction as blocked if this comes back false; see server/ws-server.ts's "block" handler and hooks/useMatchmaking.ts's handling of it. */
   | { type: "blocked"; ok: boolean }
   /** Ack for "unblock" — `ok` mirrors lib/db.ts's removeBlock() return value (whether a block row actually existed and was removed). */

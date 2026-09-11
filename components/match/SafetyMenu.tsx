@@ -6,7 +6,9 @@ import { DotsIcon, CheckIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_QUICK } from "@/lib/motion"
 import type { ReportCategory } from "@/lib/signaling/protocol"
 
-const CATEGORIES: { value: ReportCategory; label: string }[] = [
+// Shared with ReportButton.tsx (the equivalent report flow for a friend's
+// or another account's profile, reported outside a live call).
+export const REPORT_CATEGORIES: { value: ReportCategory; label: string }[] = [
   { value: "sexual_content", label: "Sexual content" },
   { value: "harassment", label: "Harassment" },
   { value: "hate", label: "Hate" },
@@ -128,7 +130,7 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
 
             {view === "categories" && (
               <div className="flex flex-col">
-                {CATEGORIES.map((category) => (
+                {REPORT_CATEGORIES.map((category) => (
                   <button
                     key={category.value}
                     type="button"

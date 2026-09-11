@@ -19,10 +19,15 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /\bkys\b/i,
   /\bchild\s*porn\b/i,
   /\bcp\b\s*(pic|vid|link)/i,
+  /\b(?:cocaine|heroin|meth(?:amphetamine)?|fentanyl|crack|mdma|ecstasy|molly|lsd|acid|ketamine|oxycontin|xanax|adderall|percocet|vicodin|shrooms?|psilocybin)\b/i,
 ]
 
 export function containsSevereContent(text: string): boolean {
-  return BLOCKED_PATTERNS.some((pattern) => pattern.test(text))
+  // Lowercase explicitly rather than relying solely on each pattern's /i
+  // flag — belt-and-suspenders so a slur in ANY casing (NIGGERS, NiggerS,
+  // etc.) is caught even if a future pattern is added without /i.
+  const lowered = text.toLowerCase()
+  return BLOCKED_PATTERNS.some((pattern) => pattern.test(lowered))
 }
 
 // Chat-only rules: do not change username or bio policy. Whole-word

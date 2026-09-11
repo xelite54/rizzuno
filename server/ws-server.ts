@@ -1498,6 +1498,18 @@ export function createRizzunoWebSocketServer() {
           }
           break
         }
+        case "user-report": {
+          if (message.targetUserId && message.targetUserId !== state.userId) {
+            await fileReport({
+              reporterId: state.userId,
+              reportedId: message.targetUserId,
+              category: message.category,
+              details: sanitizeText(message.details, MAX_REPORT_DETAILS_LENGTH) || undefined,
+            })
+          }
+          send(state.ws, { type: "user-reported" })
+          break
+        }
         case "friend-block": {
           if (message.targetUserId && message.targetUserId !== state.userId) {
             try {
