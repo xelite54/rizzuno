@@ -5,7 +5,7 @@ import { ProfileActionsMenu } from "./ProfileActionsMenu"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 import panelStyles from "./SocialPanel.module.css"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { PostGallery } from "./PostGallery"
 import type { MatchInvitation, ReportCategory } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
@@ -153,6 +153,29 @@ export function FriendsPanel({
 
   // Per-row "•••" menu on a friend in the list (View profile / Unfriend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
+  // Each row's own wrapping element, keyed by friend.id — populated by the
+  // row's own ref callback below, purely so the outside-click effect can
+  // tell "inside the currently-open row" (its trigger + dropdown) apart
+  // from everywhere else, without needing one ref per friend declared up
+  // front (the friends list itself is dynamic).
+  const rowMenuRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  // Clicking anywhere outside the open row menu (its trigger or dropdown)
+  // closes it — the same as clicking the trigger again would. A click
+  // elsewhere (another row, the chat, the background) should never leave
+  // this open underneath whatever was actually clicked.
+  useEffect(() => {
+    if (!rowMenuFriendId) return
+    function handlePointerDown(event: PointerEvent) {
+      const container = rowMenuRefs.current.get(rowMenuFriendId!)
+      if (container && !container.contains(event.target as Node)) {
+        setRowMenuFriendId(null)
+        setRowMenuConfirm(null)
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown)
+    return () => document.removeEventListener("pointerdown", handlePointerDown)
+  }, [rowMenuFriendId])
 
   // Username search: debounced against the real account search backend
   // (see app/api/friends/search) — searchResults/searchLoading/searchErrored
@@ -662,6 +685,10 @@ export function FriendsPanel({
                     {friends.map((friend) => (
                       <div
                         key={friend.id}
+                        ref={(el) => {
+                          if (el) rowMenuRefs.current.set(friend.id, el)
+                          else rowMenuRefs.current.delete(friend.id)
+                        }}
                         className="relative mx-3 flex w-[calc(100%-1.5rem)] items-center gap-3 rounded-2xl px-3 py-3 transition hover:bg-surface-2"
                       >
                         <button
@@ -864,10 +891,10 @@ export function FriendsPanel({
                         )}
                         {/* The reply button lives in the same row as the
                             bubble, on its trailing (outer) side, so it's
-                            reachable without covering the text — dim by
-                            default, brightening near the row on hover; on
-                            touch it's already visible (just dim), since
-                            there's no hover to reveal it there. */}
+                            reachable without covering the text — hidden
+                            until the mouse is actually near that row
+                            (group-hover), rather than sitting dimly visible
+                            all the time. */}
                         <div className={`group flex max-w-[80%] items-end gap-1 ${isMine ? "ml-auto flex-row-reverse" : ""}`}>
                           <div className="min-w-0">
                             <div
@@ -914,7 +941,7 @@ export function FriendsPanel({
                             type="button"
                             onClick={() => setReplyingTo(message)}
                             aria-label="Reply to this message"
-                            className="mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted opacity-40 transition hover:bg-surface-2 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                            className="mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted opacity-0 transition hover:bg-surface-2 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             <ReplyIcon className="h-3.5 w-3.5" />
                           </button>

@@ -57,11 +57,15 @@ function detectFormatFromMagicBytes(bytes: Buffer): DetectedFormat | null {
 }
 
 // String length of the data URL itself — cheap, checked before any
-// decoding happens at all.
-const MAX_DATA_URL_LENGTH = 2_000_000
+// decoding happens at all. Sized for the largest surface that reaches
+// this shared check: posts, standardized around a 1080×1350 WebP (see
+// lib/image.ts's cropAndResizePostToDataUrl) — chat/profile-photo stay
+// well under this regardless, since those resize to a much smaller 480–
+// 640px on their own.
+const MAX_DATA_URL_LENGTH = 4_000_000
 // Decoded byte length — the real enforcement point; base64 overhead means
 // this is always somewhat smaller than MAX_DATA_URL_LENGTH.
-const MAX_DECODED_BYTES = 1_600_000
+const MAX_DECODED_BYTES = 3_000_000
 // Declared pixel dimensions, read from the header only (image-size never
 // decodes full pixel data) — this is what actually blocks a
 // decompression-bomb-style upload (a tiny file claiming an enormous

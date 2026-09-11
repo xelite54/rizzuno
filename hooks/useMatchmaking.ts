@@ -626,18 +626,36 @@ export function useMatchmaking(
   }, [send])
 
   const skip = useCallback(() => {
+    // Captured before setRoomId(null, ...) below, which clears
+    // roomSourceRef.current as part of clearing the room itself — see
+    // setRoomId's own doc comment.
+    const endedRoomSource = roomSourceRef.current
     recordHistory(peerRef.current)
     setRoomId(null, "user_skip")
     setPeer(null)
     setMessages([])
     setPeerMicEnabled(true)
     setPeerTyping(false)
-    // A genuinely new search — gets its own fresh retry budget, not
-    // whatever was left over from a previous, unrelated attempt.
+    // Whatever attempt was in flight is over either way — a genuinely new
+    // search (below) gets its own fresh budget, not whatever was left over
+    // from a previous, unrelated attempt; ending a friend call has no
+    // attempt to give a budget to at all.
     queuePendingRetryCountRef.current = 0
-    enterQueuePending({ type: "skip-sent" })
-    send({ type: "skip" })
-  }, [send, recordHistory, enterQueuePending, setRoomId])
+    if (endedRoomSource === "friend") {
+      // Same reasoning as "peer-left"/"room-setup-failed"'s own friend-call
+      // branches — ending a direct call must never read as (or behave
+      // like) skipping a random match: both sides land back on idle/home,
+      // never straight into random searching. "leave" (not "skip") is
+      // what keeps the server from auto-queueing a fresh random match for
+      // this side the instant it's sent.
+      setServerState((prev) => nextMatchState(prev, { type: "reset-idle" }))
+      send({ type: "leave" })
+      if (wantsMatchingRef.current) findMatch()
+    } else {
+      enterQueuePending({ type: "skip-sent" })
+      send({ type: "skip" })
+    }
+  }, [send, recordHistory, enterQueuePending, setRoomId, findMatch])
 
   /**
    * Appending a message to `messages` the instant it's sent used to mean

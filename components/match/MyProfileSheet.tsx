@@ -5,7 +5,7 @@ import styles from "./MyProfileSheet.module.css"
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
-import { resizeImageToDataUrl } from "@/lib/image"
+import { resizeImageToDataUrl, cropAndResizePostToDataUrl, PostImageError } from "@/lib/image"
 import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
 import { containsBlockedChatContent, stripNonEnglish } from "@/lib/textFilter"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
@@ -113,6 +113,11 @@ export function MyProfileSheet({
   const plus = useRizzPlus()
   const [bioError, setBioError] = useState<string | null>(null)
   const [pendingPostImage, setPendingPostImage] = useState<string | null>(null)
+  // Set only when handleNewPostPicked's own crop/resize step (not the
+  // server) rejects the picked file — shown right where the picker was
+  // triggered from, since there's no pendingPostImage yet to show a
+  // "newPost" preview screen for.
+  const [pickError, setPickError] = useState<string | null>(null)
   const [sharingPost, setSharingPost] = useState(false)
   const [shareError, setShareError] = useState<string | null>(null)
   const [viewingPost, setViewingPost] = useState<Post | null>(null)
@@ -148,6 +153,7 @@ export function MyProfileSheet({
   function resetToProfile() {
     setView("profile")
     setPendingPostImage(null)
+    setPickError(null)
     setShareError(null)
     setViewingPost(null)
     setConfirmingDeletePost(false)
@@ -294,11 +300,24 @@ export function MyProfileSheet({
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file || !file.type.startsWith("image/") || posts.length >= MAX_POSTS) return
+    setPickError(null)
     try {
-      setPendingPostImage(await resizeImageToDataUrl(file, 640, 0.78))
+      // Standardizes every post around Rizzuno's one 4:5 shape — see
+      // cropAndResizePostToDataUrl's own doc comment for exactly what it
+      // does (size cap, center-crop, floor, WebP) before this ever reaches
+      // the "newPost" preview/share step.
+      setPendingPostImage(await cropAndResizePostToDataUrl(file))
       setView("newPost")
-    } catch {
-      // Unsupported image — skip silently.
+    } catch (err) {
+      setPickError(
+        err instanceof PostImageError
+          ? err.reason === "too_large"
+            ? "That photo is larger than 10MB — try a smaller one."
+            : err.reason === "too_small"
+              ? "That photo's resolution is too low — try one at least 640×800."
+              : "Couldn't read that photo — try a different one."
+          : "Couldn't read that photo — try a different one."
+      )
     }
   }
 
@@ -500,6 +519,7 @@ export function MyProfileSheet({
                     <div><p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#ab94a7]">Photo journal</p><h2 className="text-[26px] font-medium tracking-[-0.04em]">Little pieces of you.</h2></div>
                     <span className="shrink-0 pb-1 text-[11px] tabular-nums text-muted">{posts.length} / {MAX_POSTS}</span>
                   </div>
+                  {pickError && <p role="alert" className="mb-4 text-[12px] text-danger">{pickError}</p>}
                   {/* Three across — the add tile always leads, with your
                       most recent post right after it, so that post lands in
                       the middle of the row rather than off to a side. */}
@@ -509,7 +529,7 @@ export function MyProfileSheet({
                       onClick={() => { if (plus.requirePlus("posts")) postInputRef.current?.click() }}
                       disabled={posts.length >= MAX_POSTS}
                       aria-label={posts.length >= MAX_POSTS ? `Limit of ${MAX_POSTS} posts reached` : "Add a post"}
-                      className="flex aspect-[4/5] flex-col items-center justify-center gap-3 rounded-[16px] border border-[#c8a6bf]/25 bg-[#211925] text-[#d0b8c9] transition hover:border-[#c8a6bf]/60 hover:bg-[#2b2030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40"
+                      className="flex aspect-square flex-col items-center justify-center gap-3 rounded-2xl border border-[#c8a6bf]/25 bg-[#211925] text-[#d0b8c9] transition hover:border-[#c8a6bf]/60 hover:bg-[#2b2030] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40"
                     >
                       <PlusIcon className="h-5 w-5" />
                       <span className="text-[11px]">Add photo</span>
@@ -524,7 +544,7 @@ export function MyProfileSheet({
                           setView("viewPost")
                         }}
                         aria-label="View post"
-                        className="group relative aspect-[4/5] overflow-hidden rounded-[16px] border border-border bg-surface-2 transition hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                        className="group relative aspect-square overflow-hidden rounded-2xl border border-border bg-surface-2 transition hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL post image, not a static asset */}
                         <img
@@ -758,9 +778,14 @@ export function MyProfileSheet({
             )}
 
             {view === "newPost" && pendingPostImage && (
-              <div className="mx-auto w-full max-w-lg px-6 py-6">
+              <div className="mx-auto w-full max-w-[520px] px-4 py-6">
+                {/* Every post is already cropped to exactly 4:5 before it
+                    ever gets here (see cropAndResizePostToDataUrl) — the
+                    explicit aspect-[4/5] here is just belt-and-suspenders
+                    against a post that predates this, not doing the work
+                    itself. */}
                 {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL post preview, not a static asset */}
-                <img src={pendingPostImage} alt="New post preview" className="w-full rounded-2xl border border-border object-cover" />
+                <img src={pendingPostImage} alt="New post preview" className="aspect-[4/5] w-full rounded-2xl border border-border object-cover" />
                 {shareError && <p className="mt-2 text-[12px] text-danger">{shareError}</p>}
                 <button
                   type="button"
@@ -784,7 +809,7 @@ export function MyProfileSheet({
                     className="max-h-[70vh] w-full max-w-2xl rounded-xl object-contain"
                   />
                 </div>
-                <div className="mx-auto w-full max-w-lg px-6 py-4">
+                <div className="mx-auto w-full max-w-[520px] px-4 py-4">
                   {confirmingDeletePost ? (
                     <div>
                       <p className="mb-2 text-[13px] text-muted">Delete this post? This can&apos;t be undone.</p>

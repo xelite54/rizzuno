@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { DotsIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_QUICK } from "@/lib/motion"
@@ -36,13 +36,31 @@ type ProfileActionsMenuProps = {
  */
 export function ProfileActionsMenu({ ariaLabel, children, onClose, align = "end", compact = false }: ProfileActionsMenuProps) {
   const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
   const close = () => {
     setOpen(false)
     onClose?.()
   }
 
+  // Clicking anywhere outside the trigger/dropdown closes it, the same as
+  // clicking the trigger again would — a click that lands elsewhere (the
+  // rest of the page, a different control) should never leave this open
+  // underneath whatever the person actually meant to interact with.
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(event: PointerEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setOpen(false)
+        onClose?.()
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown)
+    return () => document.removeEventListener("pointerdown", handlePointerDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only `open` should re-arm this listener; every caller's `onClose` does the same thing on every render (e.g. reset local confirm state), so capturing whichever render's copy was current when the menu opened is never observably different from a "fresher" one
+  }, [open])
+
   return (
-    <div className="relative">
+    <div className="relative" ref={rootRef}>
       <button
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
