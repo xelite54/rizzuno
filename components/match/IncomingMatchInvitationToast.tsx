@@ -33,7 +33,7 @@ export function IncomingMatchInvitationToast({ invitation, canAccept, error, onR
               {invitation.username.charAt(0).toUpperCase()}
             </span>
             <div className="min-w-0 flex-1 pt-1">
-              <p className="truncate text-[14px] font-semibold text-foreground">@{invitation.username}</p>
+              <p className="truncate text-[14px] font-semibold text-foreground">{invitation.username}</p>
               <p className="mt-1 text-[13px] text-muted">Wants to match with you</p>
             </div>
             <button type="button" onClick={() => onDismiss(invitation.id)} aria-label="Dismiss match invitation notification" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2">

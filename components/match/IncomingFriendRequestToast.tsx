@@ -51,7 +51,7 @@ export function IncomingFriendRequestToast({
                 <span className="block truncate text-[13px] font-semibold text-foreground">
                   {request.displayName}
                 </span>
-                <span className="block truncate text-[11px] text-muted">@{request.username}</span>
+                <span className="block truncate text-[11px] text-muted">{request.username}</span>
               </button>
               <p className="mt-1 text-[12px] text-muted">sent you a friend request</p>
             </div>

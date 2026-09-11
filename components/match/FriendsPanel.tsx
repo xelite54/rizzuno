@@ -627,7 +627,7 @@ export function FriendsPanel({
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[13px] font-medium text-foreground">
-                                @{person.username}
+                                {person.username}
                               </span>
                             </span>
                             <button
@@ -1005,7 +1005,7 @@ export function FriendsPanel({
                     <h3 className="px-1 pb-2 text-[12px] font-medium text-muted">Match invitations · expire after 1 minute</h3>
                     {incomingMatchInvitations.map((invite) => (
                       <div key={invite.id} className="mb-3 rounded-2xl border border-border p-4">
-                        <p className="truncate text-[14px] font-semibold text-foreground">@{invite.username}</p>
+                        <p className="truncate text-[14px] font-semibold text-foreground">{invite.username}</p>
                         <p className="mt-1 text-[12px] text-muted">Wants to match with you</p>
                         <div className="mt-3 grid grid-cols-2 gap-2">
                           <button type="button" onClick={() => onRespondToMatchInvitation(invite.id, false)} className="h-11 rounded-xl border border-border text-[13px] text-muted hover:bg-surface-2">Decline</button>
@@ -1227,7 +1227,7 @@ export function FriendsPanel({
                     </span>
                     <div className="mt-4 flex items-center gap-1">
                       <p className="text-[18px] font-semibold text-foreground">
-                        {friendProfile?.username ? `@${friendProfile.username}` : friendName}
+                        {friendProfile?.username ?? friendName}
                       </p>
                       <ProfileActionsMenu ariaLabel={`More options for ${friendName}`} align="center" compact onClose={() => setFriendActionConfirm(null)}>
                         {(closeMenu) =>
@@ -1302,7 +1302,7 @@ export function FriendsPanel({
                       ))}
                     </div>
                   ) : friendProfile && friendProfile.posts.length > 0 ? (
-                    <PostGallery key={viewingFriend.id} posts={friendProfile.posts} owner={friendProfile.username ? `@${friendProfile.username}` : friendName} />
+                    <PostGallery key={viewingFriend.id} posts={friendProfile.posts} owner={friendProfile.username ?? friendName} />
                   ) : (
                     <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
                   )}
@@ -1358,13 +1358,13 @@ export function FriendsPanel({
                   </span>
                 )}
                 <div className="mt-4 flex items-center gap-1">
-                  <p className="text-[18px] font-semibold text-foreground">@{viewingSearchResult.username}</p>
-                  <ProfileActionsMenu ariaLabel={`More options for @${viewingSearchResult.username}`} align="center" compact onClose={() => setSearchResultBlockConfirm(false)}>
+                  <p className="text-[18px] font-semibold text-foreground">{viewingSearchResult.username}</p>
+                  <ProfileActionsMenu ariaLabel={`More options for ${viewingSearchResult.username}`} align="center" compact onClose={() => setSearchResultBlockConfirm(false)}>
                     {(closeMenu) =>
                       searchResultBlockConfirm ? (
                         <div className="px-2 py-1.5">
                           <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
-                            Block @{viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
+                            Block {viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
                             show up in search.
                           </p>
                           <div className="flex gap-1.5">
@@ -1434,14 +1434,14 @@ export function FriendsPanel({
         {enlargedFriendPhoto && (
           <ProfilePhotoViewer
             photo={enlargedFriendPhoto}
-            owner={friendProfile?.username ? `@${friendProfile.username}` : (viewingFriend?.displayName ?? "Friend")}
+            owner={friendProfile?.username ?? (viewingFriend?.displayName ?? "Friend")}
             onClose={() => setEnlargedFriendPhoto(null)}
           />
         )}
         {enlargedSearchResultPhoto && (
           <ProfilePhotoViewer
             photo={enlargedSearchResultPhoto}
-            owner={viewingSearchResult ? `@${viewingSearchResult.username}` : "Profile"}
+            owner={viewingSearchResult?.username ?? "Profile"}
             onClose={() => setEnlargedSearchResultPhoto(null)}
           />
         )}

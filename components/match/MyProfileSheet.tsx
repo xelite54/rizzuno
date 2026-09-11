@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl } from "@/lib/image"
 import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
-import { containsBlockedChatContent } from "@/lib/textFilter"
+import { containsBlockedChatContent, stripNonEnglish } from "@/lib/textFilter"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
 import { RizzPlusBadge } from "@/components/RizzPlusBadge"
 import Link from "next/link"
@@ -402,22 +402,11 @@ export function MyProfileSheet({
           className={`${panelStyles.panel} ${styles.shell} fixed inset-0 z-50 flex flex-col`}
           data-upgrade-return={`/?panel=profile&view=${view}`}
         >
-          <div className={`${styles.header} flex h-18 shrink-0 items-center gap-3 border-b border-white/8`}>
-            {/* Viewing a single post is a dead end reached only from the grid,
-                one level deep — the header's X (handleXClick, below) already
-                takes you straight back to the profile, so a separate Back
-                button here would just be a second way to do the same thing. */}
-            {view !== "profile" && view !== "viewPost" ? (
-              <button
-                type="button"
-                onClick={goBack}
-                aria-label="Back"
-                className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-              >
-                <ChevronLeftIcon className="h-4 w-4" />
-              </button>
-            ) : null}
-            <span className="flex-1 text-[15px] font-semibold text-foreground">
+          <div className={`${styles.header} flex shrink-0 flex-col gap-1 border-b border-white/8 pb-2 pt-4`}>
+            {/* The title now sits on its own line above the Back/X row
+                (previously all three shared one row) — same text, same
+                meaning, just not sharing a line with the buttons any more. */}
+            <span className="text-[15px] font-semibold text-foreground">
               {view === "edit"
                 ? "Edit profile"
                 : view === "newPost"
@@ -432,14 +421,32 @@ export function MyProfileSheet({
                           ? "Settings"
                           : "My profile"}
             </span>
-            <button
-              type="button"
-              onClick={handleXClick}
-              aria-label={view === "profile" ? "Close" : "Done"}
-              className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-            >
-              <CloseIcon className="h-4 w-4" />
-            </button>
+            <div className="-mx-1.5 flex h-11 items-center gap-3">
+              {/* Viewing a single post is a dead end reached only from the
+                  grid, one level deep — the header's X (handleXClick, below)
+                  already takes you straight back to the profile, so a
+                  separate Back button here would just be a second way to
+                  do the same thing. */}
+              {view !== "profile" && view !== "viewPost" ? (
+                <button
+                  type="button"
+                  onClick={goBack}
+                  aria-label="Back"
+                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </button>
+              ) : null}
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={handleXClick}
+                aria-label={view === "profile" ? "Close" : "Done"}
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+              >
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -458,7 +465,7 @@ export function MyProfileSheet({
                   </span>
 
                   <h1 className="mt-5 break-words text-[25px] font-medium tracking-[-0.04em] text-foreground">
-                    {username ? `@${username}` : handle}
+                    {username || handle}
                     {plus.active && <RizzPlusBadge className="ml-2" />}
                   </h1>
                   <p className="mt-3 whitespace-pre-wrap text-[13px] leading-relaxed text-[#b7abb9] [overflow-wrap:anywhere]">
@@ -568,7 +575,6 @@ export function MyProfileSheet({
                 <div className="mt-6">
                   <label htmlFor="edit-username" className="mb-2 block text-[13px] font-medium text-foreground">Username</label>
                   <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 focus-within:ring-2 focus-within:ring-accent-2">
-                    <span className="text-[13px] text-muted">@</span>
                     <input
                       id="edit-username"
                       maxLength={USERNAME_MAX_LENGTH}
@@ -594,12 +600,12 @@ export function MyProfileSheet({
                     aria-invalid={!!bioError}
                     aria-describedby={bioError ? "edit-bio-error" : undefined}
                     value={editBioDraft}
-                    onChange={(event) => { setEditBioDraft(event.target.value.slice(0, 200)); setBioError(null) }}
+                    onChange={(event) => { setEditBioDraft(stripNonEnglish(event.target.value).slice(0, 200)); setBioError(null) }}
                     placeholder="Tell people a little about yourself"
                     rows={4}
                     className="w-full resize-none rounded-xl border border-border bg-surface-2 px-3.5 py-2.5 text-[13px] text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   />
-                  <p className="mt-1 text-right text-[11px] text-muted">{editBioDraft.length}/200</p>
+                  <p className="mt-1 flex justify-between gap-3 text-[11px] text-muted"><span>English only</span><span>{editBioDraft.length}/200</span></p>
                   {bioError && <p id="edit-bio-error" role="alert" className="mt-2 text-[12px] text-danger">{bioError}</p>}
                 </div>
 
@@ -823,7 +829,7 @@ export function MyProfileSheet({
                 ) : (
                   <div className="space-y-1">
                     {history.map((person, index) => {
-                      const identity = person.username ? `@${person.username}` : person.handle
+                      const identity = person.username || person.handle
                       const friendAction = friendActionState.get(person.displayId) ?? "none"
                       return (
                         <div

@@ -79,7 +79,12 @@ export function StatusPill({ state, cameraUnavailable = false, onPauseMatching, 
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className={`flex items-center rounded-full bg-black/60 ${label ? "gap-3 py-3 pl-3 pr-5" : "p-3"}`}>
+      {/* The dark pill background is only for contrast behind actual text
+          ("Connecting…"/"Couldn't find a match…") — the bare logo shown
+          while just waiting for a match (queue-pending/searching/
+          peer-left, no label at all) sits directly over the video with no
+          backdrop behind it. */}
+      <div className={label ? "flex items-center gap-3 rounded-full bg-black/60 py-3 pl-3 pr-5" : "flex items-center p-3"}>
         {/* The same mark the login page uses — not a separate
             reimplementation of it, just this component at a size that
             fits next to the pill's own text. */}

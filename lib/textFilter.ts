@@ -68,3 +68,13 @@ export function sanitizeText(input: unknown, maxLength: number): string {
   const stripped = input.replace(CONTROL_CHAR_PATTERN, "")
   return stripped.trim().slice(0, maxLength)
 }
+
+// Tab/newline/CR plus the printable ASCII range — everything sanitizeText()
+// already lets through MINUS anything outside plain English text (accented
+// Latin, CJK, Cyrillic, Arabic/Hebrew, emoji, etc.).
+const NON_ENGLISH_PATTERN = /[^\t\n\r\x20-\x7E]/g
+
+/** English-only free-text fields (currently just the bio — see MyProfileSheet.tsx's live-filtered textarea and app/api/profile/me's PUT handler, its server-side backstop): drops any character outside plain ASCII rather than rejecting the whole edit, the same "quietly normalize, don't block" treatment sanitizeText() already gives control characters. */
+export function stripNonEnglish(input: string): string {
+  return input.replace(NON_ENGLISH_PATTERN, "")
+}

@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { getPublicProfile, updateOwnProfile, getUserStatus, describeDbError, hasRizzPlus, getAccountGender } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { moderateImage } from "@/lib/imageModeration"
-import { containsBlockedChatContent, sanitizeText } from "@/lib/textFilter"
+import { containsBlockedChatContent, sanitizeText, stripNonEnglish } from "@/lib/textFilter"
 
 const MAX_BIO_LENGTH = 200
 
@@ -114,7 +114,12 @@ export async function PUT(request: Request) {
     if (typeof body.bio !== "string") {
       return NextResponse.json({ error: "invalid_bio" }, { status: 400 })
     }
-    updates.bio = sanitizeText(body.bio, MAX_BIO_LENGTH)
+    // English-only — see lib/textFilter.ts's stripNonEnglish() doc comment.
+    // The bio textarea already filters this live; this is the same
+    // "don't trust the client" backstop sanitizeText()'s own control-
+    // character stripping already is, for a bio saved some other way
+    // (a direct API call, a client that skipped the live filter).
+    updates.bio = stripNonEnglish(sanitizeText(body.bio, MAX_BIO_LENGTH))
     if (containsBlockedChatContent(updates.bio)) {
       return NextResponse.json({ error: "bio_blocked" }, { status: 400 })
     }

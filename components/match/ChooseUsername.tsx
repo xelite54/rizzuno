@@ -59,7 +59,6 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
 
         <form onSubmit={handleSubmit} className="mt-6">
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2 px-3.5 py-3 transition focus-within:border-foreground/25">
-            <span className="text-[15px] text-muted">@</span>
             <input
               autoFocus
               value={value}
