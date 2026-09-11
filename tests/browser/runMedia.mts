@@ -6,9 +6,11 @@ import { dbMockState } from "../helpers/dbMock.mts"
 import { createRizzunoWebSocketServer } from "../../server/ws-server"
 import { mintTicket } from "../../lib/realtimeTicket"
 import { build } from "esbuild"
+import postcss from "postcss"
+import tailwind from "@tailwindcss/postcss"
 import { createServer } from "node:http"
 import { spawn } from "node:child_process"
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import assert from "node:assert/strict"
@@ -18,11 +20,14 @@ process.env.REALTIME_TICKET_SECRET = "browser-test-only-secret"
 dbMockState.areFriendsImpl = async () => true
 const chrome = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 const artifactDir = await mkdtemp(path.join(tmpdir(), "rizzuno-media-"))
-const output = await build({ entryPoints: ["tests/browser/mediaHarness.tsx"], bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic", define: { "process.env.NODE_ENV": '"development"', "process.env.NEXT_PUBLIC_WS_URL": '""', "process.env.NEXT_PUBLIC_TURN_URL": '""', "process.env.NEXT_PUBLIC_TURN_USERNAME": '""', "process.env.NEXT_PUBLIC_TURN_CREDENTIAL": '""' } })
-const html = '<!doctype html><html><body><div id="root"></div><script src="/harness.js"></script></body></html>'
+const output = await build({ entryPoints: ["tests/browser/mediaHarness.tsx"], bundle: true, outdir: artifactDir, write: false, platform: "browser", format: "iife", jsx: "automatic", define: { "process.env.NODE_ENV": '"development"', "process.env.NEXT_PUBLIC_WS_URL": '""', "process.env.NEXT_PUBLIC_TURN_URL": '""', "process.env.NEXT_PUBLIC_TURN_USERNAME": '""', "process.env.NEXT_PUBLIC_TURN_CREDENTIAL": '""' } })
+const styles = await postcss([tailwind()]).process(await readFile("app/globals.css", "utf8"), { from: "app/globals.css" })
+const css = styles.css + (output.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? "")
+const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/harness.css"></head><body><div id="root"></div><script src="/harness.js"></script></body></html>'
 const server = createServer((req, res) => {
   const url = new URL(req.url!, "http://localhost")
-  if (url.pathname === "/harness.js") { res.setHeader("Content-Type", "application/javascript"); res.end(output.outputFiles[0].contents) }
+  if (url.pathname === "/harness.js") { res.setHeader("Content-Type", "application/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
+  else if (url.pathname === "/harness.css") { res.setHeader("Content-Type", "text/css"); res.end(css) }
   else if (url.pathname === "/api/realtime/ticket") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ ticket: mintTicket(url.searchParams.get("account") ?? "browser-a") })) }
   else if (url.pathname === "/api/realtime/turn") { res.setHeader("Content-Type", "application/json"); res.end('{"configured":false}') }
   else if (url.pathname === "/blank") res.end("<!doctype html><html><body>WebRTC regression fixture</body></html>")
@@ -126,9 +131,36 @@ try {
   console.log("BROWSER: reproduced original one-way sender association failure")
   for (const browser of browsers) await browser.call("Page.navigate", { url: `${origin}/?account=browser-${browser.side}` })
   await until("capture and realtime ready", s => s.every(x => x.ready && x.status === "granted"))
-  await browsers[0].evaluate("window.harness.blockAudio(true)")
+  await browsers[0].evaluate("window.harness.blockAudio(true); window.harness.blockVideo(true)")
+  await browsers[1].call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await browsers[0].evaluate("window.harness.find()")
   await browsers[1].evaluate("window.harness.find()")
+  await until("chat available before video playback", s => s.every(x => x.canChat) && s[0].state === "connecting")
+  for (const browser of browsers) {
+    const identity = browser.side === "a" ? "browser-b" : "browser-a"
+    assert.equal(await browser.evaluate(`Boolean(document.querySelector('[aria-label^="View ${identity}"]'))`), true)
+    await browser.evaluate(`document.querySelector('[aria-label^="View ${identity}"]').click()`)
+    await delay(350)
+    assert.equal(await browser.evaluate(`Boolean(document.querySelector('[aria-label="Close"]'))`), true)
+    await browser.evaluate(`document.querySelector('[aria-label="Close"]').click(); document.querySelector('[aria-label="Open chat"]').click()`)
+    await delay(350)
+    await browser.evaluate(`(() => { const input=document.querySelector('input[aria-label="Message"]'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(input,'hello from ${browser.side}'); input.dispatchEvent(new Event('input',{bubbles:true})); })()`)
+    await browser.evaluate(`document.querySelector('[aria-label="Send message"]').click()`)
+  }
+  await until("both chat messages delivered and acknowledged", s => s.every(x => x.messages.length === 2 && x.messages.some((m: any) => m.from === "peer") && x.messages.some((m: any) => m.from === "me" && m.status === "sent")))
+  for (const [width, height] of [[390,844],[320,568],[390,430],[844,390]]) {
+    await browsers[1].call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true })
+    await delay(350)
+    const bounds = await browsers[1].evaluate(`(() => { const panel=document.querySelector('[aria-label="Live match chat"]'); const r=panel.getBoundingClientRect();const input=document.querySelector('input[aria-label="Message"]');const i=input.getBoundingClientRect(); return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,inputBottom:i.bottom,root:panel.parentElement===document.body,hit:document.elementFromPoint(i.left+10,i.top+10)===input,text:panel.textContent}; })()`)
+    assert.ok(bounds.root && bounds.left >= 0 && bounds.top >= 0 && bounds.right <= width && bounds.bottom <= height && bounds.inputBottom <= height && bounds.hit, JSON.stringify(bounds))
+    assert.ok(bounds.text.includes("hello from a") && bounds.text.includes("hello from b"))
+  }
+  await browsers[1].call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  await writeFile(path.join(artifactDir,"mobile-chat.png"), Buffer.from((await browsers[1].call("Page.captureScreenshot")).data,"base64"))
+  for (const browser of browsers) await browser.evaluate(`document.querySelector('[aria-label="Live match chat"] [aria-label="Close chat"]').click()`)
+  await browsers[0].evaluate("window.harness.blockVideo(false)")
+  console.log("BROWSER: matched profiles open before playback; chat delivered both ways; mobile portrait, narrow, keyboard-height and landscape panels are visible and interactive")
+  results.matchUi = { profilesBeforePlayback: true, bidirectionalChat: true, mobileViewports: 4 }
   let snapshots = await until("both directions active", s => healthy(s, 1))
   assertColors(snapshots)
   const room = snapshots[0].roomId
@@ -157,7 +189,7 @@ try {
   results.twoMinuteCall = { elapsedMs: Date.now() - started, samples, snapshots }
   assert.equal(snapshots[0].peer.muted, true, "autoplay fallback must keep the peer picture running muted")
   await browsers[0].evaluate("window.harness.blockAudio(false)")
-  await browsers[0].call("Runtime.evaluate", { expression: "document.querySelector('button').click()", userGesture: true })
+  await browsers[0].call("Runtime.evaluate", { expression: "Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Tap to hear')).click()", userGesture: true })
   await until("gesture restores peer sound", s => healthy(s, 1) && !s[0].peer.muted)
   await Promise.all(browsers.map(b => b.evaluate("window.harness.hydrate(true)")))
   await browsers[0].evaluate("window.harness.mute()")

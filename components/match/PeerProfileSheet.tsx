@@ -72,7 +72,7 @@ export function PeerProfileSheet({ peer, open, friendState, onAddFriend, onClose
                 )}
               </div>
 
-              <div className="mt-8">
+              <div className="mt-8 border-t border-border pt-8">
                 {open && <PublicProfilePosts key={peer.username} username={peer.username} />}
               </div>
             </div>

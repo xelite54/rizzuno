@@ -84,7 +84,7 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
               </button>
             </div>
 
-            <div className="mt-8 w-full max-w-lg">
+            <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
               <PublicProfilePosts key={request.username} username={request.username} />
             </div>
           </div>

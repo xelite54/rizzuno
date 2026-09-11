@@ -22,6 +22,7 @@ type SwipeStageProps = {
   peerMicEnabled?: boolean
   friendState: FriendState
   onAddFriend: () => void
+  onViewProfile: () => void
   remoteStream: MediaStream | null
   /** The current match's room id — threaded straight through to the peer VideoTile, which tags its own playback-readiness reports with it (see VideoTile.tsx's `roomId` prop and useMatchmaking.ts's `reportRemoteVideoPlaying`). `null` whenever there's no active room; VideoTile simply never reports readiness in that case. */
   roomId: string | null
@@ -46,6 +47,7 @@ export function SwipeStage({
   peerMicEnabled = true,
   friendState,
   onAddFriend,
+  onViewProfile,
   remoteStream,
   roomId,
   onRemoteVideoPlaying,
@@ -264,7 +266,7 @@ export function SwipeStage({
         )}
 
         <AnimatePresence mode="wait">
-          {matchState === "active" && peer ? (
+          {roomId && peer && (
             <motion.div
               key={peer.displayId}
               initial={{ opacity: 0, y: 8 }}
@@ -273,9 +275,12 @@ export function SwipeStage({
               transition={{ duration: DURATION_BASE, ease: EASE_OUT }}
               className="pointer-events-none absolute inset-0"
             >
-              <PersonBadge peer={peer} friendState={friendState} onAddFriend={onAddFriend} />
+              <PersonBadge peer={peer} friendState={friendState} onAddFriend={onAddFriend} onViewProfile={onViewProfile} />
             </motion.div>
-          ) : (
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {matchState !== "active" && (
             <motion.div
               key="status"
               initial={{ opacity: 0 }}

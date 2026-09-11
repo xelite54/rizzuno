@@ -1072,7 +1072,7 @@ export function FriendsPanel({
                   </button>
                 </div>
 
-                <div className="mt-8 w-full max-w-lg">
+                <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
                   <PublicProfilePosts key={viewingRequester.username} username={viewingRequester.username} />
                 </div>
               </div>
@@ -1209,7 +1209,7 @@ export function FriendsPanel({
                   </>
                 )}
 
-                <div className="mt-8 w-full max-w-lg">
+                <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
                   {loading ? (
                     <div className="grid grid-cols-3 gap-3">
                       {[0, 1, 2].map((i) => (
@@ -1325,7 +1325,7 @@ export function FriendsPanel({
                   </button>
                 </div>
 
-                <div className="mt-8 w-full max-w-lg">
+                <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
                   <PublicProfilePosts key={viewingSearchResult.username} username={viewingSearchResult.username} />
                 </div>
               </div>

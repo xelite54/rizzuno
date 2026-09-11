@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { CloseIcon, SendIcon } from "@/components/icons"
@@ -36,13 +37,7 @@ type MatchChatPanelProps = {
   onNotifyTyping: () => void
 }
 
-/**
- * The match chat, expanded into a small floating panel anchored just above
- * the chat icon on your own video (this must be rendered inside that
- * panel's positioned wrapper for the anchor to land correctly) — not a
- * full-screen takeover, not a screen-edge side panel either. Closes on its
- * own X or by clicking outside it.
- */
+/** Viewport overlay: never clipped by the transformed mobile self-camera tile. */
 export function MatchChatPanel({
   open,
   onClose,
@@ -53,6 +48,7 @@ export function MatchChatPanel({
   onSend,
   onNotifyTyping,
 }: MatchChatPanelProps) {
+  const [viewport, setViewport] = useState<{ height: number; bottom: number } | null>(null)
   const [draft, setDraft] = useState("")
   const [blocked, setBlocked] = useState(false)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -69,6 +65,24 @@ export function MatchChatPanel({
     if (open) listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: reduceMotion ? "instant" : "smooth" })
   }, [open, messages, peerTyping, reduceMotion])
 
+  useEffect(() => {
+    if (!open) return
+    const visual = window.visualViewport
+    const update = () => setViewport({
+      height: visual?.height ?? window.innerHeight,
+      bottom: Math.max(0, window.innerHeight - (visual?.height ?? window.innerHeight) - (visual?.offsetTop ?? 0)),
+    })
+    update()
+    visual?.addEventListener("resize", update)
+    visual?.addEventListener("scroll", update)
+    window.addEventListener("resize", update)
+    return () => {
+      visual?.removeEventListener("resize", update)
+      visual?.removeEventListener("scroll", update)
+      window.removeEventListener("resize", update)
+    }
+  }, [open])
+
   function submit() {
     if (disabled || !draft.trim()) return
     if (containsBlockedChatContent(draft)) {
@@ -80,7 +94,8 @@ export function MatchChatPanel({
     setDraft("")
   }
 
-  return (
+  if (typeof document === "undefined") return null
+  return createPortal(
     <AnimatePresence>
       {open && (
         <>
@@ -102,7 +117,8 @@ export function MatchChatPanel({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
             transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-            className="absolute bottom-16 right-3 z-50 flex h-[460px] max-h-[70dvh] w-[350px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[24px] border border-[#e4c7db]/15 bg-[#141017] text-[#f4edf2] shadow-[0_24px_80px_#0009]"
+            style={viewport ? { bottom: viewport.bottom + (viewport.bottom > 100 ? 12 : 64), maxHeight: Math.max(120, viewport.height - 88) } : undefined}
+            className="fixed bottom-16 right-3 z-50 flex h-[460px] max-h-[70dvh] w-[350px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[24px] border border-[#e4c7db]/15 bg-[#141017] text-[#f4edf2] shadow-[0_24px_80px_#0009]"
           >
             <div className="flex shrink-0 items-center gap-3 border-b border-white/8 bg-[#1d1620] px-4 py-4">
               <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#433044] text-sm font-medium text-[#efd6e7]">
@@ -184,7 +200,7 @@ export function MatchChatPanel({
                 event.preventDefault()
                 submit()
               }}
-              className="m-3 mt-1 flex items-center gap-2 rounded-[18px] border border-white/12 bg-[#201923] p-1.5 focus-within:border-[#cba8c0]/60"
+              className="m-3 mt-1 flex shrink-0 items-center gap-2 rounded-[18px] border border-white/12 bg-[#201923] p-1.5 focus-within:border-[#cba8c0]/60"
             >
               <input
                 value={draft}
@@ -211,6 +227,7 @@ export function MatchChatPanel({
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   )
 }

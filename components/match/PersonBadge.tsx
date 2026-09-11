@@ -10,26 +10,30 @@ type PersonBadgeProps = {
   peer: PeerProfile | null
   friendState: FriendState
   onAddFriend: () => void
+  onViewProfile: () => void
 }
 
-export function PersonBadge({ peer, friendState, onAddFriend }: PersonBadgeProps) {
+export function PersonBadge({ peer, friendState, onAddFriend, onViewProfile }: PersonBadgeProps) {
   if (!peer) return null
 
-  // One identity, not two — their chosen username if they have one, their
-  // random handle otherwise, never both stacked together. No "@" — keeps
-  // the design plain. The full profile (one tap away) keeps it just as
-  // minimal.
   const identity = peer.username ?? peer.handle
   const country = countryLabel(peer.countryCode)
 
   return (
-    <div className="pointer-events-auto absolute left-5 top-5 max-w-[220px]">
-      {/* Faint by default, same as the ••• menu on this side and your own
-          corner controls — their name is context, not the point of the
-          screen, so it shouldn't compete with their actual face. */}
-      <div className="flex items-center gap-1.5 rounded-full bg-black/35 py-1.5 pl-3 pr-1.5 opacity-55 transition-opacity duration-300 hover:opacity-100 focus-within:opacity-100">
-        <span className="truncate text-[13px] font-semibold text-foreground">{identity}</span>
-        {country && <span title={`${country.name} · approximate IP location`} aria-label={country.name} className="shrink-0 text-base">{country.flag}</span>}
+    <div className="pointer-events-auto absolute left-3 top-9 z-10 max-w-[calc(100%-8rem)] md:left-5 md:top-5 md:max-w-[260px]"
+      onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+      <div className="flex items-center gap-1.5 rounded-full bg-black/55 p-1.5">
+        <button type="button" onClick={onViewProfile} aria-label={`View ${identity}'s profile`}
+          className="flex min-w-0 items-center gap-2 rounded-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2">
+          <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-2 text-sm">
+            {peer.profilePhoto ? (
+              // eslint-disable-next-line @next/next/no-img-element -- peer profile image
+              <img src={peer.profilePhoto} alt="" className="h-full w-full object-cover" />
+            ) : identity.charAt(0).toUpperCase()}
+          </span>
+          <span className="truncate text-[13px] font-semibold text-foreground">{identity}</span>
+          {country && <span title={country.name} aria-label={country.name} className="shrink-0 text-base">{country.flag}</span>}
+        </button>
         {FRIENDS_ENABLED && <FriendButton state={friendState} onAdd={onAddFriend} />}
       </div>
     </div>

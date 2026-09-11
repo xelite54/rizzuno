@@ -470,8 +470,8 @@ export function MatchStage() {
   // at that exact moment, `state` just hasn't caught up to it yet.
   const displayedPeer = pendingSkip ? null : peer
   const swipeMatchState = pendingSkip || (state === "active" && !peer) ? "queue-pending" : state
-  const inCall = state === "active" && !pendingSkip && Boolean(peer)
-  // Chat availability, deliberately NOT tied to `inCall`/`state`'s video
+  const hasMatchedPeer = Boolean(roomId && peer) && !pendingSkip
+  // Chat availability is independent of `state`'s video
   // meaning — see useMatchmaking's `canMatchChat` doc comment for why. A
   // server-confirmed match already has a valid peer relationship before
   // WebRTC video finishes connecting; chat has no reason to wait for
@@ -595,14 +595,14 @@ export function MatchStage() {
   const canAcceptMatchInvitation = realtimeReady && !cameraUnavailable && (state === "idle" || state === "paused")
 
   useEffect(() => {
-    if (state === "connecting" || state === "active") {
+    if (roomId) {
       // A friend accepted a direct invitation; reveal the existing call UI.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFriendsOpen(false)
       setMyProfileOpen(false)
       setProfileOpen(false)
     }
-  }, [state])
+  }, [roomId])
 
   return (
     <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-home-glow" : "bg-background"}`}>
@@ -647,7 +647,7 @@ export function MatchStage() {
           />
           {/* Every personal control is anchored to the self-video itself.
               Friends/profile sit at the top and media/chat at the bottom;
-              neither becomes a detached viewport toolbar on mobile. */}
+              mobile call controls are rendered outside this clipped self-view below. */}
           {signedIn && legalAccepted && onboarded && !restriction && (
             <>
               {/* Deliberately faint until touched — this is your own utility
@@ -676,7 +676,7 @@ export function MatchStage() {
                   onOpenProfile={() => setMyProfileOpen(true)}
                 />
               </div>
-              <div className={onHomeScreen ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : "fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end md:absolute md:bottom-4 md:right-4 md:z-10"}>
+              <div className={onHomeScreen ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : "absolute bottom-4 right-4 z-10 hidden items-center justify-end md:flex"}>
                 <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-25"}`}>
                   <ControlBar
                     micEnabled={micEnabled}
@@ -687,6 +687,7 @@ export function MatchStage() {
                 </div>
               </div>
               <MatchChatPanel
+                key={roomId ?? "no-room"}
                 open={chatOpen}
                 onClose={() => setChatOpen(false)}
                 peer={displayedPeer}
@@ -739,6 +740,7 @@ export function MatchStage() {
                 peerMicEnabled={peerMicEnabled}
                 friendState={friendState}
                 onAddFriend={handleAddFriend}
+                onViewProfile={() => setProfileOpen(true)}
                 remoteStream={remoteStream}
                 roomId={roomId}
                 onRemoteVideoPlaying={reportRemoteVideoPlaying}
@@ -750,7 +752,7 @@ export function MatchStage() {
                 onlineCount={onlineCount}
               />
               <SafetyMenu
-                disabled={!inCall}
+                disabled={!hasMatchedPeer}
                 onViewProfile={() => setProfileOpen(true)}
                 onReport={report}
                 onBlock={handleBlockPeer}
@@ -764,6 +766,13 @@ export function MatchStage() {
           )}
         </div>
       </main>
+      {signedIn && legalAccepted && onboarded && !restriction && !onHomeScreen && (
+        <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center gap-1 rounded-full bg-black/55 p-1 backdrop-blur-sm md:hidden">
+          <ControlBar micEnabled={micEnabled} onToggleMic={toggleMic} />
+          <div className="h-5 w-px shrink-0 bg-white/20" />
+          <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} />
+        </div>
+      )}
 
       {FRIENDS_ENABLED && (
         <>

@@ -179,13 +179,16 @@ mock.module("../../lib/db.ts", {
     },
     markFriendMessagesRead: async (userId: string, friendshipId: string) => {
       const pair = dbMockState.friendships.get(friendshipId)
-      if (!pair || (pair[0] !== userId && pair[1] !== userId)) return false
+      if (!pair || (pair[0] !== userId && pair[1] !== userId)) return { status: "not_found" }
+      const readAt = Date.now()
+      let updated = 0
       for (const message of dbMockState.friendMessages) {
         if (message.friendshipId === friendshipId && message.recipientId === userId && message.readAt === null) {
-          message.readAt = Date.now()
+          message.readAt = readAt
+          updated++
         }
       }
-      return true
+      return { status: "ok", updated, readAt, otherUserId: pair[0] === userId ? pair[1] : pair[0] }
     },
     countUnreadFriendMessages: async (userId: string) => {
       const counts = new Map<string, number>()

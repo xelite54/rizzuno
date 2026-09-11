@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": { "incremental": false, "noEmit": true },
-  "include": ["mediaHarness.tsx", "syntheticCapture.ts"],
+  "include": ["mediaHarness.tsx", "syntheticCapture.ts", "../../next-env.d.ts"],
   "exclude": []
 }

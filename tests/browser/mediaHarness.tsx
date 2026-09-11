@@ -5,7 +5,10 @@ import { useLocalMedia } from "../../hooks/useLocalMedia"
 import { useMatchmaking } from "../../hooks/useMatchmaking"
 import { retainRealtime } from "../../lib/realtimeLifecycle"
 import { SelfPanel } from "../../components/match/SelfPanel"
-import { VideoTile } from "../../components/match/VideoTile"
+import { SwipeStage } from "../../components/match/SwipeStage"
+import { MatchChatPanel } from "../../components/match/MatchChatPanel"
+import { PeerProfileSheet } from "../../components/match/PeerProfileSheet"
+import { CompactChat } from "../../components/match/CompactChat"
 
 const peers: RTCPeerConnection[] = []
 const sockets: WebSocket[] = []
@@ -51,6 +54,8 @@ HTMLMediaElement.prototype.play = function () {
 
 function App() {
   const local = useLocalMedia()
+  const [chatOpen, setChatOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [activeAccount, setActiveAccount] = useState(account)
   const [hydration, setHydration] = useState(true)
   const [signedIn, setSignedIn] = useState(true)
@@ -91,7 +96,7 @@ function App() {
         const stats = pc ? await pc.getStats() : null
         let incomingFrames = 0; let outgoingFrames = 0
         stats?.forEach(s => { if (s.kind === "video" && s.type === "inbound-rtp") incomingFrames += s.framesDecoded ?? 0; if (s.kind === "video" && s.type === "outbound-rtp") outgoingFrames += s.framesSent ?? 0 })
-        return { state: match.state, roomId: match.roomId, ready: match.realtimeReady, status: local.status, renderCount, micEnabled: local.micEnabled,
+        return { state: match.state, messages: match.messages, canChat: match.canMatchChat, roomId: match.roomId, ready: match.realtimeReady, status: local.status, renderCount, micEnabled: local.micEnabled,
           invitations: match.matchInvitations.map(i => ({ direction: i.direction })), inviteError: match.matchInviteError,
           pcCount: peers.length, openPeers: peers.filter(p => p.connectionState !== "closed").length,
           socketCount: sockets.length, openSockets: sockets.filter(s => s.readyState === WebSocket.OPEN).length,
@@ -107,7 +112,12 @@ function App() {
   })
   return <main data-render-count={renderCount}>
     <div style={{ width: 320, height: 240, position: "relative" }}><SelfPanel localStream={local.localStream} status={local.status} /></div>
-    <div style={{ width: 320, height: 240, position: "relative" }}><VideoTile role="peer" remoteStream={match.remoteStream} roomId={match.roomId} onPlaybackReady={match.reportRemoteVideoPlaying} /></div>
+    <div style={{ width: 320, height: 240, position: "relative" }}><SwipeStage matchState={match.state} peer={match.peer} friendState="none" onAddFriend={() => {}} onViewProfile={() => setProfileOpen(true)} remoteStream={match.remoteStream} roomId={match.roomId} onRemoteVideoPlaying={match.reportRemoteVideoPlaying} onSwipeComplete={match.skip} /></div>
+    <CompactChat disabled={!match.canMatchChat} onOpenChat={() => setChatOpen(true)} />
+    <div style={{ transform: "translateX(0)", overflow: "hidden", width: 96, height: 128 }}>
+      <MatchChatPanel key={match.roomId ?? "no-room"} open={chatOpen} onClose={() => setChatOpen(false)} peer={match.peer} messages={match.messages} disabled={!match.canMatchChat} peerTyping={match.peerTyping} onSend={match.sendChat} onNotifyTyping={match.notifyTyping} />
+    </div>
+    <PeerProfileSheet peer={match.peer} open={profileOpen} onClose={() => setProfileOpen(false)} friendState="none" onAddFriend={() => {}} />
   </main>
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>)
