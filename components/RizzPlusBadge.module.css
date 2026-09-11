@@ -13,6 +13,7 @@
   vertical-align: middle;
 }
 .label { display: flex; flex-direction: column; gap: 2px; font-size: 9px; font-weight: 700; letter-spacing: .13em; line-height: 1; padding-inline: 2px; }
+.plus { margin-left: 1px; }
 .member { font-size: 5px; font-weight: 600; letter-spacing: .17em; }
 /* No icon left inside once compact — the badge itself is just a small
    solid color dot, sized down from the full pill's own border-radius

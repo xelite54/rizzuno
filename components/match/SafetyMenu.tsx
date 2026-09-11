@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { DotsIcon, CheckIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_QUICK } from "@/lib/motion"
@@ -29,11 +29,25 @@ type SafetyMenuProps = {
 export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: SafetyMenuProps) {
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<"menu" | "categories" | "confirmBlock" | "confirmed">("menu")
+  const rootRef = useRef<HTMLDivElement>(null)
 
   function close() {
     setOpen(false)
     setTimeout(() => setView("menu"), 200)
   }
+
+  // Clicking anywhere outside the trigger/dropdown closes it, the same as
+  // clicking the trigger again would — a click that lands elsewhere (the
+  // video, another control) should never leave this open underneath
+  // whatever was actually clicked.
+  useEffect(() => {
+    if (!open) return
+    function handlePointerDown(event: PointerEvent) {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close()
+    }
+    document.addEventListener("pointerdown", handlePointerDown)
+    return () => document.removeEventListener("pointerdown", handlePointerDown)
+  }, [open])
 
   function submitReport(category: ReportCategory) {
     onReport(category)
@@ -51,7 +65,7 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
     // corner still free. The dropdown itself flips to open upward from a
     // bottom-anchored trigger instead of downward, so it doesn't run off
     // the bottom of the screen.
-    <div className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-[max(1.25rem,env(safe-area-inset-left))] z-20 md:bottom-auto md:left-auto md:right-5 md:top-5">
+    <div ref={rootRef} className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-[max(1.25rem,env(safe-area-inset-left))] z-20 md:bottom-auto md:left-auto md:right-5 md:top-5">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}

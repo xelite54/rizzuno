@@ -421,7 +421,7 @@ export function MyProfileSheet({
           className={`${panelStyles.panel} ${styles.shell} fixed inset-0 z-50 flex flex-col`}
           data-upgrade-return={`/?panel=profile&view=${view}`}
         >
-          <div className={`${styles.header} flex shrink-0 flex-col gap-1 border-b border-white/8 pb-2 pt-4`}>
+          <div className={`${styles.header} flex shrink-0 flex-col gap-1 border-b border-white/8 pb-1 pt-4`}>
             {/* The title now sits on its own line above the Back/X row
                 (previously all three shared one row) — same text, same
                 meaning, just not sharing a line with the buttons any more. */}
