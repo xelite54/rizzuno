@@ -19,13 +19,9 @@ import type { RtcSignal } from "./signaling/protocol"
  * upstream by useMatchmaking.ts's own per-room signal routing before this
  * is ever called.
  *
- * Recovery is bounded to exactly ONE ICE restart at a time — `recoveryUsed`
- * blocks a second one from overlapping the first, and resets once
- * `recovered()` confirms the connection is genuinely working again, so a
- * later, genuinely NEW problem still gets its own single attempt. There is
- * no automatic fresh-RTCPeerConnection tier: if a restart doesn't resolve
- * a given problem, hooks/useWebRTC.ts terminates the room instead of
- * retrying — see its own doc comment for the full state machine.
+ * Recovery is bounded to ONE ICE restart for this room's lifetime.
+ * Completing a restart does not replenish the budget. Later failures end
+ * the room; only an explicit new room gets a new peer and restart budget.
  */
 export function createRtcNegotiation(
   pc: RTCPeerConnection,
@@ -37,6 +33,7 @@ export function createRtcNegotiation(
   let chain = Promise.resolve()
   let recoveryUsed = false
   let recoveryPending = false
+  let restartNegotiated = false
   let lastOffer = ""
   let lastAnswer = ""
   let candidates: RTCIceCandidateInit[] = []
@@ -62,6 +59,7 @@ export function createRtcNegotiation(
   }
   async function offer(restart: boolean) {
     if (!alive() || !initiator || pc.signalingState !== "stable") return
+    if (restart) restartNegotiated = false
     const description = await pc.createOffer(restart ? { iceRestart: true } : undefined)
     if (!alive()) return
     await pc.setLocalDescription(description)
@@ -74,22 +72,12 @@ export function createRtcNegotiation(
     restartRequested = false
     await offer(true)
   }
-  /**
-   * ONE ICE restart for the CURRENT problem — `recoveryUsed` blocks a
-   * second overlapping attempt, and only `recovered()` (called once real
-   * video proves the connection actually works again — see
-   * hooks/useWebRTC.ts) clears it, so a disconnect that happens again
-   * before that proof arrives is treated as the SAME still-unresolved
-   * problem, not a fresh one to retry. hooks/useWebRTC.ts is the one
-   * thing that decides whether to call this at all (a 5s grace window for
-   * `disconnected`, immediately for `failed`) and what to do if it never
-   * resolves (terminate the room) — this function only ever performs the
-   * mechanics of one restart, never the surrounding policy.
-   */
+  /** One serialized restart on this same peer; never replenish its budget. */
   function recover() {
     if (disposed || recoveryUsed) return chain
     recoveryUsed = true
     recoveryPending = true
+    restartNegotiated = false
     log("ICE restart started")
     return enqueue(async () => {
       if (initiator) {
@@ -103,7 +91,7 @@ export function createRtcNegotiation(
   return {
     start: () => enqueue(() => offer(false)),
     recover,
-    /** Whether `recover()` would actually do anything right now — false while a restart is already in flight/unresolved (see recover()'s own doc comment for what "resolved" means here). hooks/useWebRTC.ts reads this to decide whether a new disconnect is the SAME unresolved problem (terminate — never loop) or a genuinely new one (worth its own single attempt). */
+    /** True only before this room has used its restart. */
     recoveryAvailable: () => !disposed && !recoveryUsed,
     receive: (data: RtcSignal) => {
       if (data.kind === "ice-restart-request") {
@@ -113,6 +101,7 @@ export function createRtcNegotiation(
         if (data.kind === "offer") {
           // Fixed roles eliminate glare; duplicate SDP must not re-answer.
           if (initiator || data.sdp === lastOffer || pc.signalingState !== "stable") return
+          if (lastOffer && recoveryUsed && !recoveryPending) { log("ICE restart failed"); return }
           log("offer received")
           await pc.setRemoteDescription({ type: "offer", sdp: data.sdp })
           if (!alive()) return
@@ -132,6 +121,7 @@ export function createRtcNegotiation(
           if (!alive()) return
           await pc.setLocalDescription(answer)
           if (!alive()) return
+          if (recoveryPending) restartNegotiated = true
           send({ kind: "answer", sdp: pc.localDescription?.sdp ?? answer.sdp ?? "" })
           log("answer sent")
         } else if (data.kind === "answer") {
@@ -139,6 +129,7 @@ export function createRtcNegotiation(
           log("answer received")
           await pc.setRemoteDescription({ type: "answer", sdp: data.sdp })
           if (!alive()) return
+          if (recoveryPending) restartNegotiated = true
           lastAnswer = data.sdp
           await flush()
           await maybeRestart()
@@ -149,11 +140,14 @@ export function createRtcNegotiation(
         }
       })
     },
-    /** Called once real video proves the connection genuinely works again — see hooks/useWebRTC.ts's reportPlaybackConfirmedForThisRoom. Resets the one-shot budget so a later, genuinely new problem still gets its own single restart. */
+    /** Called once real video proves the connection genuinely works again — see hooks/useWebRTC.ts's reportPlaybackConfirmedForThisRoom. Completes the attempt without replenishing the room’s one-restart budget. */
     recovered: () => {
+      // Old media may keep playing while the restart offer is in flight.
+      // It must not consume the deadline before that exchange completes.
+      if (recoveryPending && (!restartNegotiated || pc.signalingState !== "stable" || restartRequested)) return false
       if (recoveryPending) log("ICE restart completed")
       recoveryPending = false
-      recoveryUsed = false
+      return true
     },
     /** Called once hooks/useWebRTC.ts's own restart deadline elapses without recovering — leaves `recoveryUsed` set (never retried for this same problem; see recover()'s own doc comment) and only logs. */
     failed: () => {

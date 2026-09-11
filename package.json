@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "NODE_ENV=production tsx server.ts",
     "lint": "eslint",
-    "test": "tsx --test --experimental-test-module-mocks tests/**/*.test.mts"
+    "test": "tsx --test --experimental-test-module-mocks tests/**/*.test.mts",
+    "test:webrtc:browser": "tsx --experimental-test-module-mocks tests/browser/runMedia.mts"
   },
   "dependencies": {
     "image-size": "^2.0.2",

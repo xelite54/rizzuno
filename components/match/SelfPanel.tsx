@@ -4,19 +4,19 @@ import { VideoTile } from "./VideoTile"
 import type { MediaPermissionState } from "@/hooks/useLocalMedia"
 
 type SelfPanelProps = {
-  stream: MediaStream | null
+  localStream: MediaStream | null
   status: MediaPermissionState
   /** Removes the desktop rounding when this panel is flush against the homepage content panel. */
   flushDesktop?: boolean
 }
 
-export function SelfPanel({ stream, status, flushDesktop = false }: SelfPanelProps) {
-  const showVideo = Boolean(stream) && status === "granted"
+export function SelfPanel({ localStream, status, flushDesktop = false }: SelfPanelProps) {
+  const showVideo = Boolean(localStream) && status === "granted"
 
   return (
     <div className={`relative h-full w-full overflow-hidden rounded-2xl bg-surface ${flushDesktop ? "md:rounded-none" : ""}`}>
       {showVideo ? (
-        <VideoTile stream={stream} muted mirrored />
+        <VideoTile role="self" localStream={localStream} mirrored />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-surface px-8 text-center">
           {status === "denied" ? (

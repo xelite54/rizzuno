@@ -442,7 +442,6 @@ export function MyProfileSheet({
             {view === "profile" && (
               <div className={styles.layout}>
                 <section className={styles.identity} aria-label="Your identity">
-                  <p className="mb-6 text-[10px] font-medium uppercase tracking-[0.22em] text-[#b39aac]">Your corner of Rizzuno</p>
                   <span className={styles.avatar}>
                     {profilePhoto ? (
                       // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
@@ -533,8 +532,6 @@ export function MyProfileSheet({
 
             {view === "edit" && (
               <div className={styles.edit}>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-[#b39aac]">The introduction</p>
-                <h2 className="mb-8 mt-2 text-3xl font-medium tracking-[-0.04em]">Make it yours.</h2>
                 <div className="flex flex-col items-center">
                   <button
                     type="button"

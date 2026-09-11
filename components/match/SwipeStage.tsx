@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { motion, useMotionValue, useTransform, animate, AnimatePresence, useReducedMotion } from "motion/react"
+import type { PeerPlaybackReport } from "@/lib/peerPlayback"
 import { VideoTile } from "./VideoTile"
 import { PersonBadge } from "./PersonBadge"
 import { StatusPill } from "./StatusPill"
@@ -24,8 +25,8 @@ type SwipeStageProps = {
   remoteStream: MediaStream | null
   /** The current match's room id — threaded straight through to the peer VideoTile, which tags its own playback-readiness reports with it (see VideoTile.tsx's `roomId` prop and useMatchmaking.ts's `reportRemoteVideoPlaying`). `null` whenever there's no active room; VideoTile simply never reports readiness in that case. */
   roomId: string | null
-  /** Fired by the peer VideoTile once its own <video> element has proven real playback — see VideoTile.tsx's `onPlaybackReady` doc comment for what "proven" means and why it exists alongside stats-based readiness. */
-  onRemoteVideoPlaying?: (roomId: string) => void
+  /** Fired by the peer VideoTile once its own <video> element has proven real playback — see VideoTile.tsx's `onPlaybackReady` doc comment for what "proven" means and its stream/track ownership checks. */
+  onRemoteVideoPlaying?: (report: PeerPlaybackReport) => void
   onSwipeComplete: () => void
   /** When true, swiping is disabled — used while a just-completed skip is still undoable. */
   locked?: boolean
@@ -232,7 +233,8 @@ export function SwipeStage({
         className="absolute inset-0 origin-bottom cursor-grab touch-pan-y outline-none focus-visible:ring-2 focus-visible:ring-accent-2 active:cursor-grabbing"
       >
         <VideoTile
-          stream={remoteStream}
+          role="peer"
+          remoteStream={remoteStream}
           className={isWaitingToStart ? "bg-home-glow" : "bg-surface-2"}
           roomId={roomId}
           onPlaybackReady={onRemoteVideoPlaying}

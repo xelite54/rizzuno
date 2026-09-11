@@ -31,6 +31,7 @@ test("session loading retains authenticated account, never treats loading as sig
 test("profile/legal refresh retains admission only for same account; explicit revocation closes", () => {
   assert.equal(retainRealtime("a", "a", "checking", false, false), true)
   assert.equal(retainRealtime("a", "a", "accepted", false, false), true)
+  assert.equal(retainRealtime("a", "a", "accepted", true, false), true)
   assert.equal(retainRealtime("a", "a", "required", true, true), false)
   assert.equal(retainRealtime("a", "b", "checking", false, false), false)
   assert.equal(retainRealtime("a", undefined, "accepted", true, true), false)

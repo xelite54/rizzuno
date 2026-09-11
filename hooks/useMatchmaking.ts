@@ -4,6 +4,7 @@ import { subscriptionHref } from "@/lib/upgradeNavigation"
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { friendsCacheKey, parseFriendsCache } from "@/lib/friendsCache"
 import { useSignalingSocket } from "./useSignalingSocket"
+import type { PeerPlaybackReport } from "@/lib/peerPlayback"
 import { useWebRTC } from "./useWebRTC"
 import { canSearch, isCurrentRoom } from "@/lib/realtimeLifecycle"
 import { SignalBacklog } from "@/lib/signalBacklog"
@@ -133,7 +134,9 @@ export function useMatchmaking(
   myProfilePhoto?: string | null,
   accountId?: string
 ) {
-  const { connected, send, subscribe, supersededElsewhere, retryNow: retryRealtimeConnection } = useSignalingSocket(enabled, accountId)
+
+  const [roomId, updateRoomId] = useState<string | null>(null)
+  const { connected, send, subscribe, supersededElsewhere, retryNow: retryRealtimeConnection } = useSignalingSocket(enabled, accountId, roomId !== null)
 
   // `connected` only means the WebSocket transport opened — it says nothing
   // about whether the realtime server has actually verified our ticket and
@@ -183,7 +186,7 @@ export function useMatchmaking(
   // findMatch()) — that retry is what's consuming this budget, not
   // starting a fresh one.
   const queuePendingRetryCountRef = useRef(0)
-  const [roomId, updateRoomId] = useState<string | null>(null)
+
   const roomRef = useRef<string | null>(null)
   /**
    * The server's authoritative answer to "is the CURRENT room a random
@@ -504,51 +507,24 @@ export function useMatchmaking(
     if (!roomId) return
     if (rtcReadySentForRoomRef.current === roomId) return
     if (!rtcInitialized || !realtimeReady) return
-    if (!videoTrack || videoTrack.readyState !== "live") return
+    if (!videoTrack || videoTrack.readyState !== "live" || !videoTrack.enabled) return
     rtcReadySentForRoomRef.current = roomId
     console.log("matchmaking: rtc-ready", { roomId })
     send({ type: "rtc-ready", roomId })
   }, [roomId, rtcInitialized, realtimeReady, videoTrack, send])
 
-  /**
-   * The one place a peer VideoTile (rendered well downstream, by
-   * SwipeStage.tsx) can feed real playback evidence back into this
-   * hook's own readiness state — see useWebRTC.ts's `remoteVideoReady`
-   * doc comment for why stats proof alone (getStats().framesDecoded)
-   * isn't reliable enough on its own: iOS Safari in particular can render
-   * remote video correctly while that counter is missing, delayed, or
-   * unreliable, which used to leave a genuinely working call stuck on
-   * "Connecting" forever.
-   *
-   * `isCurrentRoom` — the same staleness guard "chat"/"signal"/"typing"/
-   * etc. already use above — is what makes a stale report from a room
-   * that's already ended (or an earlier one, before a fresh match) unable
-   * to mark a LATER room ready; useWebRTC.ts's own reportPlaybackConfirmed
-   * independently re-checks the same thing against its own room-effect
-   * instance, so this is intentionally double-guarded, not relying on
-   * either check alone.
-   */
+  // Forward only current-room reports. useWebRTC independently verifies
+  // the exact received stream/track and the element's playback evidence.
   const reportRemoteVideoPlaying = useCallback(
-    (forRoomId: string) => {
-      if (!isCurrentRoom(roomRef.current, forRoomId)) return
-      reportPlaybackConfirmed(forRoomId)
+    (report: PeerPlaybackReport) => {
+      if (!isCurrentRoom(roomRef.current, report.roomId)) return
+      reportPlaybackConfirmed(report)
     },
     [reportPlaybackConfirmed]
   )
 
-  // The connection is genuinely "active" once WebRTC media is actually
-  // flowing — `rtcStatus === "connected"` alone only means ICE/DTLS
-  // negotiation succeeded, which is NOT the same thing (a connection can
-  // report "connected" with zero remote video frames ever actually
-  // decoding). `remoteVideoReady` (see useWebRTC.ts) is the real signal —
-  // proven by EITHER getStats() confirming real decoded frames OR the
-  // peer's actual <video> element having genuinely reached "playing"
-  // (reportRemoteVideoPlaying above, fed by VideoTile.tsx via
-  // SwipeStage.tsx). Until one of those two proofs exists, `state` stays
-  // whatever `serverState` already is — "connecting" from the moment
-  // "matched" was received (see nextMatchState's "matched-received"
-  // case) — rather than showing the matched-profile UI over what would
-  // otherwise be an empty peer tile.
+  // Only the peer video element can prove playback; receiver stats alone
+  // cannot establish that the user is actually seeing the peer.
   const state: MatchState = roomId ? (rtcStatus === "connected" && remoteVideoReady ? "active" : "connecting") : serverState
 
   /**
@@ -1504,9 +1480,8 @@ export function useMatchmaking(
   }, [serverState, realtimeReady, findMatch])
 
   /**
-   * useWebRTC.ts's tiered recovery (grace window -> bounded ICE restart ->
-   * one fresh RTCPeerConnection for the same room) genuinely exhausted —
-   * every real recovery option has failed. This hook is what actually
+   * Room setup/playback timed out or the same connection exhausted its
+   * one bounded ICE restart. This hook is what actually
    * leaves the room from here: sends "leave" (the server's own close
    * handler already covers every OTHER way a room ends — a genuine
    * disconnect, an explicit skip/block/leave — but this is a case only

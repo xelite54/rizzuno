@@ -1,5 +1,6 @@
 import { test, mock } from "node:test"
 import assert from "node:assert/strict"
+import { createHmac } from "node:crypto"
 
 // app/api/realtime/turn/route.ts's own distributed rate limiting — see
 // lib/db.ts's checkAndIncrementTurnCredentialRateLimit for the actual
@@ -109,6 +110,9 @@ test("not rate limited, TURN configured: mints a real short-lived credential, wi
     assert.deepEqual(body.urls, ["turn:relay.example:3478"])
     assert.ok(typeof body.username === "string" && body.username.length > 0)
     assert.ok(typeof body.credential === "string" && body.credential.length > 0)
+    assert.equal(body.credential, createHmac("sha1", "shared-secret").update(body.username).digest("base64"))
+    assert.ok(Number(body.username.split(":")[0]) > Date.now() / 1000)
+    assert.ok(!body.username.includes(userId!), "credential username must not expose the account")
     assert.equal(body.ttlSeconds, 24 * 60 * 60, "24h TTL — see lib/turnCredentials.ts's own doc comment for why")
   })
 })

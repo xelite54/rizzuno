@@ -48,7 +48,7 @@ test("initiator performs complete ICE restart SDP negotiation once, without over
   assert.equal(sent.length, 2, "failure must not cause restart loop")
   n.recovered()
   await n.recover()
-  assert.equal(sent.length, 3, "new recovered call can later recover another outage")
+  assert.equal(sent.length, 2, "a recovered room must not replenish its one-restart budget")
 })
 
 test("receiver requests restart and answers offers; duplicate offers and glare are ignored", async () => {
@@ -116,7 +116,7 @@ test("disposed room cannot send an offer after an awaited operation finishes", a
 // problem worth its own attempt, or the SAME still-unresolved one that
 // must never be retried a second time.
 
-test("recoveryAvailable() starts true, goes false the instant a restart is used, and comes back true only once recovered() confirms success", async () => {
+test("recoveryAvailable() starts true, goes false the instant a restart is used, and stays false after recovered() confirms success", async () => {
   const { negotiation: n } = fixture(true)
   await n.start()
   assert.equal(n.recoveryAvailable(), true, "nothing has gone wrong yet")
@@ -128,7 +128,7 @@ test("recoveryAvailable() starts true, goes false the instant a restart is used,
   assert.equal(n.recoveryAvailable(), false, "still not available — recover() only clears via recovered(), not merely a new answer")
 
   n.recovered()
-  assert.equal(n.recoveryAvailable(), true, "a genuinely later problem gets its own fresh attempt")
+  assert.equal(n.recoveryAvailable(), false, "one restart per room even after success")
 })
 
 test("recoveryAvailable() stays false after failed() — a restart that didn't resolve is never retried for the same problem", async () => {
@@ -144,5 +144,25 @@ test("recoveryAvailable() stays false after failed() — a restart that didn't r
 test("recoveryAvailable() is false once disposed", () => {
   const { negotiation: n } = fixture(true)
   n.dispose()
+  assert.equal(n.recoveryAvailable(), false)
+})
+
+test("old playing video cannot complete recovery before the restart answer", async () => {
+  const { negotiation: n } = fixture(true)
+  await n.start()
+  await n.receive({ kind: "answer", sdp: "initial-answer" })
+  await n.recover()
+  assert.equal(n.recovered(), false, "the restarted offer still needs an answer")
+  await n.receive({ kind: "answer", sdp: "restart-answer" })
+  assert.equal(n.recovered(), true)
+  assert.equal(n.recoveryAvailable(), false)
+})
+test("responder awaiting the restart offer cannot accept old playback as recovery", async () => {
+  const { negotiation: n } = fixture(false)
+  await n.receive({ kind: "offer", sdp: "initial-offer" })
+  await n.recover()
+  assert.equal(n.recovered(), false)
+  await n.receive({ kind: "offer", sdp: "restart-offer" })
+  assert.equal(n.recovered(), true)
   assert.equal(n.recoveryAvailable(), false)
 })

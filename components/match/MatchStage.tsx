@@ -83,7 +83,7 @@ type SignInPopupMessage = { ok: true } | { error: string }
 export function MatchStage() {
   const plus = useRizzPlus()
   const reduceMotion = useReducedMotion()
-  const { stream, videoTrack, audioTrack, status, micEnabled, toggleMic } =
+  const { localStream, videoTrack, audioTrack, status, micEnabled, toggleMic } =
     useLocalMedia()
 
   // Guards the self-camera's home-screen grow/shrink layout animation
@@ -638,7 +638,7 @@ export function MatchStage() {
           }
         >
           <SelfPanel
-            stream={stream}
+            localStream={localStream}
             status={status}
             flushDesktop={useHomeSplit}
           />

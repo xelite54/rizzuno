@@ -65,5 +65,7 @@ export function isCurrentRoom(roomId: string | null, incoming: string) { return 
 export function retainRealtime(admittedAccount: string | undefined, account: string | undefined, legal: string, hydrated: boolean, onboarded: boolean) {
   if (!account || legal === "required") return false
   if (legal === "accepted" && hydrated && onboarded) return true
-  return admittedAccount === account && (legal === "checking" || legal === "error" || !hydrated)
+  // Admission is latched to the authenticated account. Profile hydration
+  // and editing are not session teardown signals.
+  return admittedAccount === account
 }

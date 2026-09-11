@@ -1,218 +1,175 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import type { PeerPlaybackReport } from "@/lib/peerPlayback"
 
 type VideoTileProps = {
-  stream: MediaStream | null
-  muted?: boolean
   mirrored?: boolean
   className?: string
-  /**
-   * Which room `stream` belongs to — only ever meaningful (and only ever
-   * passed) alongside `onPlaybackReady` below, for the peer's own tile;
-   * never read for rendering. Tags each `onPlaybackReady` call with the
-   * room it was actually about, so a stale report from a room that's
-   * since ended (or an earlier match, before a fresh one) can never be
-   * mistaken for the current one — see useMatchmaking.ts's
-   * `reportRemoteVideoPlaying`, the one thing this is ever wired to.
-   */
-  roomId?: string | null
-  /**
-   * Fired the moment this tile's own <video> element has PROVEN real
-   * playback — not just that a stream was attached, but that the
-   * browser's own "playing" event fired with a genuinely live video
-   * track and real decoded dimensions. This exists because stats-based
-   * readiness (getStats().framesDecoded, see useWebRTC.ts) is too
-   * browser-specific on its own: iOS Safari in particular can render
-   * remote video correctly while that counter stays missing, delayed, or
-   * unreliable, leaving a genuinely working call stuck showing
-   * "Connecting". A real <video> element actually playing is, if
-   * anything, STRONGER evidence than a stats counter — it's the exact
-   * thing the person is looking at.
-   *
-   * Deliberately never passed for the self/muted tile (see
-   * SelfPanel.tsx, which doesn't pass this prop at all) — the self
-   * camera must never be able to trigger REMOTE readiness. Fired at most
-   * once per genuinely live track (idempotent on the receiving end
-   * either way — see useWebRTC.ts's own `videoReadyLocal` guard); never
-   * un-fired for a transient stall/buffering event — resetting readiness
-   * for those goes through the existing WebRTC-level events instead (see
-   * useWebRTC.ts's `markVideoNotReady`), not this callback.
-   */
-  onPlaybackReady?: (roomId: string) => void
-}
+} & ({
+  role: "self"
+  localStream: MediaStream | null
+  remoteStream?: never
+  roomId?: never
+  onPlaybackReady?: never
+} | {
+  role: "peer"
+  remoteStream: MediaStream | null
+  localStream?: never
+  roomId: string | null
+  onPlaybackReady?: (report: PeerPlaybackReport) => void
+})
 
-// How often to check that a supposedly-playing <video> element's
-// currentTime is actually advancing — TEMPORARY, part of the same
-// "connected but no remote video renders" investigation as
-// hooks/useWebRTC.ts's own stats/ontrack diagnostics (see that file's doc
-// comments). This is the one failure mode getStats() alone can never see:
-// real, decoded frames that still never reach the element's own rendering.
-// Remove alongside those once a real two-device test confirms the fix.
-const PLAYBACK_CHECK_INTERVAL_MS = 5000
-
-export function VideoTile({ stream, muted, mirrored, className, roomId, onPlaybackReady }: VideoTileProps) {
+export function VideoTile(props: VideoTileProps) {
+  const { role, mirrored, className, roomId, onPlaybackReady } = props
+  const stream = role === "self" ? props.localStream : props.remoteStream
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const enableAudioRef = useRef<(() => void) | null>(null)
+  const [blockedStream, setBlockedStream] = useState<MediaStream | null>(null)
+  const audioBlocked = stream !== null && blockedStream === stream
 
-  // The `autoPlay` attribute alone silently does nothing on many mobile
-  // browsers (iOS Safari in particular, and Chrome on Android under some
-  // settings) once real audio is involved: they only auto-start unmuted
-  // media as the direct, immediate result of a user gesture, and a
-  // WebRTC remote stream only ever arrives well after whatever gesture
-  // actually started the search — by the time `ontrack` fires, that
-  // window has long since closed. `autoPlay` then just never starts
-  // playback, with no error anywhere to notice — exactly why a peer's
-  // video can render fine on desktop and never appear at all on mobile.
-  // This tile's own local/self usage (always `muted`) was never actually
-  // affected — autoplaying MUTED media is allowed essentially everywhere
-  // — but the fix below is applied unconditionally since it's a no-op
-  // whenever autoplay was already going to succeed on its own.
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    // Concise, TEMPORARY diagnostics for the same investigation as
-    // useWebRTC.ts's stats/ontrack logging — together they're what tells
-    // apart "no remote packets arriving" (see that file) from "packets
-    // decoding fine but this element never actually reaches `playing`"
-    // (this file). `label` distinguishes the self tile (always muted, was
-    // never actually affected) from the peer tile in the logs without
-    // needing this component to know which one it is.
-    const label = muted ? "self" : "peer"
-
-    function attemptPlay(reason: string) {
-      if (!video || video.paused === false) return
-      const playPromise = video.play()
-      if (playPromise === undefined) return
-      playPromise.catch((err) => {
-        console.error("videoTile: autoplay blocked, retrying muted", { label, reason, error: String(err) })
-        // A muted play is near-universally allowed even where starting
-        // unmuted from a standstill wasn't — this is what actually makes
-        // the picture itself show up. Restoring the originally intended
-        // muted state right after usually succeeds too: the gesture-gated
-        // restriction applies to STARTING playback with audio, not to
-        // unmuting media that's already playing.
-        if (!video) return
-        video.muted = true
-        video
-          .play()
-          .then(() => {
-            if (video && !muted) video.muted = false
-          })
-          .catch((err2) => {
-            console.error("videoTile: muted autoplay retry also failed", { label, error: String(err2) })
-          })
-      })
-    }
-
-    if (video.srcObject !== stream) {
-      video.srcObject = stream
-      console.log("videoTile: srcObject set", {
-        label,
-        hasStream: Boolean(stream),
-        trackKinds: stream?.getTracks().map((t) => t.kind) ?? [],
-      })
-    }
-    if (!stream) return
-
-    attemptPlay("initial")
-
-    // `autoPlay`/the immediate attempt above can both fire before the
-    // element actually has real data — re-attempting on these events
-    // catches the case where playback needs a nudge again once metadata/
-    // enough data has genuinely arrived, not just once at srcObject-assignment
-    // time. All of these (loadedmetadata/canplay/playing/waiting/stalled)
-    // are logged, concisely, as exactly the trail needed to tell "reached
-    // playing" apart from "stuck at readyState X" from the console alone.
-    function onLoadedMetadata() {
-      console.log("videoTile: loadedmetadata", { label, videoWidth: video?.videoWidth, videoHeight: video?.videoHeight })
-      attemptPlay("loadedmetadata")
-    }
-    function onCanPlay() {
-      console.log("videoTile: canplay", { label, readyState: video?.readyState })
-      attemptPlay("canplay")
-    }
-    function onPlaying() {
-      console.log("videoTile: playing", { label, videoWidth: video?.videoWidth, videoHeight: video?.videoHeight })
-      // Playback proof — see onPlaybackReady's own doc comment for the
-      // full reasoning. `muted` is a belt-and-suspenders check on top of
-      // this prop simply never being passed for the self tile at all
-      // (SelfPanel.tsx doesn't pass it) — the self camera must never be
-      // able to trigger REMOTE readiness. Every condition here mirrors
-      // exactly what the doc comment promises: the element is genuinely
-      // playing THIS stream (not some earlier srcObject the browser
-      // hasn't caught up on yet), a real video track is attached and
-      // still live, and the element has real decoded dimensions — not
-      // just that a "playing" event fired at all.
-      if (!onPlaybackReady || !roomId || muted || !video || !stream) return
-      if (video.srcObject !== stream) return
-      const track = stream.getVideoTracks()[0]
-      if (!track || track.readyState !== "live") return
-      if (!(video.videoWidth > 0 && video.videoHeight > 0)) return
-      onPlaybackReady(roomId)
-    }
-    function onWaiting() {
-      console.log("videoTile: waiting (stalled buffering)", { label })
-    }
-    function onStalled() {
-      console.log("videoTile: stalled (no data arriving)", { label })
-    }
-
-    video.addEventListener("loadedmetadata", onLoadedMetadata)
-    video.addEventListener("canplay", onCanPlay)
-    video.addEventListener("playing", onPlaying)
-    video.addEventListener("waiting", onWaiting)
-    video.addEventListener("stalled", onStalled)
-
-    // The video TRACK's own "unmute" (WebRTC's "real data just started
-    // arriving for this track" signal, not the UI mic-mute concept) is a
-    // distinct moment from any of the <video> ELEMENT events above — a
-    // track can exist and be attached well before it's actually live,
-    // exactly the gap a first play() attempt can land in and fail/no-op
-    // without ever getting a second real chance once data does start.
-    const tracks = stream.getTracks()
-    const trackUnmuteHandlers = tracks.map((track) => {
-      const onTrackUnmute = () => attemptPlay(`track-unmuted:${track.kind}`)
-      track.addEventListener("unmute", onTrackUnmute)
-      return { track, onTrackUnmute }
+    const element = videoRef.current
+    if (!element) return
+    const video: HTMLVideoElement = element
+    const hasFrameCallback = typeof video.requestVideoFrameCallback === "function"
+    let disposed = false
+    let playPending = false
+    let fallbackMuted = false
+    let frameCallback: number | undefined
+    let renderedFrames = 0
+    let lastFrames = 0
+    let lastTime = video.currentTime
+    let lastProgress = performance.now()
+    const current = () => !disposed && video.srcObject === stream
+    const log = (event: string, extra = {}) => console.log(`videoTile: ${event}`, {
+      role, roomId, readyState: video.readyState, videoWidth: video.videoWidth, videoHeight: video.videoHeight, ...extra,
     })
-
-    // Distinguishes "reached `playing`, decoding real frames, but visibly
-    // frozen" from a genuinely healthy element — readyState/paused alone
-    // can both look fine on a stream that stopped actually advancing.
-    let lastCheckedTime = video.currentTime
-    const playbackCheck = setInterval(() => {
-      if (!video) return
-      if (!video.paused && video.currentTime === lastCheckedTime) {
-        console.error("videoTile: currentTime hasn't advanced since the last check — playback may be stalled", {
-          label,
-          readyState: video.readyState,
-          currentTime: video.currentTime,
-        })
-      }
-      lastCheckedTime = video.currentTime
-    }, PLAYBACK_CHECK_INTERVAL_MS)
-
-    return () => {
-      clearInterval(playbackCheck)
-      video.removeEventListener("loadedmetadata", onLoadedMetadata)
-      video.removeEventListener("canplay", onCanPlay)
-      video.removeEventListener("playing", onPlaying)
-      video.removeEventListener("waiting", onWaiting)
-      video.removeEventListener("stalled", onStalled)
-      for (const { track, onTrackUnmute } of trackUnmuteHandlers) {
-        track.removeEventListener("unmute", onTrackUnmute)
-      }
+    const report = (playing: boolean) => {
+      if (!current() || role !== "peer" || !roomId || !stream || !onPlaybackReady) return
+      const track = stream.getVideoTracks()[0]
+      if (!track) return
+      const valid = playing && !video.paused && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 && track.readyState === "live" && !track.muted
+      onPlaybackReady({ roomId, stream, track, playing: valid, readyState: video.readyState, videoWidth: video.videoWidth, videoHeight: video.videoHeight })
     }
-  }, [stream, muted, roomId, onPlaybackReady])
+    async function attemptPlay(reason: string) {
+      if (!current() || !stream || playPending || !video.paused) return
+      playPending = true
+      try {
+        await video.play()
+      } catch (error) {
+        if (!current()) return
+        if (error instanceof DOMException && error.name === "AbortError") return
+        log("autoplay retry muted", { reason, error: error instanceof Error ? error.name : "PlaybackError" })
+        // Unmuting here without a user gesture can immediately pause Safari.
+        // Keep the picture playing; the explicit audio action below restores sound.
+        fallbackMuted = role === "peer"
+        video.muted = true
+        if (fallbackMuted) setBlockedStream(stream)
+        try { await video.play() } catch (retryError) {
+          if (current()) log("muted playback failed", { error: retryError instanceof Error ? retryError.name : "PlaybackError" })
+        }
+      } finally { playPending = false }
+    }
+    function resume() { if (document.visibilityState === "visible") void attemptPlay("foreground") }
+    function playing() {
+      if (!current()) return
+      log("playing")
+      // Prefer actual presented frames. Older browsers can prove playback
+      // through playing + dimensions or advancing element time instead.
+      if (!hasFrameCallback) report(true)
+    }
+    function frame() {
+      if (!current()) return
+      renderedFrames++
+      lastProgress = performance.now()
+      if (renderedFrames === 1) report(true)
+      frameCallback = video.requestVideoFrameCallback(frame)
+    }
+    function unavailable() { report(false) }
+    function canPlay() { void attemptPlay("canplay") }
+    function trackUnmuted() { void attemptPlay("track-unmuted") }
+    function trackChanged() {
+      lastTime = video.currentTime
+      lastProgress = performance.now()
+      void attemptPlay("track-changed")
+    }
+    enableAudioRef.current = () => {
+      if (!current() || role !== "peer") return
+      // Invoked synchronously inside the click gesture.
+      video.muted = false
+      void video.play().then(() => {
+        if (current()) { fallbackMuted = false; setBlockedStream(null) }
+      }).catch(() => {
+        if (!current()) return
+        video.muted = true
+        fallbackMuted = true
+        setBlockedStream(stream)
+        void attemptPlay("audio-gesture-failed")
+      })
+    }
+    video.muted = role === "self"
+    video.addEventListener("playing", playing)
+    video.addEventListener("pause", unavailable)
+    video.addEventListener("waiting", unavailable)
+    video.addEventListener("emptied", unavailable)
+    video.addEventListener("loadedmetadata", canPlay)
+    video.addEventListener("canplay", canPlay)
+    document.addEventListener("visibilitychange", resume)
+    const tracks = stream?.getTracks() ?? []
+    tracks.forEach(track => track.addEventListener("unmute", trackUnmuted))
+    stream?.addEventListener("addtrack", trackChanged)
+    stream?.addEventListener("removetrack", trackChanged)
+    video.srcObject = stream
+    log("srcObject set", { hasStream: Boolean(stream), videoTrackCount: stream?.getVideoTracks().length ?? 0 })
+    if (stream && hasFrameCallback) frameCallback = video.requestVideoFrameCallback(frame)
+    void attemptPlay("stream-bound")
+    const healthTimer = setInterval(() => {
+      if (!current() || !stream) return
+      const progressed = hasFrameCallback ? renderedFrames > lastFrames : video.currentTime > lastTime
+      if (progressed) { lastProgress = performance.now(); report(true) }
+      else if (performance.now() - lastProgress > 5_000) {
+        log("playback not advancing", { paused: video.paused, muted: video.muted })
+        report(false)
+      }
+      lastFrames = renderedFrames
+      lastTime = video.currentTime
+      if (video.paused) {
+        report(false)
+        // Some browsers pause on the addition of an audio track. Do not
+        // undo an already-established muted fallback on subsequent attempts.
+        if (fallbackMuted) video.muted = true
+        void attemptPlay("paused")
+      }
+    }, 1_000)
+    return () => {
+      report(false)
+      disposed = true
+      enableAudioRef.current = null
+      clearInterval(healthTimer)
+      if (frameCallback !== undefined) video.cancelVideoFrameCallback(frameCallback)
+      video.removeEventListener("playing", playing)
+      video.removeEventListener("pause", unavailable)
+      video.removeEventListener("waiting", unavailable)
+      video.removeEventListener("emptied", unavailable)
+      video.removeEventListener("loadedmetadata", canPlay)
+      video.removeEventListener("canplay", canPlay)
+      document.removeEventListener("visibilitychange", resume)
+      tracks.forEach(track => track.removeEventListener("unmute", trackUnmuted))
+      stream?.removeEventListener("addtrack", trackChanged)
+      stream?.removeEventListener("removetrack", trackChanged)
+      if (video.srcObject === stream) video.srcObject = null
+    }
+  }, [stream, role, roomId, onPlaybackReady])
 
-  return (
-    <video
-      ref={videoRef}
-      autoPlay
-      playsInline
-      muted={muted}
-      className={`h-full w-full object-cover ${mirrored ? "-scale-x-100" : ""} ${className ?? ""}`}
-    />
-  )
+  return <>
+    <video ref={videoRef} data-video-role={role} autoPlay playsInline muted={role === "self"}
+      className={`h-full w-full object-cover ${mirrored ? "-scale-x-100" : ""} ${className ?? ""}`} />
+    {role === "peer" && stream && audioBlocked && <button type="button"
+      className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/70 px-4 py-2 text-sm text-white"
+      onPointerDown={event => event.stopPropagation()}
+      onClick={event => { event.stopPropagation(); enableAudioRef.current?.() }}>
+      Tap to hear
+    </button>}
+  </>
 }
