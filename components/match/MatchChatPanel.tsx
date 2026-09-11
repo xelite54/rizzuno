@@ -13,7 +13,7 @@ import type { ChatMessage, PeerProfile } from "@/hooks/useMatchmaking"
 export function TypingDots() {
   const reduceMotion = useReducedMotion()
   return (
-    <div role="status" aria-label="Typing" className="flex w-fit items-center gap-1 rounded-2xl bg-[#251d29] px-3.5 py-3">
+    <div role="status" aria-label="Typing" className="flex w-fit items-center gap-1 rounded-2xl bg-surface-2 px-3.5 py-3">
       {[0, 1, 2].map((dot) => (
         <motion.span
           key={dot}
@@ -37,7 +37,13 @@ type MatchChatPanelProps = {
   onNotifyTyping: () => void
 }
 
-/** Viewport overlay: never clipped by the transformed mobile self-camera tile. */
+/**
+ * A plain, ordinary chat panel — same bubble/timestamp/day-label look as
+ * Friends' own chat (FriendsPanel.tsx), just floating above the chat icon
+ * instead of sliding in from the edge, so this reads as "the same feature,
+ * a different surface" rather than a separately-branded thing. Viewport
+ * overlay: never clipped by the transformed mobile self-camera tile.
+ */
 export function MatchChatPanel({
   open,
   onClose,
@@ -112,41 +118,40 @@ export function MatchChatPanel({
           />
           <motion.div
             role="region"
-            aria-label="Live match chat"
+            aria-label="Chat"
             initial={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
             transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
             style={viewport ? { bottom: viewport.bottom + (viewport.bottom > 100 ? 12 : 64), maxHeight: Math.max(120, viewport.height - 88) } : undefined}
-            className="fixed bottom-16 right-3 z-50 flex h-[460px] max-h-[70dvh] w-[350px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[24px] border border-[#e4c7db]/15 bg-[#141017] text-[#f4edf2] shadow-[0_24px_80px_#0009]"
+            className="fixed bottom-16 right-3 z-50 flex h-[460px] max-h-[70dvh] w-[350px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface text-foreground shadow-xl"
           >
-            <div className="flex shrink-0 items-center gap-3 border-b border-white/8 bg-[#1d1620] px-4 py-4">
-              <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#433044] text-sm font-medium text-[#efd6e7]">
+            <div className="flex h-16 shrink-0 items-center gap-2.5 border-b border-border px-4">
+              <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
                 {peer?.profilePhoto ? (
                   // eslint-disable-next-line @next/next/no-img-element -- user-provided profile image
                   <img src={peer.profilePhoto} alt="" className="h-full w-full object-cover" />
                 ) : (peer?.username || peer?.handle || "?").charAt(0).toUpperCase()}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-[14px] font-medium">{peer ? (peer.username ?? peer.handle) : "Your next conversation"}</p>
-                <p className="mt-1 flex items-center gap-1.5 text-[10px] tracking-wide text-[#b5a6b5]"><span className={`h-1 w-1 rounded-full ${disabled ? "bg-[#b5a6b5]" : "bg-[#97c5ad]"}`} />{disabled ? "Waiting for a match" : "Connected · live chat"}</p>
+                <p className="truncate text-[14px] font-medium text-foreground">{peer ? (peer.username ?? peer.handle) : "Chat"}</p>
+                <p className="text-[11px] text-muted">{disabled ? "Waiting for a match" : "Online"}</p>
               </div>
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Close chat"
-                className="flex h-8 w-8 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
               >
                 <CloseIcon className="h-4 w-4" />
               </button>
             </div>
 
-            <div ref={listRef} role="log" aria-label="Messages" aria-live="polite" aria-relevant="additions" className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4">
+            <div ref={listRef} role="log" aria-label="Messages" aria-live="polite" aria-relevant="additions" className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-4 py-3">
               {messages.length === 0 ? (
                 <div className="flex min-h-48 flex-col items-center justify-center px-5 text-center">
-                  <span aria-hidden="true" className="mb-5 text-4xl font-light tracking-[-0.2em] text-[#bd92b2]">“ ”</span>
-                  <p className="text-xl tracking-tight text-[#eee0ea]">{disabled ? "A little patience." : "Start with hello."}</p>
-                  <p className="mt-2 max-w-48 text-xs leading-relaxed text-[#ab9dab]">{disabled ? "Your conversation opens when you connect." : "You’re here together. Make the first word yours."}</p>
+                  <p className="text-[13px] font-medium text-foreground">No messages yet</p>
+                  <p className="mt-1 text-[12px] text-muted">{disabled ? "Chat opens once you're matched." : "Say hi when you're ready."}</p>
                 </div>
               ) : (
                 messages.map((message, index) => {
@@ -172,8 +177,8 @@ export function MatchChatPanel({
                           />
                         ) : (
                           <div
-                            className={`whitespace-pre-wrap rounded-[18px] px-3.5 py-2.5 text-[13px] leading-relaxed [overflow-wrap:anywhere] ${
-                              isMine ? "rounded-br-md bg-[#d9bbd1] text-[#281f2a]" : "rounded-bl-md border border-white/6 bg-[#251d29] text-[#f0e6ef]"
+                            className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-[13px] leading-snug [overflow-wrap:anywhere] ${
+                              isMine ? "bg-accent text-accent-foreground" : "bg-surface-2 text-foreground"
                             }`}
                           >
                             {message.content.text}
@@ -200,7 +205,7 @@ export function MatchChatPanel({
                 event.preventDefault()
                 submit()
               }}
-              className="m-3 mt-1 flex shrink-0 items-center gap-2 rounded-[18px] border border-white/12 bg-[#201923] p-1.5 focus-within:border-[#cba8c0]/60"
+              className="flex shrink-0 items-center gap-1.5 border-t border-border p-3"
             >
               <input
                 value={draft}
@@ -213,13 +218,13 @@ export function MatchChatPanel({
                 disabled={disabled}
                 maxLength={500}
                 aria-label="Message"
-                className="min-w-0 flex-1 bg-transparent px-2.5 py-2 text-[16px] text-[#f0e6ef] placeholder:text-[#a394a2] focus:outline-none disabled:opacity-50 sm:text-[13px]"
+                className="min-w-0 flex-1 rounded-xl border border-border bg-surface-2 px-3.5 py-2 text-[16px] text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-50 sm:text-[13px]"
               />
               <button
                 type="submit"
                 disabled={disabled || !draft.trim()}
                 aria-label="Send message"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[13px] bg-[#dfc5d7] text-[#281f2a] transition hover:bg-[#eedcea] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-35"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40"
               >
                 <SendIcon className="h-3.5 w-3.5" />
               </button>
