@@ -167,6 +167,27 @@ export function UsersIcon({ className }: IconProps) {
   )
 }
 
+/** "This is enlargeable" cue — a magnifying glass, overlaid on a profile photo that opens full-screen on tap (see ProfilePhotoViewer.tsx). */
+export function ExpandIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6.5" />
+      <path d="m20 20-4.35-4.35" />
+      <path d="M10.5 8v5M8 10.5h5" />
+    </svg>
+  )
+}
+
+/** A chat message's reply action — the curved "reply arrow" convention (iMessage/WhatsApp/etc.), shown at a message row's trailing edge (see FriendsPanel.tsx). */
+export function ReplyIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M9 6 3 12l6 6" />
+      <path d="M3 12h11.5a5.5 5.5 0 0 1 5.5 5.5V19" />
+    </svg>
+  )
+}
+
 export function SettingsIcon({ className }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">

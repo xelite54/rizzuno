@@ -896,6 +896,8 @@ export type FriendChatMessageRow = {
   createdAt: number
   /** When the recipient read this message (see markFriendMessagesRead()), or null if still unread. A freshly sent message is always null — sendFriendMessage() never has a reason to set it. */
   readAt: number | null
+  /** The message this one is replying to, or null if it isn't a reply. Only ever set to a real message id already in THIS SAME friendship — see sendFriendMessage()'s own validation — never trusted at face value from a client-supplied value. */
+  replyToId: string | null
 }
 
 export type SendFriendMessageResult =
@@ -921,19 +923,29 @@ export type SendFriendMessageResult =
  * persisted, the existing row is returned (`duplicate: true`) instead of
  * inserting a second one — a network retry or a duplicate WS send can never
  * create two messages for what the sender considers one send.
+ *
+ * `replyToId`, if given, is verified to actually be a message already in
+ * THIS SAME `friendshipId` before it's ever stored — a client claiming to
+ * reply to some other conversation's message id (or one that never existed)
+ * just gets silently reduced to no reply at all, the same "don't trust it,
+ * don't fail the send over it either" treatment a stale/foreign id
+ * deserves. Never resolved into the replied-to message's own text here —
+ * see migration 0011_friend_message_replies' own comment for why this only
+ * stores the id: the client already has (or can fetch) that text itself.
  */
 export async function sendFriendMessage(
   senderId: string,
   friendshipId: string,
   clientMessageId: string,
-  text: string
+  text: string,
+  replyToId?: string | null
 ): Promise<SendFriendMessageResult> {
   const recipientId = await getFriendshipOtherUser(senderId, friendshipId)
   if (!recipientId) return { status: "not_friends" }
   if (await isBlockedEitherWay(senderId, recipientId)) return { status: "blocked" }
 
-  const existing = await q<{ id: string; text: string; created_at: string; read_at: string | null }>(
-    `SELECT id, text, created_at, read_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
+  const existing = await q<{ id: string; text: string; created_at: string; read_at: string | null; reply_to_id: string | null }>(
+    `SELECT id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
     [senderId, clientMessageId]
   )
   if (existing.rows[0]) {
@@ -942,25 +954,34 @@ export async function sendFriendMessage(
       status: "sent",
       duplicate: true,
       recipientId,
-      message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at), readAt: row.read_at === null ? null : Number(row.read_at) },
+      message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at), readAt: row.read_at === null ? null : Number(row.read_at), replyToId: row.reply_to_id },
     }
+  }
+
+  let validReplyToId: string | null = null
+  if (replyToId) {
+    const target = await q<{ id: string }>(
+      `SELECT id FROM friend_messages WHERE id = $1 AND friendship_id = $2`,
+      [replyToId, friendshipId]
+    )
+    validReplyToId = target.rows[0]?.id ?? null
   }
 
   const id = randomUUID()
   const ts = now()
   try {
     await q(
-      `INSERT INTO friend_messages (id, friendship_id, sender_id, recipient_id, text, client_message_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, friendshipId, senderId, recipientId, text, clientMessageId, ts]
+      `INSERT INTO friend_messages (id, friendship_id, sender_id, recipient_id, text, client_message_id, created_at, reply_to_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [id, friendshipId, senderId, recipientId, text, clientMessageId, ts, validReplyToId]
     )
   } catch (err) {
     if ((err as { code?: string }).code === "23505") {
       // Lost a race with itself (a near-simultaneous retry landing between
       // the SELECT above and this INSERT) — re-read rather than fail the
       // send outright; the row genuinely exists either way.
-      const raced = await q<{ id: string; text: string; created_at: string; read_at: string | null }>(
-        `SELECT id, text, created_at, read_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
+      const raced = await q<{ id: string; text: string; created_at: string; read_at: string | null; reply_to_id: string | null }>(
+        `SELECT id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
         [senderId, clientMessageId]
       )
       const row = raced.rows[0]
@@ -969,13 +990,13 @@ export async function sendFriendMessage(
           status: "sent",
           duplicate: true,
           recipientId,
-          message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at), readAt: row.read_at === null ? null : Number(row.read_at) },
+          message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at), readAt: row.read_at === null ? null : Number(row.read_at), replyToId: row.reply_to_id },
         }
       }
     }
     throw err
   }
-  return { status: "sent", duplicate: false, recipientId, message: { id, friendshipId, senderId, text, createdAt: ts, readAt: null } }
+  return { status: "sent", duplicate: false, recipientId, message: { id, friendshipId, senderId, text, createdAt: ts, readAt: null, replyToId: validReplyToId } }
 }
 
 /**
@@ -994,8 +1015,8 @@ export async function listFriendMessages(
 ): Promise<{ status: "ok"; messages: FriendChatMessageRow[] } | { status: "not_found" }> {
   const otherId = await getFriendshipOtherUser(userId, friendshipId)
   if (!otherId) return { status: "not_found" }
-  const { rows } = await q<{ id: string; sender_id: string; text: string; created_at: string; read_at: string | null }>(
-    `SELECT id, sender_id, text, created_at, read_at FROM friend_messages WHERE friendship_id = $1 ORDER BY created_at DESC LIMIT $2`,
+  const { rows } = await q<{ id: string; sender_id: string; text: string; created_at: string; read_at: string | null; reply_to_id: string | null }>(
+    `SELECT id, sender_id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE friendship_id = $1 ORDER BY created_at DESC LIMIT $2`,
     [friendshipId, limit]
   )
   const messages = rows
@@ -1007,6 +1028,7 @@ export async function listFriendMessages(
       text: r.text,
       createdAt: Number(r.created_at),
       readAt: r.read_at === null ? null : Number(r.read_at),
+      replyToId: r.reply_to_id,
     }))
   return { status: "ok", messages }
 }

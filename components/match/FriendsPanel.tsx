@@ -11,8 +11,9 @@ import type { MatchInvitation, ReportCategory } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronLeftIcon, CloseIcon, DotsIcon, MailIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
+import { ChevronLeftIcon, CloseIcon, DotsIcon, ExpandIcon, MailIcon, ReplyIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
 import { TypingDots } from "./MatchChatPanel"
+import { ProfilePhotoViewer } from "./ProfilePhotoViewer"
 import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
 import { EASE_OUT, DURATION_QUICK, DURATION_BASE } from "@/lib/motion"
 import type { DemoFriend, PendingRequest } from "@/hooks/useFriends"
@@ -73,7 +74,7 @@ type FriendsPanelProps = {
   onUnreadMessagesChange?: (count: number) => void
   /** This session's live friend-chat cache, keyed by friendshipId — see useMatchmaking's `friendMessages` doc comment. Merged with real fetched history (below) rather than trusted alone. */
   friendMessages: Map<string, FriendChatEntry[]>
-  onSendFriendMessage: (friendshipId: string, text: string) => void
+  onSendFriendMessage: (friendshipId: string, text: string, replyToId?: string | null) => void
   onMarkFriendChatRead: (friendshipId: string) => void
   /** Which friendships the other side is currently typing in — see useMatchmaking's `peerFriendTyping` doc comment. */
   peerFriendTyping: Set<string>
@@ -136,6 +137,19 @@ export function FriendsPanel({
   const [rowMenuConfirm, setRowMenuConfirm] = useState<"unfriend" | "block" | null>(null)
   const [draft, setDraft] = useState("")
   const [chatBlocked, setChatBlocked] = useState(false)
+  // Which message (if any) the draft is currently replying to — cleared on
+  // send, on switching conversations, and on the panel closing, the same
+  // way `draft` itself already resets for each of those.
+  const [replyingTo, setReplyingTo] = useState<FriendChatEntry | null>(null)
+  // Which profile's photo is currently open full-screen (see
+  // ProfilePhotoViewer.tsx) — at most one of the three profile screens
+  // below (friend/search-result) is ever open at once, so a single
+  // "which photo, if any" slot covers both rather than needing one flag
+  // per screen. Holds the actual data URL (not just "open: true") since
+  // the viewer needs it directly and it can't disappear out from under a
+  // still-open viewer the way looking it back up by id could.
+  const [enlargedFriendPhoto, setEnlargedFriendPhoto] = useState<string | null>(null)
+  const [enlargedSearchResultPhoto, setEnlargedSearchResultPhoto] = useState<string | null>(null)
 
   // Per-row "•••" menu on a friend in the list (View profile / Unfriend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
@@ -201,6 +215,9 @@ export function FriendsPanel({
       setSearchErrored(false)
       setViewingSearchResultUsername(null)
       setSearchResultBlockConfirm(false)
+      setEnlargedFriendPhoto(null)
+      setEnlargedSearchResultPhoto(null)
+      setReplyingTo(null)
     }, 250)
     return () => clearTimeout(timer)
   }, [open])
@@ -309,7 +326,7 @@ export function FriendsPanel({
         if (!res.ok) throw new Error(`friend messages fetch failed: ${res.status}`)
         return res.json()
       })
-      .then((data: { messages?: { id: string; text: string; createdAt: number; mine: boolean; readAt: number | null }[] }) => {
+      .then((data: { messages?: { id: string; text: string; createdAt: number; mine: boolean; readAt: number | null; replyToId: string | null }[] }) => {
         if (cancelled) return
         const loaded: FriendChatEntry[] = (data.messages ?? []).map((m) => ({
           id: m.id,
@@ -317,6 +334,7 @@ export function FriendsPanel({
           text: m.text,
           ts: m.createdAt,
           readAt: m.readAt,
+          replyToId: m.replyToId,
         }))
         setHistoryById((prev) => ({ ...prev, [activeId]: loaded }))
       })
@@ -343,6 +361,7 @@ export function FriendsPanel({
 
   function openChat(id: string) {
     setChatBlocked(false)
+    setReplyingTo(null)
     setActiveId(id)
     setView("chat")
   }
@@ -356,7 +375,8 @@ export function FriendsPanel({
     }
     setChatBlocked(false)
     setDraft("")
-    onSendFriendMessage(active.id, text)
+    onSendFriendMessage(active.id, text, replyingTo?.id ?? null)
+    setReplyingTo(null)
   }
 
   function handleRemoveFriend(id: string) {
@@ -842,31 +862,62 @@ export function FriendsPanel({
                             </span>
                           </div>
                         )}
-                        <div className={`max-w-[80%] ${isMine ? "ml-auto" : ""}`}>
-                          <div
-                            className={`rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
-                              isMine ? "bg-accent text-accent-foreground" : "bg-surface-2 text-foreground"
-                            }`}
+                        {/* The reply button lives in the same row as the
+                            bubble, on its trailing (outer) side, so it's
+                            reachable without covering the text — dim by
+                            default, brightening near the row on hover; on
+                            touch it's already visible (just dim), since
+                            there's no hover to reveal it there. */}
+                        <div className={`group flex max-w-[80%] items-end gap-1 ${isMine ? "ml-auto flex-row-reverse" : ""}`}>
+                          <div className="min-w-0">
+                            <div
+                              className={`rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
+                                isMine ? "bg-accent text-accent-foreground" : "bg-surface-2 text-foreground"
+                              }`}
+                            >
+                              {message.replyToId && (() => {
+                                const quoted = activeMessages.find((m) => m.id === message.replyToId)
+                                return (
+                                  <div
+                                    className={`mb-1.5 rounded-md border-l-2 py-1 pl-2 text-[11px] ${
+                                      isMine ? "border-accent-foreground/40 text-accent-foreground/75" : "border-foreground/25 text-muted"
+                                    }`}
+                                  >
+                                    <p className="font-medium">
+                                      {quoted ? (quoted.from === "me" ? "You" : active?.displayName ?? "Them") : "Original message"}
+                                    </p>
+                                    <p className="truncate">{quoted ? quoted.text : "Message no longer available"}</p>
+                                  </div>
+                                )
+                              })()}
+                              {message.text}
+                            </div>
+                            <div className={`mt-1 flex items-center gap-1 px-1 text-[10px] text-muted ${isMine ? "justify-end" : ""}`}>
+                              <span>
+                                {isMine && message.status === "sending"
+                                  ? "Sending…"
+                                  : isMine && message.status === "failed"
+                                    ? "Not delivered"
+                                    : formatTime(message.ts)}
+                              </span>
+                              {/* "Read" only ever replaces the timestamp on this
+                                  account's own most recent delivered message —
+                                  mirroring how the other side's read-state is
+                                  shown up to their latest read message, not
+                                  individually per bubble. */}
+                              {isMine && isLastMine && message.status !== "sending" && message.status !== "failed" && message.readAt && (
+                                <span>· Read</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setReplyingTo(message)}
+                            aria-label="Reply to this message"
+                            className="mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted opacity-40 transition hover:bg-surface-2 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
-                            {message.text}
-                          </div>
-                          <div className={`mt-1 flex items-center gap-1 px-1 text-[10px] text-muted ${isMine ? "justify-end" : ""}`}>
-                            <span>
-                              {isMine && message.status === "sending"
-                                ? "Sending…"
-                                : isMine && message.status === "failed"
-                                  ? "Not delivered"
-                                  : formatTime(message.ts)}
-                            </span>
-                            {/* "Read" only ever replaces the timestamp on this
-                                account's own most recent delivered message —
-                                mirroring how the other side's read-state is
-                                shown up to their latest read message, not
-                                individually per bubble. */}
-                            {isMine && isLastMine && message.status !== "sending" && message.status !== "failed" && message.readAt && (
-                              <span>· Read</span>
-                            )}
-                          </div>
+                            <ReplyIcon className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       </div>
                     )
@@ -874,13 +925,32 @@ export function FriendsPanel({
                   {active && peerFriendTyping.has(active.id) && <TypingDots />}
                 </div>
 
+                {replyingTo && (
+                  <div className="flex items-center gap-2 border-t border-border bg-surface-2 px-3 py-2">
+                    <ReplyIcon className="h-3.5 w-3.5 shrink-0 text-muted" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-medium text-muted">
+                        Replying to {replyingTo.from === "me" ? "yourself" : active?.displayName ?? "them"}
+                      </p>
+                      <p className="truncate text-[12px] text-foreground">{replyingTo.text}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setReplyingTo(null)}
+                      aria-label="Cancel reply"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                    >
+                      <CloseIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
                 {chatBlocked && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{CHAT_BLOCKED_MESSAGE}</p>}
                 <form
                   onSubmit={(event) => {
                     event.preventDefault()
                     sendMessage()
                   }}
-                  className="flex items-center gap-1.5 border-t border-border p-3"
+                  className={`flex items-center gap-1.5 p-3 ${replyingTo ? "" : "border-t border-border"}`}
                 >
                   <input
                     value={draft}
@@ -1121,12 +1191,27 @@ export function FriendsPanel({
                   <>
                     <span className="relative flex h-24 w-24 shrink-0">
                       {friendProfile?.profilePhoto ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- data-URL profile photo, not a static asset
-                        <img
-                          src={friendProfile.profilePhoto}
-                          alt=""
-                          className="h-24 w-24 rounded-full object-cover"
-                        />
+                        <button
+                          type="button"
+                          onClick={() => setEnlargedFriendPhoto(friendProfile.profilePhoto)}
+                          aria-label={`Enlarge ${friendName}'s profile photo`}
+                          className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element -- data-URL profile photo, not a static asset */}
+                          <img
+                            src={friendProfile.profilePhoto}
+                            alt=""
+                            className="h-24 w-24 rounded-full object-cover"
+                          />
+                          {/* A dimming overlay on hover for pointer devices,
+                              plus a small always-visible corner badge so
+                              touch devices (no hover) see the same "this
+                              expands" cue. */}
+                          <span className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/20" />
+                          <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white">
+                            <ExpandIcon className="h-3 w-3" />
+                          </span>
+                        </button>
                       ) : (
                         <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
                           {friendName.charAt(0).toUpperCase()}
@@ -1253,12 +1338,25 @@ export function FriendsPanel({
               </div>
 
               <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-                <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                  {viewingSearchResult.profilePhoto ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo
+                {viewingSearchResult.profilePhoto ? (
+                  <button
+                    type="button"
+                    onClick={() => setEnlargedSearchResultPhoto(viewingSearchResult.profilePhoto ?? null)}
+                    aria-label={`Enlarge @${viewingSearchResult.username}'s profile photo`}
+                    className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo */}
                     <img src={viewingSearchResult.profilePhoto} alt="" className="h-full w-full rounded-full object-cover" />
-                  ) : viewingSearchResult.username.charAt(0).toUpperCase()}
-                </span>
+                    <span className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/20" />
+                    <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white">
+                      <ExpandIcon className="h-3 w-3" />
+                    </span>
+                  </button>
+                ) : (
+                  <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
+                    {viewingSearchResult.username.charAt(0).toUpperCase()}
+                  </span>
+                )}
                 <div className="mt-4 flex items-center gap-1">
                   <p className="text-[18px] font-semibold text-foreground">@{viewingSearchResult.username}</p>
                   <ProfileActionsMenu ariaLabel={`More options for @${viewingSearchResult.username}`} align="center" compact onClose={() => setSearchResultBlockConfirm(false)}>
@@ -1332,6 +1430,21 @@ export function FriendsPanel({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {enlargedFriendPhoto && (
+          <ProfilePhotoViewer
+            photo={enlargedFriendPhoto}
+            owner={friendProfile?.username ? `@${friendProfile.username}` : (viewingFriend?.displayName ?? "Friend")}
+            onClose={() => setEnlargedFriendPhoto(null)}
+          />
+        )}
+        {enlargedSearchResultPhoto && (
+          <ProfilePhotoViewer
+            photo={enlargedSearchResultPhoto}
+            owner={viewingSearchResult ? `@${viewingSearchResult.username}` : "Profile"}
+            onClose={() => setEnlargedSearchResultPhoto(null)}
+          />
+        )}
         </>,
         document.body
       )}

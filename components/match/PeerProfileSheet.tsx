@@ -1,9 +1,11 @@
 "use client"
 import panelStyles from "./SocialPanel.module.css"
 import { PublicProfilePosts } from "./PublicProfilePosts"
+import { ProfilePhotoViewer } from "./ProfilePhotoViewer"
 
+import { useEffect, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { CloseIcon } from "@/components/icons"
+import { CloseIcon, ExpandIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FriendButton } from "./FriendButton"
 import type { FriendState } from "./FriendButton"
@@ -24,6 +26,16 @@ type PeerProfileSheetProps = {
 // in from the right so it reads as "their side," opposite My Profile's left
 // slide-in. The video connection keeps running underneath.
 export function PeerProfileSheet({ peer, open, friendState, onAddFriend, onClose }: PeerProfileSheetProps) {
+  // Declared before the early return below — hooks must run unconditionally.
+  const [enlargedPhoto, setEnlargedPhoto] = useState(false)
+  // A closed/reopened-for-someone-else sheet must never resurrect a stale
+  // "enlarged" state from whoever's photo was open last.
+  useEffect(() => {
+    if (open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to the sheet closing/switching peers, not mirroring existing state
+    setEnlargedPhoto(false)
+  }, [open, peer?.username])
+
   if (!peer) return null
 
   // One identity, not two — their chosen username if they have one, their
@@ -55,14 +67,25 @@ export function PeerProfileSheet({ peer, open, friendState, onAddFriend, onClose
           <div className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-lg px-6 py-6">
               <div className="flex flex-col items-center text-center">
-                <span className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-accent-2 text-[30px] font-semibold text-accent-foreground">
-                  {peer.profilePhoto ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
+                {peer.profilePhoto ? (
+                  <button
+                    type="button"
+                    onClick={() => setEnlargedPhoto(true)}
+                    aria-label={`Enlarge ${identity}'s profile photo`}
+                    className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset */}
                     <img src={peer.profilePhoto} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    identity.charAt(0).toUpperCase()
-                  )}
-                </span>
+                    <span className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/20" />
+                    <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white">
+                      <ExpandIcon className="h-3 w-3" />
+                    </span>
+                  </button>
+                ) : (
+                  <span className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-accent-2 text-[30px] font-semibold text-accent-foreground">
+                    {identity.charAt(0).toUpperCase()}
+                  </span>
+                )}
                 <p className="mt-3 text-[17px] font-semibold text-foreground">{identity}</p>
 
                 {FRIENDS_ENABLED && (
@@ -78,6 +101,9 @@ export function PeerProfileSheet({ peer, open, friendState, onAddFriend, onClose
             </div>
           </div>
         </motion.div>
+      )}
+      {enlargedPhoto && peer.profilePhoto && (
+        <ProfilePhotoViewer photo={peer.profilePhoto} owner={identity} onClose={() => setEnlargedPhoto(false)} />
       )}
     </AnimatePresence>
   )

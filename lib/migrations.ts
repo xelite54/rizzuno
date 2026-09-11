@@ -319,4 +319,19 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    // Lets a friend-chat message reference the specific earlier message it's
+    // replying to (see FriendsPanel.tsx's reply affordance and
+    // lib/db.ts's sendFriendMessage()). Nullable — most messages reply to
+    // nothing. Deliberately NOT a foreign key: the replied-to message can
+    // never be deleted on its own (no per-message delete exists), but
+    // NO ACTION here would only ever matter if one did, and a plain
+    // nullable TEXT column is consistent with every other id reference
+    // already in this table (friendship_id/sender_id/recipient_id are
+    // exactly the same — logical references, no FK constraint).
+    id: "0011_friend_message_replies",
+    sql: `
+      ALTER TABLE friend_messages ADD COLUMN reply_to_id TEXT;
+    `,
+  },
 ]

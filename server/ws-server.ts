@@ -1538,7 +1538,7 @@ export function createRizzunoWebSocketServer() {
           }
           let result
           try {
-            result = await sendFriendMessage(state.userId, message.friendshipId, message.clientMessageId, text)
+            result = await sendFriendMessage(state.userId, message.friendshipId, message.clientMessageId, text, message.replyToId)
           } catch (err) {
             console.error("ws-server: friend-chat-send failed", { displayId: state.displayId, ...describeErr(err) })
             send(state.ws, {
@@ -1580,7 +1580,7 @@ export function createRizzunoWebSocketServer() {
             send(recipient.ws, {
               type: "friend-chat-message",
               friendshipId: message.friendshipId,
-              message: { id: result.message.id, text: result.message.text, createdAt: result.message.createdAt },
+              message: { id: result.message.id, text: result.message.text, createdAt: result.message.createdAt, replyToId: result.message.replyToId },
             })
             console.debug("friend-chat: live delivery", { friendshipId: message.friendshipId })
             // Keeps the recipient's own unread badge correct the instant

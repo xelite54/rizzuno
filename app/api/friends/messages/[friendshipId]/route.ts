@@ -58,7 +58,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
       // back to the account that read it) — still included for every row
       // rather than nulled out server-side, the same way `mine` is derived
       // client-side rather than filtered here.
-      messages: result.messages.map((m) => ({ id: m.id, text: m.text, createdAt: m.createdAt, mine: m.senderId === userId, readAt: m.readAt })),
+      messages: result.messages.map((m) => ({ id: m.id, text: m.text, createdAt: m.createdAt, mine: m.senderId === userId, readAt: m.readAt, replyToId: m.replyToId })),
     })
   } catch (err) {
     const details = describeDbError(err)

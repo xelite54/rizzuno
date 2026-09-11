@@ -41,8 +41,8 @@ export type { MatchState }
  * ever arrives already delivered — so it carries no status at all.
  */
 export type ChatMessage = { id: string; from: "me" | "peer"; content: ChatContent; ts: number; status?: "sending" | "sent" | "failed" }
-/** A friend-chat message, rendered the same way match chat is — `status` has the same "me"-message-only meaning ChatMessage's does. `readAt` only ever means anything on a "me" message (the friend's own read state of a message you received is never shown back to you) — set once the other side actually reads it, either from history (see FriendsPanel's history fetch) or live, via "friend-chat-read-receipt" below. */
-export type FriendChatEntry = { id: string; from: "me" | "peer"; text: string; ts: number; status?: "sending" | "sent" | "failed"; readAt?: number | null }
+/** A friend-chat message, rendered the same way match chat is — `status` has the same "me"-message-only meaning ChatMessage's does. `readAt` only ever means anything on a "me" message (the friend's own read state of a message you received is never shown back to you) — set once the other side actually reads it, either from history (see FriendsPanel's history fetch) or live, via "friend-chat-read-receipt" below. `replyToId`, if set, is another message's id in this same conversation this one is replying to — FriendsPanel.tsx resolves it back to that message's own text/sender by looking it up in whatever's already loaded, never a separate fetch. */
+export type FriendChatEntry = { id: string; from: "me" | "peer"; text: string; ts: number; status?: "sending" | "sent" | "failed"; readAt?: number | null; replyToId?: string | null }
 
 // How long a match-chat/friend-chat send waits for the server's own
 // delivery acknowledgement before giving up and marking itself "failed" —
@@ -806,15 +806,15 @@ export function useMatchmaking(
    * it at all).
    */
   const sendFriendChatMessage = useCallback(
-    (friendshipId: string, text: string) => {
+    (friendshipId: string, text: string, replyToId?: string | null) => {
       const trimmed = text.trim().slice(0, 500)
       if (!trimmed || !friendshipId) return
       const clientMessageId = crypto.randomUUID()
-      console.debug("friend-chat: send requested", { friendshipId })
+      console.debug("friend-chat: send requested", { friendshipId, replyToId })
       setFriendMessages((prev) => {
         const next = new Map(prev)
         const existing = next.get(friendshipId) ?? []
-        next.set(friendshipId, [...existing, { id: clientMessageId, from: "me", text: trimmed, ts: Date.now(), status: "sending" }])
+        next.set(friendshipId, [...existing, { id: clientMessageId, from: "me", text: trimmed, ts: Date.now(), status: "sending", replyToId: replyToId ?? null }])
         return next
       })
       const markFailed = () => {
@@ -840,7 +840,7 @@ export function useMatchmaking(
         markFailed()
       }, CHAT_ACK_TIMEOUT_MS)
       pendingFriendChatSendsRef.current.set(clientMessageId, timer)
-      send({ type: "friend-chat-send", friendshipId, clientMessageId, text: trimmed })
+      send({ type: "friend-chat-send", friendshipId, clientMessageId, text: trimmed, replyToId })
     },
     [send, connected, setFriendMessages]
   )
@@ -1228,7 +1228,7 @@ export function useMatchmaking(
             if (existing.some((m) => m.id === message.message.id)) return prev
             next.set(message.friendshipId, [
               ...existing,
-              { id: message.message.id, from: "peer", text: message.message.text, ts: message.message.createdAt },
+              { id: message.message.id, from: "peer", text: message.message.text, ts: message.message.createdAt, replyToId: message.message.replyToId },
             ])
             return next
           })

@@ -403,7 +403,11 @@ export function MyProfileSheet({
           data-upgrade-return={`/?panel=profile&view=${view}`}
         >
           <div className={`${styles.header} flex h-18 shrink-0 items-center gap-3 border-b border-white/8`}>
-            {view !== "profile" ? (
+            {/* Viewing a single post is a dead end reached only from the grid,
+                one level deep — the header's X (handleXClick, below) already
+                takes you straight back to the profile, so a separate Back
+                button here would just be a second way to do the same thing. */}
+            {view !== "profile" && view !== "viewPost" ? (
               <button
                 type="button"
                 onClick={goBack}

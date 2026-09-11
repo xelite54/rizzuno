@@ -103,8 +103,8 @@ export type FriendSummary = {
   unreadCount: number
 }
 
-/** One friend-chat message, as delivered/echoed over the realtime socket or returned by GET /api/friends/messages/[friendshipId] — text only, matching the existing UI (see AGENTS: "Only implement the text-chat functionality that currently exists"). Never carries sender/recipient account ids itself; the surrounding context (which friendship, "friend-chat-message" vs the sender's own optimistic copy) is what tells the two apart client-side. */
-export type FriendChatMessage = { id: string; text: string; createdAt: number }
+/** One friend-chat message, as delivered/echoed over the realtime socket or returned by GET /api/friends/messages/[friendshipId] — text only, matching the existing UI (see AGENTS: "Only implement the text-chat functionality that currently exists"). Never carries sender/recipient account ids itself; the surrounding context (which friendship, "friend-chat-message" vs the sender's own optimistic copy) is what tells the two apart client-side. `replyToId`, if set, is another message's id in this same friendship this one is replying to — never resolved to that message's own text/sender here; the recipient's client resolves it locally against whatever it already has (see FriendsPanel.tsx), the same message this same friendship already delivered once. */
+export type FriendChatMessage = { id: string; text: string; createdAt: number; replyToId: string | null }
 
 /** A friend request someone else sent you — `id` is the request's own opaque id (used to accept/decline it), not the sender's account id, which this doesn't expose until you accept. */
 export type ReceivedFriendRequest = { id: string; senderId: string; username: string | null; createdAt: number }
@@ -205,7 +205,8 @@ export type ClientMessage =
    * dedup key (see migration 0009_friend_messages' UNIQUE constraint) and
    * what "friend-chat-sent"/"friend-chat-error" echo back.
    */
-  | { type: "friend-chat-send"; friendshipId: string; clientMessageId: string; text: string }
+  /** `replyToId`, if present, is the id of another message in this same friendship this send is replying to — see lib/db.ts's sendFriendMessage() for the server-side validation that keeps it honest. */
+  | { type: "friend-chat-send"; friendshipId: string; clientMessageId: string; text: string; replyToId?: string | null }
   /** Marks every message this account has RECEIVED in `friendshipId` as read — sent on opening a conversation, and again for any later message that arrives while it's still open. Never marks this account's own outgoing messages; see lib/db.ts's markFriendMessagesRead(). */
   | { type: "friend-chat-read"; friendshipId: string }
   /** "I'm typing" in a friend-chat conversation — the Friends-panel equivalent of "typing" above. Throttled client-side the same way (see hooks/useMatchmaking.ts's notifyFriendTyping()); relayed to the other side ONLY if they're still actually friends (re-checked server-side, same as "friend-chat-send"), never echoed back to the sender. */
