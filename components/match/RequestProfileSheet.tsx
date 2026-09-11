@@ -2,7 +2,7 @@
 import panelStyles from "./SocialPanel.module.css"
 import { PublicProfilePosts } from "./PublicProfilePosts"
 import { ReportButton } from "./ReportButton"
-import { ProfileMenu } from "./ProfileMenu"
+import { ProfileActionsMenu } from "./ProfileActionsMenu"
 
 import { AnimatePresence, motion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
@@ -39,7 +39,7 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
         >
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
             <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-            <ProfileMenu ariaLabel={`More options for ${request.displayName}`}>
+            <ProfileActionsMenu ariaLabel={`More options for ${request.displayName}`}>
               {(closeMenu) => (
                 <ReportButton
                   onReport={(category) => onReport(request.senderId, category)}
@@ -47,7 +47,7 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
                   triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
                 />
               )}
-            </ProfileMenu>
+            </ProfileActionsMenu>
             <button
               type="button"
               onClick={onClose}

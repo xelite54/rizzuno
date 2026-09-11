@@ -1,7 +1,7 @@
 "use client"
 import { PublicProfilePosts } from "./PublicProfilePosts"
 import { ReportButton } from "./ReportButton"
-import { ProfileMenu } from "./ProfileMenu"
+import { ProfileActionsMenu } from "./ProfileActionsMenu"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 import panelStyles from "./SocialPanel.module.css"
 
@@ -1006,7 +1006,7 @@ export function FriendsPanel({
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-                <ProfileMenu ariaLabel={`More options for ${viewingRequester.displayName}`}>
+                <ProfileActionsMenu ariaLabel={`More options for ${viewingRequester.displayName}`}>
                   {(closeMenu) => (
                     <ReportButton
                       onReport={(category) => onReportPerson(viewingRequester.senderId, category)}
@@ -1014,7 +1014,7 @@ export function FriendsPanel({
                       triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
                     />
                   )}
-                </ProfileMenu>
+                </ProfileActionsMenu>
                 <button
                   type="button"
                   onClick={() => setViewingRequesterId(null)}
@@ -1078,7 +1078,7 @@ export function FriendsPanel({
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-                <ProfileMenu ariaLabel={`More options for ${friendName}`} onClose={() => setFriendActionConfirm(null)}>
+                <ProfileActionsMenu ariaLabel={`More options for ${friendName}`} onClose={() => setFriendActionConfirm(null)}>
                   {(closeMenu) =>
                     friendActionConfirm ? (
                       <div className="px-2 py-1.5">
@@ -1132,7 +1132,7 @@ export function FriendsPanel({
                       </div>
                     )
                   }
-                </ProfileMenu>
+                </ProfileActionsMenu>
                 <button
                   type="button"
                   onClick={() => setViewingFriendId(null)}
@@ -1217,7 +1217,7 @@ export function FriendsPanel({
             >
               <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
                 <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-                <ProfileMenu ariaLabel={`More options for @${viewingSearchResult.username}`} onClose={() => setSearchResultBlockConfirm(false)}>
+                <ProfileActionsMenu ariaLabel={`More options for @${viewingSearchResult.username}`} onClose={() => setSearchResultBlockConfirm(false)}>
                   {(closeMenu) =>
                     searchResultBlockConfirm ? (
                       <div className="px-2 py-1.5">
@@ -1259,7 +1259,7 @@ export function FriendsPanel({
                       </div>
                     )
                   }
-                </ProfileMenu>
+                </ProfileActionsMenu>
                 <button
                   type="button"
                   onClick={() => setViewingSearchResultUsername(null)}
