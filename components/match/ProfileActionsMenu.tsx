@@ -11,6 +11,17 @@ type ProfileActionsMenuProps = {
   children: (close: () => void) => React.ReactNode
   /** Fired whenever the menu transitions to closed — by the "•••" toggle, or by a child calling `close()`. Lets a caller reset its own confirm-step state (Unfriend/Block's "are you sure?") so reopening the menu always starts back at the top level rather than wherever it was left. */
   onClose?: () => void
+  /**
+   * Where the dropdown hangs off the trigger — "end" (the default) pins it
+   * to the trigger's right edge, for a trigger sitting at the right end of
+   * a row (a sheet header). "center" hangs it centered under the trigger
+   * instead, for a trigger sitting inline next to a name/username, in the
+   * middle of a centered profile layout, where anchoring to an edge would
+   * float the dropdown off to one side.
+   */
+  align?: "end" | "center"
+  /** Smaller trigger (28px vs. the 44px default) for sitting inline next to a name/username instead of alone in a header row. */
+  compact?: boolean
 }
 
 /**
@@ -23,7 +34,7 @@ type ProfileActionsMenuProps = {
  * sheets). Not to be confused with ProfileMenu.tsx — that's the header's
  * own-account avatar button, an unrelated single-purpose control.
  */
-export function ProfileActionsMenu({ ariaLabel, children, onClose }: ProfileActionsMenuProps) {
+export function ProfileActionsMenu({ ariaLabel, children, onClose, align = "end", compact = false }: ProfileActionsMenuProps) {
   const [open, setOpen] = useState(false)
   const close = () => {
     setOpen(false)
@@ -36,11 +47,11 @@ export function ProfileActionsMenu({ ariaLabel, children, onClose }: ProfileActi
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
         aria-label={ariaLabel}
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
-          open ? "bg-surface-2 text-foreground" : ""
-        }`}
+        className={`flex shrink-0 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+          compact ? "h-7 w-7" : "h-11 w-11"
+        } ${open ? "bg-surface-2 text-foreground" : ""}`}
       >
-        <DotsIcon className="h-4 w-4" />
+        <DotsIcon className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
       </button>
       <AnimatePresence>
         {open && (
@@ -49,7 +60,9 @@ export function ProfileActionsMenu({ ariaLabel, children, onClose }: ProfileActi
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: DURATION_QUICK, ease: EASE_OUT }}
-            className="absolute right-0 top-12 z-10 w-56 overflow-hidden rounded-2xl border border-border bg-surface p-1.5 shadow-xl"
+            className={`absolute top-full z-10 mt-2 w-56 overflow-hidden rounded-2xl border border-border bg-surface p-1.5 text-left shadow-xl ${
+              align === "center" ? "left-1/2 -translate-x-1/2" : "right-0"
+            }`}
           >
             {children(close)}
           </motion.div>

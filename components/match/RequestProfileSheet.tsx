@@ -39,15 +39,6 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
         >
           <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
             <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-            <ProfileActionsMenu ariaLabel={`More options for ${request.displayName}`}>
-              {(closeMenu) => (
-                <ReportButton
-                  onReport={(category) => onReport(request.senderId, category)}
-                  onSubmitted={() => setTimeout(closeMenu, 1100)}
-                  triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                />
-              )}
-            </ProfileActionsMenu>
             <button
               type="button"
               onClick={onClose}
@@ -62,7 +53,18 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
             <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
               {request.displayName.charAt(0)}
             </span>
-            <p className="mt-4 text-[18px] font-semibold text-foreground">{request.displayName}</p>
+            <div className="mt-4 flex items-center gap-1">
+              <p className="text-[18px] font-semibold text-foreground">{request.displayName}</p>
+              <ProfileActionsMenu ariaLabel={`More options for ${request.displayName}`} align="center" compact>
+                {(closeMenu) => (
+                  <ReportButton
+                    onReport={(category) => onReport(request.senderId, category)}
+                    onSubmitted={() => setTimeout(closeMenu, 1100)}
+                    triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                  />
+                )}
+              </ProfileActionsMenu>
+            </div>
             <p className="mt-2 text-[12px] text-muted">Wants to be friends</p>
 
             <div className="mt-6 flex w-full max-w-xs gap-2">
