@@ -41,8 +41,8 @@ export type { MatchState }
  * ever arrives already delivered — so it carries no status at all.
  */
 export type ChatMessage = { id: string; from: "me" | "peer"; content: ChatContent; ts: number; status?: "sending" | "sent" | "failed" }
-/** A friend-chat message, rendered the same way match chat is — `status` has the same "me"-message-only meaning ChatMessage's does. */
-export type FriendChatEntry = { id: string; from: "me" | "peer"; text: string; ts: number; status?: "sending" | "sent" | "failed" }
+/** A friend-chat message, rendered the same way match chat is — `status` has the same "me"-message-only meaning ChatMessage's does. `readAt` only ever means anything on a "me" message (the friend's own read state of a message you received is never shown back to you) — set once the other side actually reads it, either from history (see FriendsPanel's history fetch) or live, via "friend-chat-read-receipt" below. */
+export type FriendChatEntry = { id: string; from: "me" | "peer"; text: string; ts: number; status?: "sending" | "sent" | "failed"; readAt?: number | null }
 
 // How long a match-chat/friend-chat send waits for the server's own
 // delivery acknowledgement before giving up and marking itself "failed" —
@@ -392,6 +392,15 @@ export function useMatchmaking(
   // exactly once. See sendFriendChatMessage() and the "friend-chat-sent"/
   // "friend-chat-error" cases below.
   const pendingFriendChatSendsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // Which friendships the OTHER side is currently typing in — the Friends-
+  // panel equivalent of `peerTyping` above, just keyed by friendshipId
+  // since (unlike a call) multiple friend conversations can be "open" (or
+  // at least cached) in this same tab at once. Each entry auto-clears via
+  // its own timeout in peerFriendTypingTimeouts, exactly like `peerTyping`'s
+  // single timeout does.
+  const [peerFriendTyping, setPeerFriendTyping] = useState<Set<string>>(new Set())
+  const peerFriendTypingTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const lastFriendTypingSentAt = useRef<Map<string, number>>(new Map())
 
   useEffect(() => {
     // Clear across account changes, not temporary socket loss. The server
@@ -407,6 +416,10 @@ export function useMatchmaking(
     setFriendMessages(new Map())
     for (const timer of pendingFriendChatSendsRef.current.values()) clearTimeout(timer)
     pendingFriendChatSendsRef.current.clear()
+    for (const timer of peerFriendTypingTimeouts.current.values()) clearTimeout(timer)
+    peerFriendTypingTimeouts.current.clear()
+    lastFriendTypingSentAt.current.clear()
+    setPeerFriendTyping(new Set())
   }, [accountId])
   const friendsAccountRef = useRef<string | undefined>(undefined)
   useLayoutEffect(() => {
@@ -841,6 +854,19 @@ export function useMatchmaking(
     [send]
   )
 
+  /** "I'm typing" for a friend-chat conversation — same per-friendship throttle as notifyTyping() above (1.5s), just keyed by friendshipId instead of a single ref, since more than one friend conversation's draft can exist in this tab. */
+  const notifyFriendTyping = useCallback(
+    (friendshipId: string) => {
+      if (!friendshipId) return
+      const nowTs = Date.now()
+      const last = lastFriendTypingSentAt.current.get(friendshipId) ?? 0
+      if (nowTs - last < 1500) return
+      lastFriendTypingSentAt.current.set(friendshipId, nowTs)
+      send({ type: "friend-typing", friendshipId })
+    },
+    [send]
+  )
+
   // Ends any current call (recording it to history like a normal skip) and
   // tells the server to drop this guest from the queue entirely — a real
   // "leave", not just "search for someone else" — so no unnecessary
@@ -1248,6 +1274,43 @@ export function useMatchmaking(
             )
             return next
           })
+          break
+        }
+        case "friend-chat-read-receipt": {
+          console.debug("friend-chat: read receipt", { friendshipId: message.friendshipId })
+          setFriendMessages((prev) => {
+            const existing = prev.get(message.friendshipId)
+            if (!existing) return prev
+            const next = new Map(prev)
+            next.set(
+              message.friendshipId,
+              existing.map((m) => (m.from === "me" && !m.readAt ? { ...m, readAt: message.readAt } : m))
+            )
+            return next
+          })
+          break
+        }
+        case "friend-typing": {
+          console.debug("friend-chat: peer typing", { friendshipId: message.friendshipId })
+          setPeerFriendTyping((prev) => {
+            if (prev.has(message.friendshipId)) return prev
+            const next = new Set(prev)
+            next.add(message.friendshipId)
+            return next
+          })
+          clearTimeout(peerFriendTypingTimeouts.current.get(message.friendshipId))
+          peerFriendTypingTimeouts.current.set(
+            message.friendshipId,
+            setTimeout(() => {
+              peerFriendTypingTimeouts.current.delete(message.friendshipId)
+              setPeerFriendTyping((prev) => {
+                if (!prev.has(message.friendshipId)) return prev
+                const next = new Set(prev)
+                next.delete(message.friendshipId)
+                return next
+              })
+            }, 3000)
+          )
           break
         }
         case "mic-state":
@@ -1695,5 +1758,7 @@ export function useMatchmaking(
     friendMessages,
     sendFriendChatMessage,
     markFriendChatRead,
+    peerFriendTyping,
+    notifyFriendTyping,
   }
 }

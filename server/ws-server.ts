@@ -26,6 +26,7 @@ import {
   sendFriendMessage,
   markFriendMessagesRead,
   countUnreadFriendMessages,
+  getFriendshipOtherUser,
 } from "../lib/db"
 import { sanitizeText, containsSevereContent, containsBlockedChatContent } from "../lib/textFilter"
 import { moderateImage } from "../lib/imageModeration"
@@ -1591,9 +1592,31 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "friend-chat-read": {
-          const ok = await markFriendMessagesRead(state.userId, message.friendshipId)
-          console.debug("friend-chat: marked read", { displayId: state.displayId, ok })
-          if (ok) await trySendFriendsSnapshot(state)
+          const result = await markFriendMessagesRead(state.userId, message.friendshipId)
+          console.debug("friend-chat: marked read", { displayId: state.displayId, result: result.status, updated: result.status === "ok" ? result.updated : undefined })
+          if (result.status !== "ok") break
+          await trySendFriendsSnapshot(state)
+          // Tell the sender their messages were just read — but only when
+          // something actually flipped (a no-op reopen must never re-notify
+          // the other side with a fresh "just read" moment for messages
+          // they'd already seen read).
+          if (result.updated > 0) {
+            const sender = connections.get(result.otherUserId)
+            if (sender) {
+              send(sender.ws, { type: "friend-chat-read-receipt", friendshipId: message.friendshipId, readAt: result.readAt })
+            }
+          }
+          break
+        }
+        case "friend-typing": {
+          // Re-derives the other side the same authoritative way
+          // "friend-chat-send" does — the client's own idea of who it's
+          // friends with is never trusted, and a removed/blocked
+          // relationship must never leak a live typing signal either.
+          const otherId = await getFriendshipOtherUser(state.userId, message.friendshipId)
+          if (!otherId) break
+          const peerConn = connections.get(otherId)
+          if (peerConn) send(peerConn.ws, { type: "friend-typing", friendshipId: message.friendshipId })
           break
         }
         default:

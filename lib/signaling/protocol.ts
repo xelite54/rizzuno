@@ -208,6 +208,8 @@ export type ClientMessage =
   | { type: "friend-chat-send"; friendshipId: string; clientMessageId: string; text: string }
   /** Marks every message this account has RECEIVED in `friendshipId` as read — sent on opening a conversation, and again for any later message that arrives while it's still open. Never marks this account's own outgoing messages; see lib/db.ts's markFriendMessagesRead(). */
   | { type: "friend-chat-read"; friendshipId: string }
+  /** "I'm typing" in a friend-chat conversation — the Friends-panel equivalent of "typing" above. Throttled client-side the same way (see hooks/useMatchmaking.ts's notifyFriendTyping()); relayed to the other side ONLY if they're still actually friends (re-checked server-side, same as "friend-chat-send"), never echoed back to the sender. */
+  | { type: "friend-typing"; friendshipId: string }
 
 export type ServerMessage =
   | { type: "match-invitations"; invitations: MatchInvitation[] }
@@ -271,6 +273,10 @@ export type ServerMessage =
   | { type: "friend-chat-sent"; friendshipId: string; clientMessageId: string; messageId: string; createdAt: number }
   /** A "friend-chat-send" was rejected — the friendship doesn't exist (removed, or never did), one side has blocked the other, or the message failed content validation. The client must never treat this as delivered. */
   | { type: "friend-chat-error"; friendshipId: string; clientMessageId: string; reason: "not_friends" | "blocked" | "invalid" }
+  /** The other side of `friendshipId` just marked your messages to them read (see lib/db.ts's markFriendMessagesRead()) — `readAt` is the server timestamp to stamp onto every one of this account's own messages in that friendship that don't already have a read mark, the same way "friend-chat-sent"'s `createdAt` overrides whatever the optimistic render guessed. Sent only when there was actually something newly marked read, never on a no-op read. */
+  | { type: "friend-chat-read-receipt"; friendshipId: string; readAt: number }
+  /** Live "the other side of `friendshipId` is typing" push — the Friends-panel equivalent of "typing" above, auto-clearing client-side the same way (see hooks/useMatchmaking.ts's peerFriendTyping). */
+  | { type: "friend-typing"; friendshipId: string }
   | { type: "mic-state"; roomId: string; micEnabled: boolean }
   | { type: "typing"; roomId: string }
   | { type: "peer-left"; roomId: string }

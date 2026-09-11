@@ -12,6 +12,7 @@ import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilt
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, DotsIcon, MailIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
+import { TypingDots } from "./MatchChatPanel"
 import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
 import { EASE_OUT, DURATION_QUICK, DURATION_BASE } from "@/lib/motion"
 import type { DemoFriend, PendingRequest } from "@/hooks/useFriends"
@@ -74,6 +75,9 @@ type FriendsPanelProps = {
   friendMessages: Map<string, FriendChatEntry[]>
   onSendFriendMessage: (friendshipId: string, text: string) => void
   onMarkFriendChatRead: (friendshipId: string) => void
+  /** Which friendships the other side is currently typing in — see useMatchmaking's `peerFriendTyping` doc comment. */
+  peerFriendTyping: Set<string>
+  onNotifyFriendTyping: (friendshipId: string) => void
 }
 
 type View = "list" | "chat" | "requests"
@@ -97,6 +101,8 @@ export function FriendsPanel({
   friendMessages,
   onSendFriendMessage,
   onMarkFriendChatRead,
+  peerFriendTyping,
+  onNotifyFriendTyping,
 }: FriendsPanelProps) {
   // Real, persisted history per friendship — fetched fresh every time that
   // conversation opens (see the effect below), merged with the live cache
@@ -303,13 +309,14 @@ export function FriendsPanel({
         if (!res.ok) throw new Error(`friend messages fetch failed: ${res.status}`)
         return res.json()
       })
-      .then((data: { messages?: { id: string; text: string; createdAt: number; mine: boolean }[] }) => {
+      .then((data: { messages?: { id: string; text: string; createdAt: number; mine: boolean; readAt: number | null }[] }) => {
         if (cancelled) return
         const loaded: FriendChatEntry[] = (data.messages ?? []).map((m) => ({
           id: m.id,
           from: m.mine ? "me" : "peer",
           text: m.text,
           ts: m.createdAt,
+          readAt: m.readAt,
         }))
         setHistoryById((prev) => ({ ...prev, [activeId]: loaded }))
       })
@@ -825,6 +832,7 @@ export function FriendsPanel({
                     const previous = activeMessages[index - 1]
                     const showDayLabel = !previous || !isSameDay(new Date(previous.ts), new Date(message.ts))
                     const isMine = message.from === "me"
+                    const isLastMine = isMine && !activeMessages.slice(index + 1).some((m) => m.from === "me")
                     return (
                       <div key={message.id}>
                         {showDayLabel && (
@@ -850,11 +858,20 @@ export function FriendsPanel({
                                   ? "Not delivered"
                                   : formatTime(message.ts)}
                             </span>
+                            {/* "Read" only ever replaces the timestamp on this
+                                account's own most recent delivered message —
+                                mirroring how the other side's read-state is
+                                shown up to their latest read message, not
+                                individually per bubble. */}
+                            {isMine && isLastMine && message.status !== "sending" && message.status !== "failed" && message.readAt && (
+                              <span>· Read</span>
+                            )}
                           </div>
                         </div>
                       </div>
                     )
                   })}
+                  {active && peerFriendTyping.has(active.id) && <TypingDots />}
                 </div>
 
                 {chatBlocked && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{CHAT_BLOCKED_MESSAGE}</p>}
@@ -867,7 +884,11 @@ export function FriendsPanel({
                 >
                   <input
                     value={draft}
-                    onChange={(event) => { setDraft(event.target.value); setChatBlocked(false) }}
+                    onChange={(event) => {
+                      setDraft(event.target.value)
+                      setChatBlocked(false)
+                      if (event.target.value) onNotifyFriendTyping(active.id)
+                    }}
                     placeholder="Message"
                     maxLength={500}
                     className="min-w-0 flex-1 rounded-xl border border-border bg-surface-2 px-3.5 py-2 text-[13px] text-foreground placeholder:text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"

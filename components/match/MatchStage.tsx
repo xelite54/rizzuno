@@ -234,6 +234,8 @@ export function MatchStage() {
     friendMessages,
     sendFriendChatMessage,
     markFriendChatRead,
+    peerFriendTyping,
+    notifyFriendTyping,
   } = useMatchmaking(
     realtimeEnabled,
     videoTrack,
@@ -784,6 +786,8 @@ export function MatchStage() {
             friendMessages={friendMessages}
             onSendFriendMessage={sendFriendChatMessage}
             onMarkFriendChatRead={markFriendChatRead}
+            peerFriendTyping={peerFriendTyping}
+            onNotifyFriendTyping={notifyFriendTyping}
           />
           <IncomingFriendRequestToast
             request={incomingMatchInvitation ? null : toastRequest}

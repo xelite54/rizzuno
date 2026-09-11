@@ -53,7 +53,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     // Diagnostic — count only, never message content or an account id.
     console.log("friends/messages: GET result", { messageCount: result.messages.length })
     return NextResponse.json({
-      messages: result.messages.map((m) => ({ id: m.id, text: m.text, createdAt: m.createdAt, mine: m.senderId === userId })),
+      // `readAt` only actually means anything for a message this account
+      // sent itself (a received message's own read state is never shown
+      // back to the account that read it) — still included for every row
+      // rather than nulled out server-side, the same way `mine` is derived
+      // client-side rather than filtered here.
+      messages: result.messages.map((m) => ({ id: m.id, text: m.text, createdAt: m.createdAt, mine: m.senderId === userId, readAt: m.readAt })),
     })
   } catch (err) {
     const details = describeDbError(err)

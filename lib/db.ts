@@ -894,6 +894,8 @@ export type FriendChatMessageRow = {
   senderId: string
   text: string
   createdAt: number
+  /** When the recipient read this message (see markFriendMessagesRead()), or null if still unread. A freshly sent message is always null — sendFriendMessage() never has a reason to set it. */
+  readAt: number | null
 }
 
 export type SendFriendMessageResult =
@@ -930,8 +932,8 @@ export async function sendFriendMessage(
   if (!recipientId) return { status: "not_friends" }
   if (await isBlockedEitherWay(senderId, recipientId)) return { status: "blocked" }
 
-  const existing = await q<{ id: string; text: string; created_at: string }>(
-    `SELECT id, text, created_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
+  const existing = await q<{ id: string; text: string; created_at: string; read_at: string | null }>(
+    `SELECT id, text, created_at, read_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
     [senderId, clientMessageId]
   )
   if (existing.rows[0]) {
@@ -940,7 +942,7 @@ export async function sendFriendMessage(
       status: "sent",
       duplicate: true,
       recipientId,
-      message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at) },
+      message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at), readAt: row.read_at === null ? null : Number(row.read_at) },
     }
   }
 
@@ -957,8 +959,8 @@ export async function sendFriendMessage(
       // Lost a race with itself (a near-simultaneous retry landing between
       // the SELECT above and this INSERT) — re-read rather than fail the
       // send outright; the row genuinely exists either way.
-      const raced = await q<{ id: string; text: string; created_at: string }>(
-        `SELECT id, text, created_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
+      const raced = await q<{ id: string; text: string; created_at: string; read_at: string | null }>(
+        `SELECT id, text, created_at, read_at FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
         [senderId, clientMessageId]
       )
       const row = raced.rows[0]
@@ -967,13 +969,13 @@ export async function sendFriendMessage(
           status: "sent",
           duplicate: true,
           recipientId,
-          message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at) },
+          message: { id: row.id, friendshipId, senderId, text: row.text, createdAt: Number(row.created_at), readAt: row.read_at === null ? null : Number(row.read_at) },
         }
       }
     }
     throw err
   }
-  return { status: "sent", duplicate: false, recipientId, message: { id, friendshipId, senderId, text, createdAt: ts } }
+  return { status: "sent", duplicate: false, recipientId, message: { id, friendshipId, senderId, text, createdAt: ts, readAt: null } }
 }
 
 /**
@@ -992,31 +994,47 @@ export async function listFriendMessages(
 ): Promise<{ status: "ok"; messages: FriendChatMessageRow[] } | { status: "not_found" }> {
   const otherId = await getFriendshipOtherUser(userId, friendshipId)
   if (!otherId) return { status: "not_found" }
-  const { rows } = await q<{ id: string; sender_id: string; text: string; created_at: string }>(
-    `SELECT id, sender_id, text, created_at FROM friend_messages WHERE friendship_id = $1 ORDER BY created_at DESC LIMIT $2`,
+  const { rows } = await q<{ id: string; sender_id: string; text: string; created_at: string; read_at: string | null }>(
+    `SELECT id, sender_id, text, created_at, read_at FROM friend_messages WHERE friendship_id = $1 ORDER BY created_at DESC LIMIT $2`,
     [friendshipId, limit]
   )
   const messages = rows
     .reverse()
-    .map((r) => ({ id: r.id, friendshipId, senderId: r.sender_id, text: r.text, createdAt: Number(r.created_at) }))
+    .map((r) => ({
+      id: r.id,
+      friendshipId,
+      senderId: r.sender_id,
+      text: r.text,
+      createdAt: Number(r.created_at),
+      readAt: r.read_at === null ? null : Number(r.read_at),
+    }))
   return { status: "ok", messages }
 }
+
+export type MarkFriendMessagesReadResult =
+  | { status: "ok"; updated: number; readAt: number; otherUserId: string }
+  | { status: "not_found" }
 
 /**
  * Marks every message `userId` has RECEIVED in `friendshipId` as read —
  * never messages they sent themselves (there is nothing to "read" about
- * your own outgoing message). Returns false only if `friendshipId` doesn't
- * belong to `userId` at all; true otherwise, including when there was
- * nothing unread to mark.
+ * your own outgoing message). Returns `{ status: "not_found" }` only if
+ * `friendshipId` doesn't belong to `userId` at all; otherwise `"ok"` with
+ * `updated` (how many rows actually flipped — 0 when there was nothing
+ * unread) and `otherUserId`, so the caller (server/ws-server.ts's
+ * "friend-chat-read" handler) knows who to push a "friend-chat-read-receipt"
+ * to, and can skip that push entirely when `updated` is 0 — the sender's
+ * messages are already however they were.
  */
-export async function markFriendMessagesRead(userId: string, friendshipId: string): Promise<boolean> {
+export async function markFriendMessagesRead(userId: string, friendshipId: string): Promise<MarkFriendMessagesReadResult> {
   const otherId = await getFriendshipOtherUser(userId, friendshipId)
-  if (!otherId) return false
-  await q(
+  if (!otherId) return { status: "not_found" }
+  const readAt = now()
+  const { rowCount } = await q(
     `UPDATE friend_messages SET read_at = $1 WHERE friendship_id = $2 AND recipient_id = $3 AND read_at IS NULL`,
-    [now(), friendshipId, userId]
+    [readAt, friendshipId, userId]
   )
-  return true
+  return { status: "ok", updated: rowCount ?? 0, readAt, otherUserId: otherId }
 }
 
 /**

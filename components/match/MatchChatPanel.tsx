@@ -8,7 +8,8 @@ import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
 import { EASE_OUT, DURATION_QUICK, DURATION_BASE } from "@/lib/motion"
 import type { ChatMessage, PeerProfile } from "@/hooks/useMatchmaking"
 
-function TypingDots() {
+/** Shared with FriendsPanel.tsx — same "•••" typing indicator, just under a different chat surface. */
+export function TypingDots() {
   const reduceMotion = useReducedMotion()
   return (
     <div role="status" aria-label="Typing" className="flex w-fit items-center gap-1 rounded-2xl bg-[#251d29] px-3.5 py-3">

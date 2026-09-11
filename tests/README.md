@@ -58,17 +58,10 @@ are validated by actually running them.
   delivery scenarios, exercised through the real client-facing protocol
   (send "leave"/"leave"+"find"/close the socket) rather than simulated.
 
-## What's intentionally NOT covered here
+## Browser media coverage
 
-- `hooks/useMatchmaking.ts`, `hooks/useWebRTC.ts`, `components/match/
-  MatchStage.tsx` — real React hooks/components using browser-only APIs
-  (`RTCPeerConnection`, DOM). Testing these would need a browser or DOM
-  environment (jsdom + a React test renderer) that isn't set up in this
-  project; adding one is a bigger call than this task's scope. Their logic
-  is instead covered indirectly: the pure backlog class they use is fully
-  tested, and the server-side contract they talk to (what a real
-  hello/find/block/profile-update round trip actually does) is exercised
-  end-to-end via `ws-server.test.mts`.
-- A real Postgres, a real TURN relay, and a real two-browser/two-Google-
-  account production run — none of those are reachable from an automated
-  test in this environment either.
+`npm run test:webrtc:browser` now exercises the real media hooks and browser
+WebRTC/playback with synthetic camera/microphone sources and the real signaling
+server. See [browser/README.md](browser/README.md) for the reproduced root cause,
+full two-minute evidence, additional scenarios, and the remaining physical-device,
+Google-account, and production TURN checks.
