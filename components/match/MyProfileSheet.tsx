@@ -515,8 +515,7 @@ export function MyProfileSheet({
                 </Link>
                 </section>
                 <section className={styles.gallery} aria-label="Your posts">
-                  <div className="mb-6 flex items-end justify-between gap-3 border-b border-white/10 pb-5">
-                    <div><p className="mb-2 text-[10px] uppercase tracking-[0.2em] text-[#ab94a7]">Photo journal</p><h2 className="text-[26px] font-medium tracking-[-0.04em]">Little pieces of you.</h2></div>
+                  <div className="mb-6 flex items-end justify-end gap-3 border-b border-white/10 pb-5">
                     <span className="shrink-0 pb-1 text-[11px] tabular-nums text-muted">{posts.length} / {MAX_POSTS}</span>
                   </div>
                   {pickError && <p role="alert" className="mb-4 text-[12px] text-danger">{pickError}</p>}

@@ -583,6 +583,36 @@ export function MatchStage() {
 
   const [profileOpen, setProfileOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  // Live match chat isn't persisted (see useMatchmaking's `messages`) so
+  // there's no server-computed unread count the way friend chat has one —
+  // this is purely local bookkeeping over the same `messages` array
+  // MatchChatPanel already renders: how many of the peer's messages have
+  // arrived since the chat was last actually open, so the chat icon can
+  // badge them the same way the Friends icon already badges real unread
+  // friend messages.
+  const [chatUnreadCount, setChatUnreadCount] = useState(0)
+  const seenChatMessageCountRef = useRef(0)
+  useEffect(() => {
+    // A fresh room (new match, or the previous one ending) starts with a
+    // clean slate regardless of whatever the last conversation left
+    // unread — there is nothing left to have missed from a room that's
+    // already gone.
+    seenChatMessageCountRef.current = 0
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to the room itself changing, not mirroring existing state
+    setChatUnreadCount(0)
+  }, [roomId])
+  useEffect(() => {
+    if (chatOpen) {
+      // Viewing the chat marks everything currently in it as seen.
+      seenChatMessageCountRef.current = messages.length
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reacting to the chat being opened, not mirroring existing state
+      setChatUnreadCount(0)
+      return
+    }
+    const newlyArrivedFromPeer = messages.slice(seenChatMessageCountRef.current).filter((m) => m.from === "peer").length
+    seenChatMessageCountRef.current = messages.length
+    if (newlyArrivedFromPeer > 0) setChatUnreadCount((prev) => prev + newlyArrivedFromPeer)
+  }, [messages, chatOpen])
   const [myProfileOpen, setMyProfileOpen] = useState(false)
   useEffect(() => {
     const panel = new URLSearchParams(window.location.search).get("panel")
@@ -683,7 +713,7 @@ export function MatchStage() {
                     onToggleMic={toggleMic}
                   />
                   <div className="h-5 w-px shrink-0 bg-white/20" />
-                  <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} />
+                  <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} unreadCount={chatUnreadCount} />
                 </div>
               </div>
               <MatchChatPanel
@@ -770,7 +800,7 @@ export function MatchStage() {
         <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center gap-1 rounded-full bg-black/55 p-1 backdrop-blur-sm md:hidden">
           <ControlBar micEnabled={micEnabled} onToggleMic={toggleMic} />
           <div className="h-5 w-px shrink-0 bg-white/20" />
-          <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} />
+          <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} unreadCount={chatUnreadCount} />
         </div>
       )}
 
