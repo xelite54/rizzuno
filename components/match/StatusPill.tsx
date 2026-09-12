@@ -93,9 +93,9 @@ export function StatusPill({ state, cameraUnavailable = false, onPauseMatching, 
       </div>
       {/* Right away, not delayed — a delay just meant this and the "Finding
           someone…" label it sits under went out of sync with the moment
-          searching actually starts (e.g. right after an undo window ends).
-          Shown during "queue-pending" too — wanting to stop trying is valid
-          before the server has confirmed the attempt, not just after. */}
+          searching actually starts. Shown during "queue-pending" too —
+          wanting to stop trying is valid before the server has confirmed
+          the attempt, not just after. */}
       {(state === "searching" || state === "queue-pending") && onPauseMatching && (
         <button
           type="button"

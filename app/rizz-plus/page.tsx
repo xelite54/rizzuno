@@ -11,7 +11,6 @@ const benefits = [
   "No ads",
   "Post photos",
   "Change gender",
-  "Undo recent skips",
   "Change profile photo",
   "Send friend requests",
 ]

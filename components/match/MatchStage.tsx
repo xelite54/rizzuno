@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from "react"
 import { useSession, signIn, signOut } from "next-auth/react"
 import { motion, useReducedMotion } from "motion/react"
 import { useLocalMedia } from "@/hooks/useLocalMedia"
-import { useRizzPlus } from "@/components/RizzPlusProvider"
 import { useMatchmaking } from "@/hooks/useMatchmaking"
 import { useMyProfile } from "@/hooks/useMyProfile"
 import { SwipeStage } from "./SwipeStage"
@@ -29,18 +28,12 @@ import { PeerProfileSheet } from "./PeerProfileSheet"
 import { ActiveOnAnotherDevice } from "./ActiveOnAnotherDevice"
 import { MatchChatPanel } from "./MatchChatPanel"
 import { MyProfileSheet } from "./MyProfileSheet"
-import { UndoSkipToast } from "./UndoSkipToast"
 import type { FriendState } from "./FriendButton"
-import type { PeerProfile } from "@/hooks/useMatchmaking"
 import type { DemoFriend, PendingRequest, BlockedUser } from "@/hooks/useFriends"
 import { useLegalAcceptance } from "@/hooks/useLegalAcceptance"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 import { UsersIcon } from "@/components/icons"
 import { EASE_OUT } from "@/lib/motion"
-
-// How long a completed skip stays undoable before the real teardown/next-
-// match search actually commits.
-const UNDO_SKIP_WINDOW_MS = 3000
 
 // Auth.js redirects failed/cancelled Google sign-ins back to "/" (see
 // auth.ts's `pages` config) with one of these codes in `?error=` — mapped
@@ -81,7 +74,6 @@ const SIGNIN_CHANNEL_NAME = "rizzuno-auth"
 type SignInPopupMessage = { ok: true } | { error: string }
 
 export function MatchStage() {
-  const plus = useRizzPlus()
   const reduceMotion = useReducedMotion()
   const { localStream, videoTrack, audioTrack, status, micEnabled, toggleMic } =
     useLocalMedia()
@@ -389,97 +381,27 @@ export function MatchStage() {
     }
   }, [cameraUnavailable, state, realtimeReady, restriction, findMatch, leaveQueueOnly])
 
-  // A completed skip doesn't tear down the connection right away — it waits
-  // out a short undo window first. The match stays genuinely live behind the
-  // scenes (nothing fake to restore), just visually masked, so Undo really
-  // does bring back the same person rather than re-creating them.
-  const [pendingSkip, setPendingSkip] = useState<{ peer: PeerProfile; timer: ReturnType<typeof setTimeout> } | null>(
-    null
-  )
-  const currentPeerId = useRef(peer?.displayId)
-  useEffect(() => {
-    currentPeerId.current = peer?.displayId
-    if (pendingSkip && pendingSkip.peer.displayId !== peer?.displayId) {
-      clearTimeout(pendingSkip.timer)
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- retire the old room's pending action
-      setPendingSkip(null)
-    }
-  }, [peer?.displayId, pendingSkip])
-
-  useEffect(() => {
-    if (!pendingSkip) return
-    return () => clearTimeout(pendingSkip.timer)
-  }, [pendingSkip])
-
+  // A swipe skips immediately — no undo grace period.
   function handleSwipeComplete() {
-    if (!peer) {
-      skip()
-      return
-    }
-    const skippedPeer = peer
-    const timer = setTimeout(() => {
-      setPendingSkip(null)
-      if (currentPeerId.current !== skippedPeer.displayId) return
-      skip()
-    }, UNDO_SKIP_WINDOW_MS)
-    setPendingSkip({ peer: skippedPeer, timer })
+    skip()
   }
 
-  function handleUndoSkip() {
-    if (!pendingSkip) return
-    if (!plus.requirePlus("undo")) {
-      clearTimeout(pendingSkip.timer)
-      setPendingSkip(null)
-      skip()
-      return
-    }
-    clearTimeout(pendingSkip.timer)
-    setPendingSkip(null)
-  }
-
-  // Pausing while a skip's undo window is still ticking must cancel that
-  // timer — otherwise it would fire skip() a few seconds later and quietly
-  // put the guest right back into the queue, undoing the pause.
-  function handlePauseMatching() {
-    if (pendingSkip) {
-      clearTimeout(pendingSkip.timer)
-      setPendingSkip(null)
-    }
-    pauseMatching()
-  }
-
-  // Their name/profile/chat go away the instant you skip — but the video
-  // itself keeps playing (the connection is genuinely still open during the
-  // undo window) rather than cutting to a blank tile, and the stage reads as
-  // "queue-pending" (not "searching" — nothing has actually been sent to
-  // the server yet during the undo window; the real skip() is still
-  // pending its own timer) from the moment you swipe, not only once that
-  // timer fires a few seconds later.
-  //
-  // When that timer does fire, skip() clears the peer immediately AND sets
-  // the hook's own serverState to "queue-pending" (see useMatchmaking.ts) —
-  // but the underlying WebRTC connection can take a beat longer to actually
-  // report itself as disconnected, and `state` prefers "active" over
-  // serverState for as long as WebRTC still reports connected (see
-  // useMatchmaking.ts's `state` derivation). During that gap `state` reads
-  // "active" with no peer to show, which would otherwise flash an empty
-  // stage between the undo window ending and "Finding someone…"
-  // reappearing. Mapping "active with no peer" to "queue-pending"
-  // too closes that gap — and is genuinely accurate here, not just a
+  const displayedPeer = peer
+  // `state` prefers "active" over serverState for as long as WebRTC still
+  // reports connected (see useMatchmaking.ts's `state` derivation) — right
+  // after skip() clears the peer, there's a brief gap where `state` still
+  // reads "active" with no peer to show, before WebRTC itself catches up
+  // and reports disconnected. Mapping "active with no peer" to
+  // "queue-pending" closes that gap — genuinely accurate, not just a
   // presentational patch: the real serverState already IS "queue-pending"
   // at that exact moment, `state` just hasn't caught up to it yet.
-  const displayedPeer = pendingSkip ? null : peer
-  const swipeMatchState = pendingSkip || (state === "active" && !peer) ? "queue-pending" : state
-  const hasMatchedPeer = Boolean(roomId && peer) && !pendingSkip
-  // Chat availability is independent of `state`'s video
-  // meaning — see useMatchmaking's `canMatchChat` doc comment for why. A
-  // server-confirmed match already has a valid peer relationship before
-  // WebRTC video finishes connecting; chat has no reason to wait for
-  // decoded frames. `!pendingSkip` is the one thing added here that the
-  // hook itself has no reason to know about — the undo-skip window is
-  // purely this component's own presentational masking (see displayedPeer
-  // above), not a matchmaking/video concern.
-  const canChat = canMatchChat && !pendingSkip
+  const swipeMatchState = state === "active" && !peer ? "queue-pending" : state
+  const hasMatchedPeer = Boolean(roomId && peer)
+  // Chat availability is independent of `state`'s video meaning — see
+  // useMatchmaking's `canMatchChat` doc comment for why. A server-confirmed
+  // match already has a valid peer relationship before WebRTC video
+  // finishes connecting; chat has no reason to wait for decoded frames.
+  const canChat = canMatchChat
   // This is the signed-in home screen, not half of the call layout.
   // While it is visible the stage owns the whole canvas and the self camera
   // becomes a small preview. Starting a search restores the two-person call
@@ -775,8 +697,7 @@ export function MatchStage() {
                 roomId={roomId}
                 onRemoteVideoPlaying={reportRemoteVideoPlaying}
                 onSwipeComplete={handleSwipeComplete}
-                locked={pendingSkip !== null}
-                onPauseMatching={handlePauseMatching}
+                onPauseMatching={pauseMatching}
                 onResume={cameraUnavailable ? undefined : findMatch}
                 cameraUnavailable={cameraUnavailable}
                 onlineCount={onlineCount}
@@ -786,11 +707,6 @@ export function MatchStage() {
                 onViewProfile={() => setProfileOpen(true)}
                 onReport={report}
                 onBlock={handleBlockPeer}
-              />
-              <UndoSkipToast
-                name={pendingSkip ? (pendingSkip.peer.username ?? pendingSkip.peer.handle) : null}
-                windowMs={UNDO_SKIP_WINDOW_MS}
-                onUndo={handleUndoSkip}
               />
             </>
           )}

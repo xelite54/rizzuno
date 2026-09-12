@@ -29,8 +29,6 @@ type SwipeStageProps = {
   /** Fired by the peer VideoTile once its own <video> element has proven real playback — see VideoTile.tsx's `onPlaybackReady` doc comment for what "proven" means and its stream/track ownership checks. */
   onRemoteVideoPlaying?: (report: PeerPlaybackReport) => void
   onSwipeComplete: () => void
-  /** When true, swiping is disabled — used while a just-completed skip is still undoable. */
-  locked?: boolean
   /** Shown as a small secondary action under "Finding someone…" a few seconds in. */
   onPauseMatching?: () => void
   /** Resuming from the paused state isn't a button — it's the same swipe-left gesture used to skip someone, so this fires off the end of that gesture instead. Left undefined (by MatchStage, whenever there's no live camera track) to disable that gesture entirely rather than let it silently no-op. */
@@ -52,7 +50,6 @@ export function SwipeStage({
   roomId,
   onRemoteVideoPlaying,
   onSwipeComplete,
-  locked = false,
   onPauseMatching,
   onResume,
   cameraUnavailable = false,
@@ -90,7 +87,7 @@ export function SwipeStage({
   // than explained (see PausedNotice, which StatusPill now shows for both
   // states with the camera on).
   const isWaitingToStart = matchState === "idle" || matchState === "paused"
-  const canSwipe = (matchState === "active" || (isWaitingToStart && Boolean(onResume))) && !isExiting && !locked
+  const canSwipe = (matchState === "active" || (isWaitingToStart && Boolean(onResume))) && !isExiting
 
   useEffect(() => {
     const el = containerRef.current
