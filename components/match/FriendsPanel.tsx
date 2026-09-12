@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react"
 import { PostGallery } from "./PostGallery"
 import type { MatchInvitation, ReportCategory } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
+import { CHAT_SEND_MIN_INTERVAL_MS, CHAT_SEND_TOO_FAST_MESSAGE } from "@/lib/chatRateLimit"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, DotsIcon, ExpandIcon, MailIcon, ReplyIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
@@ -136,7 +137,16 @@ export function FriendsPanel({
   const [friendActionConfirm, setFriendActionConfirm] = useState<"unfriend" | "block" | null>(null)
   const [rowMenuConfirm, setRowMenuConfirm] = useState<"unfriend" | "block" | null>(null)
   const [draft, setDraft] = useState("")
-  const [chatBlocked, setChatBlocked] = useState(false)
+  // Holds whichever reason the draft is currently blocked for — content
+  // filtering (CHAT_BLOCKED_MESSAGE) or sending too fast
+  // (CHAT_SEND_TOO_FAST_MESSAGE) — null when there's nothing to show.
+  const [chatSendError, setChatSendError] = useState<string | null>(null)
+  // When the active conversation last actually sent a message — keyed per
+  // friendship (a Map, not a single ref) so switching conversations never
+  // lets one friend's throttle affect another's. Purely a client-side
+  // pace limiter against rapid-tapping Send; see lib/chatRateLimit.ts's
+  // own doc comment for why this isn't a security boundary.
+  const lastFriendChatSentAtRef = useRef<Map<string, number>>(new Map())
   // Which message (if any) the draft is currently replying to — cleared on
   // send, on switching conversations, and on the panel closing, the same
   // way `draft` itself already resets for each of those.
@@ -383,7 +393,7 @@ export function FriendsPanel({
   }, [view, active?.id, activeLiveMessages])
 
   function openChat(id: string) {
-    setChatBlocked(false)
+    setChatSendError(null)
     setReplyingTo(null)
     setActiveId(id)
     setView("chat")
@@ -393,10 +403,17 @@ export function FriendsPanel({
     if (!active || !draft.trim()) return
     const text = draft.trim()
     if (containsBlockedChatContent(text)) {
-      setChatBlocked(true)
+      setChatSendError(CHAT_BLOCKED_MESSAGE)
       return
     }
-    setChatBlocked(false)
+    const now = Date.now()
+    const lastSentAt = lastFriendChatSentAtRef.current.get(active.id) ?? 0
+    if (now - lastSentAt < CHAT_SEND_MIN_INTERVAL_MS) {
+      setChatSendError(CHAT_SEND_TOO_FAST_MESSAGE)
+      return
+    }
+    lastFriendChatSentAtRef.current.set(active.id, now)
+    setChatSendError(null)
     setDraft("")
     onSendFriendMessage(active.id, text, replyingTo?.id ?? null)
     setReplyingTo(null)
@@ -971,7 +988,7 @@ export function FriendsPanel({
                     </button>
                   </div>
                 )}
-                {chatBlocked && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{CHAT_BLOCKED_MESSAGE}</p>}
+                {chatSendError && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{chatSendError}</p>}
                 <form
                   onSubmit={(event) => {
                     event.preventDefault()
@@ -983,7 +1000,7 @@ export function FriendsPanel({
                     value={draft}
                     onChange={(event) => {
                       setDraft(event.target.value)
-                      setChatBlocked(false)
+                      setChatSendError(null)
                       if (event.target.value) onNotifyFriendTyping(active.id)
                     }}
                     placeholder="Message"

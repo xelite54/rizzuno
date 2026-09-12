@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
+import { CHAT_SEND_MIN_INTERVAL_MS, CHAT_SEND_TOO_FAST_MESSAGE } from "@/lib/chatRateLimit"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { CloseIcon, SendIcon } from "@/components/icons"
 import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
@@ -56,7 +57,15 @@ export function MatchChatPanel({
 }: MatchChatPanelProps) {
   const [viewport, setViewport] = useState<{ height: number; bottom: number } | null>(null)
   const [draft, setDraft] = useState("")
-  const [blocked, setBlocked] = useState(false)
+  // Holds whichever reason the draft is currently blocked for — content
+  // filtering (CHAT_BLOCKED_MESSAGE) or sending too fast
+  // (CHAT_SEND_TOO_FAST_MESSAGE) — null when there's nothing to show.
+  const [sendError, setSendError] = useState<string | null>(null)
+  // When this match's chat last actually sent a message — purely a
+  // client-side pace limiter against rapid-tapping Send; see
+  // lib/chatRateLimit.ts's own doc comment for why this isn't a security
+  // boundary.
+  const lastSentAtRef = useRef(0)
   const listRef = useRef<HTMLDivElement | null>(null)
   const reduceMotion = useReducedMotion()
 
@@ -92,10 +101,16 @@ export function MatchChatPanel({
   function submit() {
     if (disabled || !draft.trim()) return
     if (containsBlockedChatContent(draft)) {
-      setBlocked(true)
+      setSendError(CHAT_BLOCKED_MESSAGE)
       return
     }
-    setBlocked(false)
+    const now = Date.now()
+    if (now - lastSentAtRef.current < CHAT_SEND_MIN_INTERVAL_MS) {
+      setSendError(CHAT_SEND_TOO_FAST_MESSAGE)
+      return
+    }
+    lastSentAtRef.current = now
+    setSendError(null)
     onSend(draft)
     setDraft("")
   }
@@ -199,7 +214,7 @@ export function MatchChatPanel({
               {peerTyping && <TypingDots />}
             </div>
 
-            {blocked && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{CHAT_BLOCKED_MESSAGE}</p>}
+            {sendError && <p role="alert" className="px-3 py-2 text-[12px] text-danger">{sendError}</p>}
             <form
               onSubmit={(event) => {
                 event.preventDefault()
@@ -211,7 +226,7 @@ export function MatchChatPanel({
                 value={draft}
                 onChange={(event) => {
                   setDraft(event.target.value)
-                  setBlocked(false)
+                  setSendError(null)
                   if (event.target.value) onNotifyTyping()
                 }}
                 placeholder={disabled ? "Chat opens once you're matched" : "Message"}

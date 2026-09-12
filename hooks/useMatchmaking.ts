@@ -547,10 +547,7 @@ export function useMatchmaking(
    * finishes negotiating — chat has no reason to wait on decoded frames
    * that have nothing to do with whether the two of you can exchange
    * text. `realtimeReady` guards the one real prerequisite instead: the
-   * transport has to actually be up to send anything at all. Consumers
-   * (MatchStage.tsx) still combine this with their own `!pendingSkip` —
-   * that's presentational masking this hook has no reason to know about,
-   * not a matchmaking/video concern.
+   * transport has to actually be up to send anything at all.
    */
   const hasCurrentRoom = roomId !== null
   const canMatchChat = realtimeReady && hasCurrentRoom && Boolean(peer)
@@ -1161,6 +1158,7 @@ export function useMatchmaking(
           recordHistory(peerRef.current)
           setRoomId(null, "setup_timeout")
           setPeer(null)
+          setMessages([])
           setPeerMicEnabled(true)
           setPeerTyping(false)
           if (message.source === "friend") {
@@ -1351,6 +1349,7 @@ export function useMatchmaking(
           recordHistory(peerRef.current)
           setRoomId(null, "peer_disconnected")
           setPeer(null)
+          setMessages([])
           setPeerMicEnabled(true)
           setPeerTyping(false)
           if (endedRoomSource === "friend") {
@@ -1591,6 +1590,7 @@ export function useMatchmaking(
     recordHistory(peerRef.current)
     setRoomId(null, "connection_failed")
     setPeer(null)
+    setMessages([])
     setPeerMicEnabled(true)
     setPeerTyping(false)
     if (endedRoomSource === "friend") {
