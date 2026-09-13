@@ -30,6 +30,7 @@ import {
 } from "../lib/db"
 import { sanitizeText, containsBlockedChatContent } from "../lib/textFilter"
 import { normalizeUsername } from "../lib/username"
+import { MATCH_CALL_LIMIT_MS } from "../lib/matchCallLimit"
 import { moderateImage } from "../lib/imageModeration"
 
 const MAX_HANDLE_LENGTH = 40
@@ -559,6 +560,20 @@ type RoomSetup = {
   deadline: ReturnType<typeof setTimeout>
 }
 const roomSetups = new Map<string, RoomSetup>()
+const roomCallTimers = new Map<string, ReturnType<typeof setTimeout>>()
+export const roomCallTestConfig = { limitMs: MATCH_CALL_LIMIT_MS }
+
+function expireMatch(roomId: string, userIds: string[]) {
+  if (!roomCallTimers.has(roomId)) return
+  clearRoomSetup(roomId)
+  matchmaker.destroyRoom(roomId)
+  for (const userId of userIds) {
+    const state = connections.get(userId)
+    if (!state || state.roomId !== roomId) continue
+    state.roomId = null
+    send(state.ws, { type: "peer-left", roomId })
+  }
+}
 
 /**
  * Test-overridable — see tests/directCall.test.mts, which shortens this
@@ -571,6 +586,8 @@ const roomSetups = new Map<string, RoomSetup>()
 export const roomSetupTestConfig = { deadlineMs: 9_000 }
 
 function clearRoomSetup(roomId: string) {
+  clearTimeout(roomCallTimers.get(roomId))
+  roomCallTimers.delete(roomId)
   const setup = roomSetups.get(roomId)
   if (!setup) return
   clearTimeout(setup.deadline)
@@ -636,8 +653,13 @@ function dispatchMatch(
     deadline,
   })
   console.log(source === "friend" ? "direct-call: room created" : "rtc: room created", { roomId, source })
-  send(aState.ws, { type: "matched", roomId, initiator: true, peer: toPublicIdentity(bState), alreadyFriends, source })
-  send(bState.ws, { type: "matched", roomId, initiator: false, peer: toPublicIdentity(aState), alreadyFriends, source })
+  const serverNow = Date.now()
+  const expiresAt = serverNow + roomCallTestConfig.limitMs
+  const callTimer = setTimeout(() => expireMatch(roomId, [aState.userId, bState.userId]), roomCallTestConfig.limitMs)
+  callTimer.unref()
+  roomCallTimers.set(roomId, callTimer)
+  send(aState.ws, { type: "matched", roomId, initiator: true, peer: toPublicIdentity(bState), alreadyFriends, source, expiresAt, serverNow })
+  send(bState.ws, { type: "matched", roomId, initiator: false, peer: toPublicIdentity(aState), alreadyFriends, source, expiresAt, serverNow })
 }
 
 function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason: RoomEndReason) {

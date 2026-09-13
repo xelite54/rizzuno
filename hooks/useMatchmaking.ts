@@ -136,6 +136,7 @@ export function useMatchmaking(
 ) {
 
   const [roomId, updateRoomId] = useState<string | null>(null)
+  const [callExpiresAt, setCallExpiresAt] = useState<number | null>(null)
   const { connected, send, subscribe, supersededElsewhere, retryNow: retryRealtimeConnection } = useSignalingSocket(enabled, accountId, roomId !== null)
 
   // `connected` only means the WebSocket transport opened — it says nothing
@@ -206,7 +207,10 @@ export function useMatchmaking(
       console.debug("matchmaking: room destroyed", { roomId: roomRef.current, reason })
     }
     roomRef.current = next
-    if (next === null) roomSourceRef.current = null
+    if (next === null) {
+      roomSourceRef.current = null
+      setCallExpiresAt(null)
+    }
     updateRoomId(next)
   }, [])
   // Which of THIS tab's own match-chat sends are still waiting on a
@@ -1117,6 +1121,9 @@ export function useMatchmaking(
           }
           console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator, source: message.source })
           setRoomId(message.roomId, "matched")
+          // Translate the shared server deadline onto this device's clock.
+          setCallExpiresAt(typeof message.expiresAt === "number" && typeof message.serverNow === "number"
+            ? Date.now() + message.expiresAt - message.serverNow : null)
           roomSourceRef.current = message.source
           // ONLY a genuinely random match implies "keep automatically
           // finding someone if this ends" — a direct/friend call starts
@@ -1747,6 +1754,7 @@ export function useMatchmaking(
 
   return {
     connected,
+    callExpiresAt,
     realtimeReady,
     // True once this account's connection attempt has confirmed a
     // genuinely different, still-active device/tab owns the realtime

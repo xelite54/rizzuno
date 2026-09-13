@@ -235,7 +235,7 @@ export type ServerMessage =
    * see the room-establishment handshake's own doc comment in
    * server/ws-server.ts for the full reasoning).
    */
-  | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity; alreadyFriends: boolean; source: "random" | "friend" }
+  | { type: "matched"; roomId: string; initiator: boolean; peer: PublicPeerIdentity; alreadyFriends: boolean; source: "random" | "friend"; expiresAt?: number; serverNow?: number }
   /** The current partner edited their own profile mid-call (e.g. set/changed their username) — same shape as "matched"'s peer, just a refresh rather than a new match. */
   | { type: "peer-updated"; roomId: string; peer: PublicPeerIdentity }
   | { type: "signal"; roomId: string; data: RtcSignal }

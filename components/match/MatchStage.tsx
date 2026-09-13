@@ -9,6 +9,7 @@ import { useLocalMedia } from "@/hooks/useLocalMedia"
 import { useMatchmaking } from "@/hooks/useMatchmaking"
 import { useMyProfile } from "@/hooks/useMyProfile"
 import { SwipeStage } from "./SwipeStage"
+import { MatchCallCountdown } from "./MatchCallCountdown"
 import { SelfPanel } from "./SelfPanel"
 import { CompactChat } from "./CompactChat"
 import { SafetyMenu } from "./SafetyMenu"
@@ -189,6 +190,7 @@ export function MatchStage() {
     retryRealtimeConnection,
     state,
     roomId,
+    callExpiresAt,
     reportRemoteVideoPlaying,
     canMatchChat,
     onlineCount,
@@ -708,6 +710,7 @@ export function MatchStage() {
                 onReport={report}
                 onBlock={handleBlockPeer}
               />
+              {roomId && callExpiresAt !== null && <MatchCallCountdown key={roomId} expiresAt={callExpiresAt} />}
             </>
           )}
         </div>
