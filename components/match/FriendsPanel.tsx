@@ -131,9 +131,11 @@ export function FriendsPanel({
     bio: string
     posts: { id: string; dataUrl: string }[]
   } | null>(null)
-  // Unfriend/Block both need a second tap to confirm before they actually
-  // happen — one for the full-screen profile, one for the row "•••" menu
-  // (they're separate surfaces, so separate confirm state).
+  // Remove friend/Block both need a second tap to confirm before they
+  // actually happen — one for the full-screen profile, one for the row
+  // "•••" menu (they're separate surfaces, so separate confirm state).
+  // The internal "unfriend" tag itself is unchanged — only the label shown
+  // for it ("Remove friend") is what changed.
   const [friendActionConfirm, setFriendActionConfirm] = useState<"unfriend" | "block" | null>(null)
   const [rowMenuConfirm, setRowMenuConfirm] = useState<"unfriend" | "block" | null>(null)
   const [draft, setDraft] = useState("")
@@ -161,7 +163,7 @@ export function FriendsPanel({
   const [enlargedFriendPhoto, setEnlargedFriendPhoto] = useState<string | null>(null)
   const [enlargedSearchResultPhoto, setEnlargedSearchResultPhoto] = useState<string | null>(null)
 
-  // Per-row "•••" menu on a friend in the list (View profile / Unfriend / Block).
+  // Per-row "•••" menu on a friend in the list (View profile / Remove friend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
   // Each row's own wrapping element, keyed by friend.id — populated by the
   // row's own ref callback below, purely so the outside-click effect can
@@ -776,7 +778,7 @@ export function FriendsPanel({
                                 <div className="px-2 py-1.5">
                                   <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
                                     {rowMenuConfirm === "unfriend"
-                                      ? `Unfriend ${friend.displayName}?`
+                                      ? `Remove ${friend.displayName} as a friend?`
                                       : `Block ${friend.displayName}? They won't be able to contact you.`}
                                   </p>
                                   <div className="flex gap-1.5">
@@ -799,7 +801,7 @@ export function FriendsPanel({
                                       }}
                                       className="min-h-11 flex-1 rounded-xl bg-danger py-2 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
                                     >
-                                      {rowMenuConfirm === "unfriend" ? "Unfriend" : "Block"}
+                                      {rowMenuConfirm === "unfriend" ? "Remove friend" : "Block"}
                                     </button>
                                   </div>
                                 </div>
@@ -821,7 +823,7 @@ export function FriendsPanel({
                                     onClick={() => setRowMenuConfirm("unfriend")}
                                     className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
                                   >
-                                    Unfriend
+                                    Remove friend
                                   </button>
                                   <button
                                     type="button"
@@ -1290,7 +1292,7 @@ export function FriendsPanel({
                               <div className="px-2 py-1.5">
                                 <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
                                   {friendActionConfirm === "unfriend"
-                                    ? `Unfriend ${friendName}?`
+                                    ? `Remove ${friendName} as a friend?`
                                     : `Block ${friendName}? They won't be able to contact you.`}
                                 </p>
                                 <div className="flex gap-1.5">
@@ -1310,7 +1312,7 @@ export function FriendsPanel({
                                     }
                                     className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
                                   >
-                                    {friendActionConfirm === "unfriend" ? "Unfriend" : "Block"}
+                                    {friendActionConfirm === "unfriend" ? "Remove friend" : "Block"}
                                   </button>
                                 </div>
                               </div>
@@ -1321,7 +1323,7 @@ export function FriendsPanel({
                                   onClick={() => setFriendActionConfirm("unfriend")}
                                   className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
                                 >
-                                  Unfriend
+                                  Remove friend
                                 </button>
                                 <button
                                   type="button"

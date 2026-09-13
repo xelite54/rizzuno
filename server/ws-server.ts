@@ -28,7 +28,8 @@ import {
   countUnreadFriendMessages,
   getFriendshipOtherUser,
 } from "../lib/db"
-import { sanitizeText, containsSevereContent, containsBlockedChatContent } from "../lib/textFilter"
+import { sanitizeText, containsBlockedChatContent } from "../lib/textFilter"
+import { normalizeUsername } from "../lib/username"
 import { moderateImage } from "../lib/imageModeration"
 
 const MAX_HANDLE_LENGTH = 40
@@ -968,11 +969,8 @@ export function createRizzunoWebSocketServer() {
 
         const handle = sanitizeText(message.handle, MAX_HANDLE_LENGTH) || "Someone"
         const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
-        // A username that trips the basic content filter is dropped rather
-        // than rejecting the whole connection — falls back to the cosmetic
-        // handle instead. This is a basic keyword filter, not real
-        // moderation (see lib/textFilter.ts).
-        const username = rawUsername && !containsSevereContent(rawUsername) ? rawUsername : undefined
+        // Realtime uses the same strict validation as username claims.
+        const username = normalizeUsername(rawUsername) ?? undefined
         // Validated the same way "profile-update" validates it below — a
         // malformed/tampered value must never slip into matching as some
         // unhandled third gender.
@@ -1332,7 +1330,7 @@ export function createRizzunoWebSocketServer() {
           const previousProfilePhoto = state.profilePhoto
 
           const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
-          const nextUsername = rawUsername && !containsSevereContent(rawUsername) ? rawUsername : state.username
+          const nextUsername = normalizeUsername(rawUsername) ?? state.username
           if (isValidGender(message.gender) && message.gender !== state.gender) await claimAccountGender(state.userId, message.gender)
           const nextGender = (await getAccountGender(state.userId)) ?? state.gender
           const genderChanged = nextGender !== state.gender

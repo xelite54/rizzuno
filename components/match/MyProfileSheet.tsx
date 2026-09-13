@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl, cropAndResizePostToDataUrl, PostImageError } from "@/lib/image"
-import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
+import { USERNAME_MAX_LENGTH, normalizeUsername, containsBlockedUsername, USERNAME_BLOCKED_MESSAGE } from "@/lib/username"
 import { containsBlockedChatContent, stripNonEnglish } from "@/lib/textFilter"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
 import { RizzPlusBadge } from "@/components/RizzPlusBadge"
@@ -237,8 +237,8 @@ export function MyProfileSheet({
     setUsernameError(null)
     setPhotoError(null)
 
-    if (trimmed !== username && !USERNAME_PATTERN.test(trimmed)) {
-      setUsernameError("Use 3–17 characters: letters, numbers, _ or .")
+    if (trimmed !== username && !normalizeUsername(editUsernameDraft)) {
+      setUsernameError(containsBlockedUsername(editUsernameDraft) ? USERNAME_BLOCKED_MESSAGE : "Use 3–17 characters: letters, numbers, _ or .")
       return
     }
 
@@ -251,8 +251,9 @@ export function MyProfileSheet({
           body: JSON.stringify({ username: trimmed }),
         })
         if (!res.ok) {
+          const data = res.status === 400 ? await res.json() : null
           setUsernameError(
-            res.status === 409 ? "That username is already taken — try another." : "Couldn't save username — try again."
+            data?.error === "username_blocked" ? USERNAME_BLOCKED_MESSAGE : res.status === 409 ? "That username is already taken — try another." : "Couldn't save username — try again."
           )
           setSavingEdit(false)
           return
@@ -441,12 +442,15 @@ export function MyProfileSheet({
                           : "My profile"}
             </span>
             <div className="-mx-1.5 flex h-11 items-center gap-3">
-              {/* Viewing a single post is a dead end reached only from the
-                  grid, one level deep — the header's X (handleXClick, below)
-                  already takes you straight back to the profile, so a
-                  separate Back button here would just be a second way to
-                  do the same thing. */}
-              {view !== "profile" && view !== "viewPost" ? (
+              {/* Viewing a single post — and Settings itself — are both dead
+                  ends one level deep where the header's X (handleXClick,
+                  below) already takes you straight back to the profile, the
+                  exact same place Back would; a separate Back button would
+                  just be a second way to do the same thing. History/Blocked
+                  (reached FROM Settings) still keep their own Back, since
+                  THEIRS returns to Settings specifically — genuinely
+                  different from what their own X does. */}
+              {view !== "profile" && view !== "viewPost" && view !== "settings" ? (
                 <button
                   type="button"
                   onClick={goBack}
@@ -601,8 +605,8 @@ export function MyProfileSheet({
                       aria-invalid={!!usernameError}
                       value={editUsernameDraft}
                       onChange={(event) => {
-                        setEditUsernameDraft(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, USERNAME_MAX_LENGTH))
-                        setUsernameError(null)
+                        setEditUsernameDraft(event.target.value.slice(0, USERNAME_MAX_LENGTH))
+                        setUsernameError(containsBlockedUsername(event.target.value) ? USERNAME_BLOCKED_MESSAGE : null)
                       }}
                       placeholder="username"
                       className="min-h-7 min-w-0 flex-1 bg-transparent text-[15px] text-foreground placeholder:text-muted focus:outline-none"
@@ -667,7 +671,7 @@ export function MyProfileSheet({
                   </button>
                 </div>
 
-                <div className="mt-6 border-t border-border pt-4">
+                <div className="mt-4 border-t border-border pt-4">
                   <p className="mb-2 px-1 text-[11px] font-medium uppercase tracking-wide text-muted">Gender</p>
                   {genderError && <p role="alert" className="mb-2 text-[12px] text-danger">{genderError}</p>}
                   {pendingGender ? (

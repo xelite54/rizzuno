@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { USERNAME_MAX_LENGTH, USERNAME_PATTERN } from "@/lib/username"
+import { USERNAME_MAX_LENGTH, normalizeUsername, containsBlockedUsername, USERNAME_BLOCKED_MESSAGE } from "@/lib/username"
 
 type ChooseUsernameProps = {
   onChosen: (username: string) => void
@@ -22,7 +22,8 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
 
   const cleaned = value.trim().toLowerCase()
   const tooShort = cleaned.length > 0 && cleaned.length < 3
-  const valid = USERNAME_PATTERN.test(cleaned)
+  const blocked = containsBlockedUsername(value)
+  const valid = normalizeUsername(value) !== null
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -41,6 +42,9 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
       }
       if (res.status === 409) {
         setError("That username is already taken — try another.")
+      } else if (res.status === 400) {
+        const data = await res.json()
+        setError(data.error === "username_blocked" ? USERNAME_BLOCKED_MESSAGE : "Use 3–17 characters: letters, numbers, _ or .")
       } else {
         setError("Something went wrong — try again.")
       }
@@ -63,7 +67,7 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
               autoFocus
               value={value}
               onChange={(event) => {
-                setValue(event.target.value.replace(/[^a-zA-Z0-9_.]/g, "").slice(0, USERNAME_MAX_LENGTH))
+                setValue(event.target.value.slice(0, USERNAME_MAX_LENGTH))
                 // A prior "taken" error is about the value that produced
                 // it, not whatever's typed next — clear it the moment the
                 // field changes rather than leaving stale text on screen.
@@ -71,14 +75,16 @@ export function ChooseUsername({ onChosen }: ChooseUsernameProps) {
               }}
               placeholder="username"
               aria-label="Username"
+              aria-invalid={blocked || !!error}
+              aria-describedby="username-hint"
               maxLength={USERNAME_MAX_LENGTH}
               className="min-w-0 flex-1 bg-transparent text-[15px] text-foreground placeholder:text-muted focus:outline-none"
             />
           </div>
 
-          <p className="mt-2 min-h-[16px] text-[12px]">
-            {error ? (
-              <span className="text-danger">{error}</span>
+          <p id="username-hint" aria-live="polite" className="mt-2 min-h-[16px] text-[12px]">
+            {blocked || error ? (
+              <span className="text-danger">{blocked ? USERNAME_BLOCKED_MESSAGE : error}</span>
             ) : (
               <span className="text-muted">{tooShort ? "At least 3 characters." : "3–17 characters · letters, numbers, _ or ."}</span>
             )}

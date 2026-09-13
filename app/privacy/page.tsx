@@ -528,7 +528,7 @@ export default function PrivacyPolicyPage() {
                 screens; declining does not notify the sender.
               </li>
               <li>
-                <strong className="text-foreground">Unfriend</strong> — ends the friendship immediately for both accounts; either side can do
+                <strong className="text-foreground">Remove friend</strong> — ends the friendship immediately for both accounts; either side can do
                 this at any time, and Rizzuno does not notify the other account when it happens.
               </li>
             </ul>

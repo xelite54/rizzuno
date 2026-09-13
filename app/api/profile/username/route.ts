@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { claimUsername, getUsername, getUserStatus, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
-import { normalizeUsername } from "@/lib/username"
+import { normalizeUsername, containsBlockedUsername } from "@/lib/username"
 
 // Same character set and length ChooseUsername.tsx and MyProfileSheet.tsx's
 // edit view already filter to client-side — re-validated here because a
@@ -90,7 +90,8 @@ export async function POST(request: Request) {
 
   const username = normalizeUsername(body.username)
   if (!username) {
-    return NextResponse.json({ error: "invalid_username" }, { status: 400 })
+    const blocked = typeof body.username === "string" && containsBlockedUsername(body.username)
+    return NextResponse.json({ error: blocked ? "username_blocked" : "invalid_username" }, { status: 400 })
   }
 
   if (!databaseUrlConfigured) {

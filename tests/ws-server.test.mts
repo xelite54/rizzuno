@@ -5,6 +5,25 @@ import { dbMockState, resetDbMockState } from "./helpers/dbMock.mts"
 
 let counter = 0
 
+test("realtime rejects blocked usernames on hello and profile changes", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, uid("filtered"), { gender: "male", username: "N.1.G.G.3.R" })
+    const b = await connectAndHello(server.url, uid("viewer"), { gender: "female", username: "alice" })
+    a.send({ type: "find" })
+    b.send({ type: "find" })
+    await a.waitForType("matched")
+    assert.equal((await b.waitForType("matched")).peer.username, undefined)
+    a.send({ type: "profile-update", revision: 1, username: "Blue.Sky" })
+    assert.equal((await b.waitForType("peer-updated")).peer.username, "blue.sky")
+    a.send({ type: "profile-update", revision: 2, username: "xxF_U_C_Kxx" })
+    assert.equal((await b.waitForType("peer-updated")).peer.username, "blue.sky")
+    a.close()
+    b.close()
+  } finally { await server.close() }
+})
+
 test("repeated skips keep finding new peers until an explicit leave", async () => {
   resetDbMockState()
   const server = await startTestServer()
@@ -298,16 +317,16 @@ test("fresh male + female: both receive matched with each other", async () => {
   try {
     const m = uid("m")
     const f = uid("f")
-    const male = await connectAndHello(server.url, m, { username: "male-user", gender: "male" })
+    const male = await connectAndHello(server.url, m, { username: "male_user", gender: "male" })
     male.send({ type: "find" })
     await male.waitForType("queued")
 
-    const female = await connectAndHello(server.url, f, { username: "female-user", gender: "female" })
+    const female = await connectAndHello(server.url, f, { username: "female_user", gender: "female" })
     female.send({ type: "find" })
 
     const [maleMatched, femaleMatched] = await Promise.all([male.waitForType("matched"), female.waitForType("matched")])
-    assert.equal(maleMatched.peer.username, "female-user")
-    assert.equal(femaleMatched.peer.username, "male-user")
+    assert.equal(maleMatched.peer.username, "female_user")
+    assert.equal(femaleMatched.peer.username, "male_user")
     assert.equal(maleMatched.roomId, femaleMatched.roomId)
     assert.notEqual(maleMatched.initiator, femaleMatched.initiator, "exactly one side is the offer initiator")
     male.close()
