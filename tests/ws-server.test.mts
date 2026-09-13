@@ -5,6 +5,37 @@ import { dbMockState, resetDbMockState } from "./helpers/dbMock.mts"
 
 let counter = 0
 
+test("repeated skips keep finding new peers until an explicit leave", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const a = await connectAndHello(server.url, uid("continuous"), { gender: "male" })
+    await a.waitForType("friends-snapshot")
+    a.send({ type: "find" })
+    await a.waitForType("queued")
+    for (let index = 0; index < 3; index++) {
+      const peer = await connectAndHello(server.url, uid("peer"), { gender: "female" })
+      peer.send({ type: "find" })
+      const match = await a.waitForType("matched")
+      assert.equal((await peer.waitForType("matched")).roomId, match.roomId)
+      a.send({ type: "skip" })
+      assert.equal((await peer.waitForType("peer-left")).roomId, match.roomId)
+      await a.waitForType("queued")
+      peer.close()
+    }
+    a.send({ type: "leave" })
+    // A refresh acknowledgement fences the leave on this connection.
+    a.send({ type: "friends-refresh" })
+    await a.waitForType("friends-snapshot")
+    const next = await connectAndHello(server.url, uid("after-stop"), { gender: "female" })
+    next.send({ type: "find" })
+    await next.waitForType("queued")
+    await assert.rejects(() => a.waitForType("matched", 150), /timed out/)
+    a.close()
+    next.close()
+  } finally { await server.close() }
+})
+
 // This is the server-side invariant hooks/useMatchmaking.ts's sendFind()
 // relies on (see its own doc comment): a "find" that races ahead of
 // "hello" completing must be silently dropped, never crash the connection

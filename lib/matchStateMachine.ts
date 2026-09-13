@@ -23,6 +23,11 @@
 // still the one place this ever renders — no separate error surface.
 export type MatchState = "idle" | "queue-pending" | "searching" | "connecting" | "active" | "peer-left" | "paused" | "error"
 
+/** A delayed random match must not undo an explicit stop. Direct calls have separate consent. */
+export function shouldAcceptMatch(source: "random" | "friend", wantsMatching: boolean): boolean {
+  return source === "friend" || wantsMatching
+}
+
 export type MatchStateEvent =
   /** findMatch() sent "find" — a genuinely new/resumed search, never the ack-timeout's own internal retry (see MAX_AUTOMATIC_QUEUE_PENDING_RETRIES/decideQueuePendingTimeout — that retry re-enters "queue-pending" too, but must NOT reset the retry budget the way a real find-sent does; see useMatchmaking.ts's sendFind() vs findMatch()). */
   | { type: "find-sent" }

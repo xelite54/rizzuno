@@ -8,7 +8,7 @@ import type { PeerPlaybackReport } from "@/lib/peerPlayback"
 import { useWebRTC } from "./useWebRTC"
 import { canSearch, isCurrentRoom } from "@/lib/realtimeLifecycle"
 import { SignalBacklog } from "@/lib/signalBacklog"
-import { nextMatchState, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "@/lib/matchStateMachine"
+import { nextMatchState, shouldAcceptMatch, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "@/lib/matchStateMachine"
 import type { MatchState, MatchStateEvent } from "@/lib/matchStateMachine"
 import type {
   ChatContent,
@@ -649,8 +649,9 @@ export function useMatchmaking(
       send({ type: "leave" })
       if (wantsMatchingRef.current) findMatch()
     } else {
+      wantsMatchingRef.current = true
       enterQueuePending({ type: "skip-sent" })
-      send({ type: "skip" })
+      if (realtimeReadyRef.current) send({ type: "skip" })
     }
   }, [send, recordHistory, enterQueuePending, setRoomId, findMatch])
 
@@ -1089,6 +1090,10 @@ export function useMatchmaking(
           break
         case "matched":
           if (roomRef.current) break // Duplicate/stale matches cannot replace a live room.
+          if (!shouldAcceptMatch(message.source, wantsMatchingRef.current)) {
+            send({ type: "leave" })
+            break
+          }
           console.log("matchmaking: matched", { roomId: message.roomId, initiator: message.initiator, source: message.source })
           setRoomId(message.roomId, "matched")
           roomSourceRef.current = message.source
@@ -1502,7 +1507,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, recordHistory, announce, findMatch, accountId, setRoomId])
+  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.
@@ -1563,7 +1568,9 @@ export function useMatchmaking(
   // "peer-left") schedules the retry then instead.
   useEffect(() => {
     if (serverState !== "peer-left" || !realtimeReady) return
-    const timer = setTimeout(findMatch, 900)
+    const timer = setTimeout(() => {
+      if (wantsMatchingRef.current) findMatch()
+    }, 900)
     return () => clearTimeout(timer)
   }, [serverState, realtimeReady, findMatch])
 

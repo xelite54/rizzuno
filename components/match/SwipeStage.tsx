@@ -294,7 +294,6 @@ export function SwipeStage({
               <StatusPill
                 state={matchState}
                 cameraUnavailable={cameraUnavailable}
-                onPauseMatching={onPauseMatching}
                 onlineCount={onlineCount}
                 onResume={onResume}
               />
@@ -316,6 +315,17 @@ export function SwipeStage({
           )}
         </AnimatePresence>
       </motion.div>
+      {!isWaitingToStart && onPauseMatching && (
+        <button
+          type="button"
+          onClick={onPauseMatching}
+          aria-label="Stop matching"
+          className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 flex h-11 items-center gap-2 rounded-full border border-white/10 bg-black/50 px-4 text-[13px] font-medium text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 md:bottom-5 md:left-5"
+        >
+          <span aria-hidden="true" className="h-2.5 w-2.5 rounded-sm bg-current" />
+          Stop
+        </button>
+      )}
     </div>
   )
 }

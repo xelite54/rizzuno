@@ -1,7 +1,17 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { nextMatchState, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "../lib/matchStateMachine"
+import { nextMatchState, shouldAcceptMatch, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "../lib/matchStateMachine"
 import type { MatchState, MatchStateEvent } from "../lib/matchStateMachine"
+
+test("stopping rejects delayed random matches; resuming accepts them again", () => {
+  assert.equal(shouldAcceptMatch("random", true), true)
+  assert.equal(shouldAcceptMatch("random", false), false)
+  assert.equal(shouldAcceptMatch("random", true), true)
+})
+
+test("direct calls can still be accepted without random matchmaking intent", () => {
+  assert.equal(shouldAcceptMatch("friend", false), true)
+})
 
 const ALL_EVENTS: MatchStateEvent[] = [
   { type: "find-sent" },
