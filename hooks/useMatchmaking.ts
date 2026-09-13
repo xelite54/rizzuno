@@ -3,6 +3,7 @@ import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { friendsCacheKey, parseFriendsCache } from "@/lib/friendsCache"
+import { matchHistoryKey, blockedUsersKey, parseMatchHistory, parseBlockedUsers, rememberMatch } from "@/lib/profileActivityCache"
 import { useSignalingSocket } from "./useSignalingSocket"
 import type { PeerPlaybackReport } from "@/lib/peerPlayback"
 import { useWebRTC } from "./useWebRTC"
@@ -84,7 +85,6 @@ export type AccountRestriction =
 /** Per-displayId outcome of a friend request sent *this session* — not persisted client-side (there's nothing to persist: the server's friends-snapshot is the actual source of truth for confirmed friends/pending state; this is only for "I just clicked Add on this specific match/history row, what happened"). */
 export type FriendRequestOutcome = "requested" | "friends" | "failed"
 
-const MAX_HISTORY = 30
 // How many "invalid_ticket" rejections in a row (with no successful "ready"
 // in between) before giving up on the tight immediate-retry loop and
 // surfacing AccountRestriction's "connection_failed" instead — see its own
@@ -223,10 +223,11 @@ export function useMatchmaking(
   // one — the UI should stop trying to matchmake and say why, not silently
   // spin in "searching" forever.
   const [restriction, setRestriction] = useState<AccountRestriction | null>(null)
-  // The last 30 people this account has been matched with and moved on from —
-  // recorded whenever a match ends, whatever the reason. Session-local, like
-  // everything else here — nothing is sent anywhere to persist it.
+  // Last 30 matched profiles, persisted per account in this browser.
   const [history, setHistory] = useState<PeerProfile[]>([])
+  const historyRef = useRef<PeerProfile[]>([])
+  const activityAccountRef = useRef<string | undefined>(undefined)
+  const peerAccountRef = useRef<string | undefined>(undefined)
   // How many accounts currently have a live connection — `null` until the
   // server's first "online-count" arrives (right after "ready"), so the UI
   // can tell "we don't know yet" apart from a genuine 0/1. Kept live for as
@@ -286,9 +287,14 @@ export function useMatchmaking(
   const wantsMatchingRef = useRef(false)
 
   const recordHistory = useCallback((entry: PeerProfile | null) => {
-    if (!entry) return
-    setHistory((prev) => [entry, ...prev].slice(0, MAX_HISTORY))
-  }, [])
+    if (!entry || !accountId || activityAccountRef.current !== accountId || peerAccountRef.current !== accountId) return
+    const next = rememberMatch(historyRef.current, entry)
+    historyRef.current = next
+    setHistory(next)
+    // Write immediately so refreshing an active call cannot lose its record.
+    try { localStorage.setItem(matchHistoryKey(accountId), JSON.stringify(next)) }
+    catch { /* Storage may be unavailable; keep the in-memory list usable. */ }
+  }, [accountId])
 
   // The transport dropping means whatever the server knew about us is gone
   // — server/ws-server.ts's close handler tears down both this account's
@@ -438,6 +444,21 @@ export function useMatchmaking(
   const [friendRequestsReceived, setFriendRequestsReceived] = useState<ReceivedFriendRequest[]>([])
   const [friendRequestsSent, setFriendRequestsSent] = useState<SentFriendRequest[]>([])
   const [blockedUsers, setBlockedUsers] = useState<BlockedUserSummary[]>([])
+  useLayoutEffect(() => {
+    activityAccountRef.current = accountId
+    let savedHistory: PeerProfile[] = []
+    let savedBlocks: BlockedUserSummary[] = []
+    if (accountId) {
+      try { savedHistory = parseMatchHistory(localStorage.getItem(matchHistoryKey(accountId))) }
+      catch { /* Storage may be disabled. */ }
+      try { savedBlocks = parseBlockedUsers(localStorage.getItem(blockedUsersKey(accountId))) }
+      catch { /* The next server snapshot still restores blocks. */ }
+    }
+    historyRef.current = savedHistory
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate external storage before paint and clear the previous account's records
+    setHistory(savedHistory)
+    setBlockedUsers(savedBlocks)
+  }, [accountId])
   // Keyed by displayId (never a real account id — see "friend-request" in
   // the protocol) — what happened the last time *this browser tab* asked to
   // friend whoever currently holds that displayId. Drives the FriendButton
@@ -1110,6 +1131,8 @@ export function useMatchmaking(
           if (message.source === "random") wantsMatchingRef.current = true
           setInitiator(message.initiator)
           setPeer(message.peer)
+          peerAccountRef.current = accountId
+          recordHistory(message.peer)
           setMessages([])
           setPeerMicEnabled(true) // unknown until they tell us — assume on until we hear otherwise
           setPeerTyping(false)
@@ -1468,6 +1491,7 @@ export function useMatchmaking(
           setMatchInviteError(message.message)
           break
         case "friends-snapshot": {
+          if (activityAccountRef.current !== accountId) break
           setFriends(message.friends)
           if (accountId) {
             try {
@@ -1476,6 +1500,10 @@ export function useMatchmaking(
           }
           setFriendRequestsSent(message.requestsSent)
           setBlockedUsers(message.blocked)
+          if (accountId) {
+            try { localStorage.setItem(blockedUsersKey(accountId), JSON.stringify(message.blocked)) }
+            catch { /* The database remains authoritative if caching fails. */ }
+          }
           // Diff against the previous snapshot's received-request ids so
           // the live toast only ever fires for one that's genuinely new —
           // not on every routine snapshot refresh (e.g. after unrelated
@@ -1710,7 +1738,8 @@ export function useMatchmaking(
     // Account changes/sign-out clear it separately above.
     setFriendRequestsReceived([])
     setFriendRequestsSent([])
-    setBlockedUsers([])
+    // History and blocks survive temporary teardown; account changes clear
+    // or restore their presentation in the layout effect above.
     setFriendActionState(new Map())
     setFriendToastRequestId(null)
     previousReceivedIds.current = new Set()
