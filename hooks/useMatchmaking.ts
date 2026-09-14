@@ -9,7 +9,7 @@ import type { PeerPlaybackReport } from "@/lib/peerPlayback"
 import { useWebRTC } from "./useWebRTC"
 import { canSearch, isCurrentRoom } from "@/lib/realtimeLifecycle"
 import { SignalBacklog } from "@/lib/signalBacklog"
-import { nextMatchState, shouldAcceptMatch, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES } from "@/lib/matchStateMachine"
+import { nextMatchState, shouldAcceptMatch, decideQueuePendingTimeout, MAX_AUTOMATIC_QUEUE_PENDING_RETRIES, canResumeMatching, MATCH_RETRY_COOLDOWN_MS } from "@/lib/matchStateMachine"
 import type { MatchState, MatchStateEvent } from "@/lib/matchStateMachine"
 import type {
   ChatContent,
@@ -242,14 +242,6 @@ export function useMatchmaking(
   useEffect(() => {
     peerRef.current = peer
   }, [peer])
-  // Mirrors `serverState` for use inside the "error" handler below, which
-  // needs the *current* value at the moment a delayed retry fires, not
-  // whatever it was when the message arrived (the guest may have paused or
-  // navigated away in between).
-  const serverStateRef = useRef(serverState)
-  useEffect(() => {
-    serverStateRef.current = serverState
-  }, [serverState])
   // Mirrors `realtimeReady` for sendFind() below to read without needing it
   // as a dependency (which would change that callback's identity on every
   // ready/not-ready flip, and with it every effect/prop that closes over
@@ -623,6 +615,18 @@ export function useMatchmaking(
     sendFind()
   }, [sendFind])
 
+  const resumeMatching = useCallback(() => {
+    if (!canResumeMatching(wantsMatchingRef.current, enabled, Boolean(videoTrack), Boolean(restriction))) return
+    findMatch()
+  }, [enabled, videoTrack, restriction, findMatch])
+
+  // Exhausting a quick retry burst enters a cooldown, never a dead end.
+  useEffect(() => {
+    if (serverState !== "error" || !realtimeReady) return
+    const timer = setTimeout(resumeMatching, MATCH_RETRY_COOLDOWN_MS)
+    return () => clearTimeout(timer)
+  }, [serverState, realtimeReady, resumeMatching])
+
   // Leaves the real server-side queue WITHOUT touching `wantsMatching` or
   // showing "paused" — used when something external and temporary makes
   // matching impossible right now (e.g. the camera turning off mid-search;
@@ -980,6 +984,12 @@ export function useMatchmaking(
   // assignment completes) but not everything is happy analyzing that
   // shape statically — routing through a ref sidesteps it cleanly.
   const announceRef = useRef<() => void>(() => {})
+  const announceGenerationRef = useRef(0)
+  const announceContextRef = useRef({ enabled, connected, accountId })
+  useLayoutEffect(() => {
+    announceContextRef.current = { enabled, connected, accountId }
+    return () => { announceGenerationRef.current += 1 }
+  }, [enabled, connected, accountId])
 
   // Mints a fresh, short-lived realtime ticket from the authenticated
   // session (see app/api/realtime/ticket) and announces this connection to
@@ -990,16 +1000,21 @@ export function useMatchmaking(
   // connection instead (the server preserves any in-progress room across a
   // reconnect's re-hello, it isn't treated as abandoning it).
   const announce = useCallback(async () => {
-    if (!myHandle) return
+    const context = announceContextRef.current
+    if (!myHandle || !context.enabled || !context.connected || roomRef.current) return
+    const generation = ++announceGenerationRef.current
+    const isCurrent = () => generation === announceGenerationRef.current && announceContextRef.current.enabled && announceContextRef.current.connected && context.accountId === announceContextRef.current.accountId
     // Every fresh "hello" attempt invalidates whatever "ready" we had —
     // either we're not connected to say it to anyone yet, or (on an actual
     // reconnect) the old ack no longer describes the connection's current
     // state until a new one arrives.
     setRealtimeReady(false)
     try {
-      const res = await fetch("/api/realtime/ticket")
+      const res = await fetch("/api/realtime/ticket", { signal: AbortSignal.timeout(10_000) })
+      if (!isCurrent()) return
       if (!res.ok) {
         const body: { error?: string; until?: number; reason?: string | null } = await res.json().catch(() => ({}))
+        if (!isCurrent()) return
         console.warn("matchmaking: ticket request failed — not sending hello", { status: res.status, error: body.error })
         if (body.error === "banned") setRestriction({ reason: "banned", detail: body.reason })
         else if (body.error === "suspended") setRestriction({ reason: "suspended", until: body.until })
@@ -1023,6 +1038,7 @@ export function useMatchmaking(
         return
       }
       const { ticket } = (await res.json()) as { ticket: string }
+      if (!isCurrent()) return
       setRestriction(null)
       const username = latestUsernameRef.current
       const gender = latestGenderRef.current
@@ -1039,15 +1055,22 @@ export function useMatchmaking(
         profilePhoto,
       })
     } catch {
-      // Network hiccup minting the ticket — the socket's own reconnect will
-      // trigger this again; nothing to announce this time around.
-      console.warn("matchmaking: ticket fetch threw (network hiccup) — will retry on next reconnect")
+      // The readiness watchdog retries even if the socket stays open.
+      console.warn("matchmaking: ticket fetch failed — readiness watchdog will retry")
     }
   }, [myHandle, send])
 
   useEffect(() => {
     announceRef.current = announce
   }, [announce])
+
+  // An open socket can still be stuck before hello/ready after an HTTP or
+  // server failure. Socket reconnect alone cannot recover that situation.
+  useEffect(() => {
+    if (!enabled || !connected || realtimeReady || restriction || roomId) return
+    const timer = setInterval(() => announceRef.current(), 15_000)
+    return () => clearInterval(timer)
+  }, [enabled, connected, realtimeReady, restriction, roomId])
 
   useEffect(() => {
     // Reacting to an external system (the socket just (re)connected) by
@@ -1459,27 +1482,13 @@ export function useMatchmaking(
             context: message.context,
             message: message.message,
           })
-          // The "find"/"skip" we just sent failed server-side (see
-          // server/ws-server.ts's catch around handleParsedMessage) — the
-          // client already optimistically entered "queue-pending" and
-          // nothing else will ever arrive to move it on its own (it can
-          // never reach "searching" on its own either — see
-          // lib/matchStateMachine.ts). Retry once the way "peer-left"
-          // already does, but only if still actually waiting on this
-          // attempt by the time this fires — the guest may have paused,
-          // skipped, or navigated away in the meantime.
+          // Server failures use the same cooldown as an exhausted ack
+          // burst. Do not reset retry budgets in a tight two-second loop.
           if (message.context === "find") {
-            setTimeout(() => {
-              // "queue-pending", not (only) "searching" — a find that
-              // errors server-side never reaches "queued" in the first
-              // place, so it's still sitting in "queue-pending" (or, if a
-              // second find/skip already superseded it, "searching" from
-              // THAT attempt) when this fires. Retrying from "searching"
-              // too is harmless — a fresh "find" while already queued just
-              // re-queues under a new generation, same as any other.
-              const current = serverStateRef.current
-              if (current === "queue-pending" || current === "searching") findMatch()
-            }, 2000)
+            if (wantsMatchingRef.current && !roomRef.current) {
+              setServerState((current) => current === "queue-pending" || current === "searching"
+                ? nextMatchState(current, { type: "queue-pending-exhausted" }) : current)
+            }
           } else if (message.context === "hello") {
             // hello itself failed server-side before "ready" could be sent
             // (see server/ws-server.ts's catch around handleParsedMessage)
@@ -1651,7 +1660,7 @@ export function useMatchmaking(
   // what recovers — but only up to MAX_AUTOMATIC_QUEUE_PENDING_RETRIES (1):
   // one automatic retry per attempt, never an indefinite "find" every
   // QUEUE_PENDING_ACK_TIMEOUT_MS forever. Once that budget is spent, this
-  // gives up and surfaces "error" instead — see decideQueuePendingTimeout's
+  // enters a cooldown before resuming automatically — see decideQueuePendingTimeout's
   // own doc comment for the three-way decision this reads.
   //
   // `queuePendingAttempt` (not `serverState` alone) is the dependency
@@ -1684,19 +1693,18 @@ export function useMatchmaking(
       }
       // "give-up" — the budget is spent and neither "queued" nor "matched"
       // ever arrived across MAX_AUTOMATIC_QUEUE_PENDING_RETRIES retries.
-      // Stop retrying automatically; a real, visible error (StatusPill's
-      // "error" state) is what recovers from here, via an explicit,
-      // guest-initiated findMatch() (which resets this counter itself).
+      // Cool down before another burst; the automatic recovery effect
+      // checks current user intent and camera/account availability.
       console.error(
-        `matchmaking: queue-pending ack timeout — automatic retry budget (${MAX_AUTOMATIC_QUEUE_PENDING_RETRIES}) exhausted, giving up and surfacing an error instead of retrying forever`
+        `matchmaking: queue-pending ack timeout — automatic retry budget (${MAX_AUTOMATIC_QUEUE_PENDING_RETRIES}) exhausted, entering automatic recovery cooldown`
       )
       setServerState((prev) => nextMatchState(prev, { type: "queue-pending-exhausted" }))
     }, QUEUE_PENDING_ACK_TIMEOUT_MS)
     return () => clearTimeout(timer)
   }, [serverState, queuePendingAttempt, realtimeReady, sendFind])
 
-  // A media failure must not choose a different person. useWebRTC attempts
-  // ICE recovery in this same room; the user can still explicitly skip.
+  // WebRTC first recovers within the same room. Only exhausted recovery
+  // ends it and lets the random-match search resume.
 
   // Full teardown when realtime is disabled — sign-out, session expiry,
   // legal becoming invalid, an account switch, or plain unmount-adjacent
@@ -1754,6 +1762,7 @@ export function useMatchmaking(
 
   return {
     connected,
+    resumeMatching,
     callExpiresAt,
     realtimeReady,
     // True once this account's connection attempt has confirmed a

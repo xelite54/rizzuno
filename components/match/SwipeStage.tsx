@@ -296,6 +296,7 @@ export function SwipeStage({
                 cameraUnavailable={cameraUnavailable}
                 onlineCount={onlineCount}
                 onResume={onResume}
+                onPauseMatching={onPauseMatching}
               />
             </motion.div>
           )}
@@ -315,7 +316,14 @@ export function SwipeStage({
           )}
         </AnimatePresence>
       </motion.div>
-      {!isWaitingToStart && onPauseMatching && (
+      {/* Only for an actual live call now — every other non-idle/paused
+          state (searching/queue-pending/connecting/peer-left/error) shows
+          this same Stop control centered under StatusPill's own logo
+          instead (see StatusPill.tsx), not floating in a corner with
+          nothing to anchor it to. "active" never renders StatusPill at
+          all (the peer's video fills the screen instead), so this corner
+          is the one state that still needs its own copy. */}
+      {matchState === "active" && onPauseMatching && (
         <button
           type="button"
           onClick={onPauseMatching}

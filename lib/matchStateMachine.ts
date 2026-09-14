@@ -17,11 +17,15 @@
  * confirmed.
  */
 
-// "error" — added specifically so a matchmaking attempt that never gets
-// confirmed, even after one retry, has somewhere honest to land instead of
-// retrying forever (see decideQueuePendingTimeout below). StatusPill is
-// still the one place this ever renders — no separate error surface.
+// "error" is a recovery cooldown after a bounded fast-retry burst.
+// useMatchmaking resumes automatically while the user still wants matching;
+// StatusPill presents this as reconnecting rather than a terminal failure.
 export type MatchState = "idle" | "queue-pending" | "searching" | "connecting" | "active" | "peer-left" | "paused" | "error"
+
+export const MATCH_RETRY_COOLDOWN_MS = 15_000
+export function canResumeMatching(wantsMatching: boolean, enabled: boolean, cameraAvailable: boolean, restricted: boolean): boolean {
+  return wantsMatching && enabled && cameraAvailable && !restricted
+}
 
 /** A delayed random match must not undo an explicit stop. Direct calls have separate consent. */
 export function shouldAcceptMatch(source: "random" | "friend", wantsMatching: boolean): boolean {
@@ -103,9 +107,9 @@ export type QueuePendingTimeoutDecision = "retry" | "give-up" | "do-nothing"
  *   "find" (see useMatchmaking.ts's sendFind(), NOT findMatch() — this
  *   retry must not reset the very counter it's consuming).
  * - "give-up": the budget (MAX_AUTOMATIC_QUEUE_PENDING_RETRIES) is spent —
- *   stop retrying automatically and surface a real error instead
- *   (nextMatchState's "queue-pending-exhausted" event) rather than sending
- *   "find" every QUEUE_PENDING_ACK_TIMEOUT_MS indefinitely.
+ *   end this fast burst via "queue-pending-exhausted". The hook waits
+ *   MATCH_RETRY_COOLDOWN_MS before a fresh automatic attempt, gated by
+ *   current user intent, capture availability, and account restrictions.
  */
 export function decideQueuePendingTimeout(
   retryCount: number,

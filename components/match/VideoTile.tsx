@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import type { PeerPlaybackReport } from "@/lib/peerPlayback"
+import { playbackHasStalled } from "@/lib/peerPlayback"
 
 type VideoTileProps = {
   mirrored?: boolean
@@ -50,6 +51,7 @@ export function VideoTile(props: VideoTileProps) {
       const track = stream.getVideoTracks()[0]
       if (!track) return
       const valid = playing && !video.paused && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 && track.readyState === "live" && !track.muted
+      if (playing && !valid) return
       onPlaybackReady({ roomId, stream, track, playing: valid, readyState: video.readyState, videoWidth: video.videoWidth, videoHeight: video.videoHeight })
     }
     async function attemptPlay(reason: string) {
@@ -71,7 +73,10 @@ export function VideoTile(props: VideoTileProps) {
         }
       } finally { playPending = false }
     }
-    function resume() { if (document.visibilityState === "visible") void attemptPlay("foreground") }
+    function resume() {
+      lastProgress = performance.now()
+      if (document.visibilityState === "visible") void attemptPlay("foreground")
+    }
     function playing() {
       if (!current()) return
       log("playing")
@@ -83,10 +88,11 @@ export function VideoTile(props: VideoTileProps) {
       if (!current()) return
       renderedFrames++
       lastProgress = performance.now()
-      if (renderedFrames === 1) report(true)
+      report(true)
       frameCallback = video.requestVideoFrameCallback(frame)
     }
     function unavailable() { report(false) }
+    function paused() { void attemptPlay("pause") }
     function canPlay() { void attemptPlay("canplay") }
     function trackUnmuted() { void attemptPlay("track-unmuted") }
     function trackChanged() {
@@ -110,8 +116,9 @@ export function VideoTile(props: VideoTileProps) {
     }
     video.muted = role === "self"
     video.addEventListener("playing", playing)
-    video.addEventListener("pause", unavailable)
-    video.addEventListener("waiting", unavailable)
+    // Transient buffering/pauses do not invalidate an already rendered frame.
+    // The progress watchdog below handles sustained, visible stalls.
+    video.addEventListener("pause", paused)
     video.addEventListener("emptied", unavailable)
     video.addEventListener("loadedmetadata", canPlay)
     video.addEventListener("canplay", canPlay)
@@ -125,17 +132,16 @@ export function VideoTile(props: VideoTileProps) {
     if (stream && hasFrameCallback) frameCallback = video.requestVideoFrameCallback(frame)
     void attemptPlay("stream-bound")
     const healthTimer = setInterval(() => {
-      if (!current() || !stream) return
+      if (!current() || !stream || document.visibilityState !== "visible") return
       const progressed = hasFrameCallback ? renderedFrames > lastFrames : video.currentTime > lastTime
       if (progressed) { lastProgress = performance.now(); report(true) }
-      else if (performance.now() - lastProgress > 5_000) {
+      else if (playbackHasStalled(true, performance.now(), lastProgress)) {
         log("playback not advancing", { paused: video.paused, muted: video.muted })
         report(false)
       }
       lastFrames = renderedFrames
       lastTime = video.currentTime
       if (video.paused) {
-        report(false)
         // Some browsers pause on the addition of an audio track. Do not
         // undo an already-established muted fallback on subsequent attempts.
         if (fallbackMuted) video.muted = true
@@ -149,8 +155,7 @@ export function VideoTile(props: VideoTileProps) {
       clearInterval(healthTimer)
       if (frameCallback !== undefined) video.cancelVideoFrameCallback(frameCallback)
       video.removeEventListener("playing", playing)
-      video.removeEventListener("pause", unavailable)
-      video.removeEventListener("waiting", unavailable)
+      video.removeEventListener("pause", paused)
       video.removeEventListener("emptied", unavailable)
       video.removeEventListener("loadedmetadata", canPlay)
       video.removeEventListener("canplay", canPlay)

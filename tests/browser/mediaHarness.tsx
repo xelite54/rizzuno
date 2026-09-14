@@ -28,8 +28,16 @@ window.RTCPeerConnection = class extends NativePeer {
 
 }
 const NativeSocket = window.WebSocket
+let droppedFinds = 0
 window.WebSocket = class extends NativeSocket {
   constructor(url: string | URL, protocols?: string | string[]) { super(url, protocols); sockets.push(this) }
+  send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+    if (droppedFinds > 0 && typeof data === "string" && JSON.parse(data).type === "find") {
+      droppedFinds--
+      return
+    }
+    super.send(data)
+  }
 }
 const nativeLog = console.log
 console.log = (...args) => {
@@ -46,6 +54,12 @@ window.fetch = (input, init) => {
 }
 let blockAudio = false
 let blockVideo = false
+// Native autoplay need not invoke the JavaScript play() method below.
+// Pause its play event too so the blocked-playback fixture is deterministic.
+document.addEventListener("play", (event) => {
+  const video = event.target
+  if (blockVideo && video instanceof HTMLVideoElement && video.dataset.videoRole === "peer") video.pause()
+}, true)
 const nativePlay = HTMLMediaElement.prototype.play
 HTMLMediaElement.prototype.play = function () {
   if (this.getAttribute("data-video-role") === "peer" && (blockVideo || (blockAudio && !this.muted))) return Promise.reject(new DOMException("test autoplay restriction", "NotAllowedError"))
@@ -84,6 +98,7 @@ function App() {
         pc.dispatchEvent(new Event("connectionstatechange"))
       },
       find: match.findMatch, skip: match.skip, pause: match.pauseMatching, mute: local.toggleMic,
+      dropFinds: (count: number) => { droppedFinds = count },
       invite: (target: string) => match.inviteFriendToMatch(target),
       changeAccount: (value: string) => { ticketAccount = value; setActiveAccount(value) },
       accept: () => { const invite = match.matchInvitations.find(i => i.direction === "incoming"); if (invite) match.respondToMatchInvitation(invite.id, true) },

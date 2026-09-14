@@ -506,6 +506,9 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
         // failure, not an excuse to rebuild the PC or spin indefinitely.
         mediaTimer = setTimeout(() => {
           mediaTimer = undefined
+          // A background tab may suspend rendering without losing the call.
+          // Recheck after foregrounding/progress reports instead of skipping.
+          if (document.visibilityState !== "visible") return
           terminate("remote-video-playback-timeout")
         }, 20_000)
       }
@@ -610,6 +613,9 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       const details = { roomId: report.roomId, playing: report.playing, readyState: report.readyState, videoWidth: report.videoWidth, videoHeight: report.videoHeight }
       lastPlayback = details
       const ready = report.playing && report.track.readyState === "live" && !report.track.muted && report.readyState >= 2 && report.videoWidth > 0 && report.videoHeight > 0
+      // This hook owns recovery resets, so deduplicate here rather than in
+      // VideoTile: the first new frame must restore readiness after ICE recovery.
+      if (ready === videoPlaying) return
       if (ready && !videoPlaying) log("peer video playing", details)
       videoPlaying = ready
       checkActive()
@@ -655,6 +661,10 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
     }
     void syncTracks()
     const setupTimer = setTimeout(() => terminate("room-establishment-timeout"), 40_000)
+    const foreground = () => {
+      if (!disposed && !terminated && document.visibilityState === "visible") checkActive()
+    }
+    document.addEventListener("visibilitychange", foreground)
     const collectStats = makeStatsCollector(pc)
     let collecting = false
     let ticks = 0
@@ -673,6 +683,7 @@ export function useWebRTC({ roomId, initiator, videoTrack, audioTrack, micEnable
       disposed = true
       clearTimeout(graceTimer); clearTimeout(restartTimer); clearTimeout(mediaTimer); clearTimeout(setupTimer)
       clearInterval(statsTimer)
+      document.removeEventListener("visibilitychange", foreground)
       unsubscribe()
       negotiation.dispose()
       trackCleanups.forEach(cleanup => cleanup())

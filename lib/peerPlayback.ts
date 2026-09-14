@@ -8,3 +8,8 @@ export type PeerPlaybackReport = {
   videoWidth: number
   videoHeight: number
 }
+
+/** Background tabs may stop presenting frames even while RTP is healthy. */
+export function playbackHasStalled(visible: boolean, now: number, lastProgress: number): boolean {
+  return visible && now - lastProgress > 5000
+}

@@ -58,14 +58,9 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
   if (disabled) return null
 
   return (
-    // Bottom-left on mobile, top-right on desktop (`md:`) — on mobile this
-    // now shares the screen with the self-view bubble (top-right), the
-    // friends/profile row (top-left, see MatchStage.tsx), and the
-    // mic/camera/chat controls (bottom-right); bottom-left is the one
-    // corner still free. The dropdown itself flips to open upward from a
-    // bottom-anchored trigger instead of downward, so it doesn't run off
-    // the bottom of the screen.
-    <div ref={rootRef} className="absolute bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-[max(1.25rem,env(safe-area-inset-left))] z-20 md:bottom-auto md:left-auto md:right-5 md:top-5">
+    // Keep safety separate from Stop; the menu can extend over the lower
+    // video panel and scroll within short landscape viewports.
+    <div ref={rootRef} className="absolute right-3 top-9 z-40 md:right-5">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
@@ -84,7 +79,7 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: DURATION_QUICK, ease: EASE_OUT }}
-            className="absolute bottom-11 left-0 w-56 overflow-hidden rounded-2xl border border-border bg-surface p-1.5 shadow-xl md:bottom-auto md:left-auto md:right-0 md:top-11"
+            className="absolute right-0 top-11 max-h-[calc(100dvh-8rem)] w-56 overflow-y-auto rounded-2xl border border-border bg-surface p-1.5 shadow-xl"
           >
             {view === "menu" && (
               <div className="flex flex-col">

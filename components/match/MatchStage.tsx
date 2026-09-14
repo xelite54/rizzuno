@@ -11,6 +11,7 @@ import { useMyProfile } from "@/hooks/useMyProfile"
 import { SwipeStage } from "./SwipeStage"
 import { MatchCallCountdown } from "./MatchCallCountdown"
 import { SelfPanel } from "./SelfPanel"
+import styles from "./MatchStage.module.css"
 import { CompactChat } from "./CompactChat"
 import { SafetyMenu } from "./SafetyMenu"
 import { ProfileMenu } from "./ProfileMenu"
@@ -202,6 +203,7 @@ export function MatchStage() {
     history,
     restriction,
     findMatch,
+    resumeMatching,
     leaveQueueOnly,
     skip,
     pauseMatching,
@@ -378,10 +380,10 @@ export function MatchStage() {
       leftQueueForUnavailableCamera.current = false
       if (realtimeReady && !restriction) {
         console.log("matchmaking: camera available again — sending exactly one fresh find")
-        findMatch()
+        resumeMatching()
       }
     }
-  }, [cameraUnavailable, state, realtimeReady, restriction, findMatch, leaveQueueOnly])
+  }, [cameraUnavailable, state, realtimeReady, restriction, resumeMatching, leaveQueueOnly])
 
   // A swipe skips immediately — no undo grace period.
   function handleSwipeComplete() {
@@ -558,19 +560,13 @@ export function MatchStage() {
     }
   }, [roomId])
 
+  const useCallLayout = signedIn && legalAccepted && onboarded && !restriction && !useHomeSplit
+
   return (
     <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-home-glow" : "bg-background"}`}>
-      <main className={`relative z-10 flex min-h-0 flex-1 flex-row ${useHomeSplit ? "gap-0 p-0" : "gap-1 p-0 md:p-2"}`}>
-        {/* Below `md`, this is your own small self-view bubble floating over
-            the full-screen peer video — the "picture in picture" frame
-            Omegle TV and similar mobile-optimized video-chat sites use,
-            rather than squeezing two equal-width columns into a phone-width
-            screen. `absolute` takes it out of `<main>`'s flex flow entirely
-            on mobile, so the peer panel below (still `flex-1`) is free to
-            become the only flex item and fill the whole screen on its own —
-            no separate "mobile" markup for that side. At `md` and up it
-            reverts to exactly the side-by-side desktop layout this always
-            was. */}
+      <main className={`relative z-10 min-h-0 flex-1 ${useHomeSplit ? "flex flex-row gap-0 p-0" : useCallLayout ? styles.callLayout : "flex flex-row gap-1 p-0 md:p-2"}`}>
+        {/* CSS reorders the same video panels on phones and tablets, so
+            resizing or rotating never remounts the live call. */}
         <motion.div
           layout
           initial={false}
@@ -591,7 +587,7 @@ export function MatchStage() {
           className={
             useHomeSplit
               ? "absolute left-4 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-none md:border-0 md:shadow-none"
-              : "absolute right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border-2 border-white/25 shadow-lg shadow-black/40 sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1 md:overflow-visible md:rounded-2xl md:border md:border-border md:shadow-none"
+              : useCallLayout ? styles.selfPanel : "absolute right-3 top-3 z-20 aspect-[3/4] w-24 overflow-hidden rounded-2xl border border-border sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1"
           }
         >
           <SelfPanel
@@ -599,15 +595,13 @@ export function MatchStage() {
             status={status}
             flushDesktop={useHomeSplit}
           />
-          {/* Every personal control is anchored to the self-video itself.
-              Friends/profile sit at the top and media/chat at the bottom;
-              mobile call controls are rendered outside this clipped self-view below. */}
+          {/* Personal controls stay anchored inside your video on every device. */}
           {signedIn && legalAccepted && onboarded && !restriction && (
             <>
               {/* Deliberately faint until touched — this is your own utility
                   corner, not the point of the screen, so it should recede
                   rather than compete with the person you're talking to. */}
-              <div className={`absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : "right-[max(0.25rem,env(safe-area-inset-right))] top-[max(0.25rem,env(safe-area-inset-top))] opacity-45 md:right-4 md:top-4 md:z-10 md:opacity-25"}`}>
+              <div className={`absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : styles.personalTools}`}>
                 {FRIENDS_ENABLED && (
                   <button
                     type="button"
@@ -630,8 +624,8 @@ export function MatchStage() {
                   onOpenProfile={() => setMyProfileOpen(true)}
                 />
               </div>
-              <div className={onHomeScreen ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : "absolute bottom-4 right-4 z-10 hidden items-center justify-end md:flex"}>
-                <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-25"}`}>
+              <div className={onHomeScreen ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : styles.mediaControls}>
+                <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "opacity-85" : "opacity-100"}`}>
                   <ControlBar
                     micEnabled={micEnabled}
                     onToggleMic={toggleMic}
@@ -654,7 +648,7 @@ export function MatchStage() {
             </>
           )}
         </motion.div>
-        <div className={`relative h-full min-h-0 min-w-0 flex-1 ${useHomeSplit ? "md:rounded-none md:border-0" : "md:rounded-2xl md:border md:border-border"}`}>
+        <div className={useHomeSplit ? "relative h-full min-h-0 min-w-0 flex-1 md:rounded-none md:border-0" : useCallLayout ? styles.peerPanel : "relative h-full min-h-0 min-w-0 flex-1 md:rounded-2xl md:border md:border-border"}>
           {authLoading ? null : !signedIn ? (
             <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
           ) : restriction && restriction.reason !== "acceptance_required" ? (
@@ -715,13 +709,7 @@ export function MatchStage() {
           )}
         </div>
       </main>
-      {signedIn && legalAccepted && onboarded && !restriction && !onHomeScreen && (
-        <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center gap-1 rounded-full bg-black/55 p-1 backdrop-blur-sm md:hidden">
-          <ControlBar micEnabled={micEnabled} onToggleMic={toggleMic} />
-          <div className="h-5 w-px shrink-0 bg-white/20" />
-          <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} unreadCount={chatUnreadCount} />
-        </div>
-      )}
+
 
       {FRIENDS_ENABLED && (
         <>

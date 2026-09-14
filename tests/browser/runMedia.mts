@@ -133,9 +133,16 @@ try {
   await until("capture and realtime ready", s => s.every(x => x.ready && x.status === "granted"))
   await browsers[0].evaluate("window.harness.blockAudio(true); window.harness.blockVideo(true)")
   await browsers[1].call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
+  if (process.env.MEDIA_RETRY_TEST === "1") {
+    await Promise.all(browsers.map(b => b.evaluate("window.harness.dropFinds(2)")))
+  }
   await browsers[0].evaluate("window.harness.find()")
   await browsers[1].evaluate("window.harness.find()")
+  if (process.env.MEDIA_RETRY_TEST === "1") {
+    await until("dropped searches reach the recovery cooldown", s => s.every(x => x.state === "error"))
+  }
   await until("chat available before video playback", s => s.every(x => x.canChat) && s[0].state === "connecting")
+  if (process.env.MEDIA_RETRY_TEST === "1") results.automaticSearchRecovery = { passed: true }
   for (const browser of browsers) {
     const identity = browser.side === "a" ? "browser-b" : "browser-a"
     assert.equal(await browser.evaluate(`Boolean(document.querySelector('[aria-label^="View ${identity}"]'))`), true)
@@ -151,13 +158,13 @@ try {
   for (const [width, height] of [[390,844],[320,568],[390,430],[844,390]]) {
     await browsers[1].call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: true })
     await delay(350)
-    const bounds = await browsers[1].evaluate(`(() => { const panel=document.querySelector('[aria-label="Live match chat"]'); const r=panel.getBoundingClientRect();const input=document.querySelector('input[aria-label="Message"]');const i=input.getBoundingClientRect(); return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,inputBottom:i.bottom,root:panel.parentElement===document.body,hit:document.elementFromPoint(i.left+10,i.top+10)===input,text:panel.textContent}; })()`)
+    const bounds = await browsers[1].evaluate(`(() => { const panel=document.querySelector('[role="region"][aria-label="Chat"]'); const r=panel.getBoundingClientRect();const input=document.querySelector('input[aria-label="Message"]');const i=input.getBoundingClientRect(); return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,inputBottom:i.bottom,root:panel.parentElement===document.body,hit:document.elementFromPoint(i.left+10,i.top+10)===input,text:panel.textContent}; })()`)
     assert.ok(bounds.root && bounds.left >= 0 && bounds.top >= 0 && bounds.right <= width && bounds.bottom <= height && bounds.inputBottom <= height && bounds.hit, JSON.stringify(bounds))
     assert.ok(bounds.text.includes("hello from a") && bounds.text.includes("hello from b"))
   }
   await browsers[1].call("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await writeFile(path.join(artifactDir,"mobile-chat.png"), Buffer.from((await browsers[1].call("Page.captureScreenshot")).data,"base64"))
-  for (const browser of browsers) await browser.evaluate(`document.querySelector('[aria-label="Live match chat"] [aria-label="Close chat"]').click()`)
+  for (const browser of browsers) await browser.evaluate(`document.querySelector('[role="region"][aria-label="Chat"] [aria-label="Close chat"]').click()`)
   await browsers[0].evaluate("window.harness.blockVideo(false)")
   console.log("BROWSER: matched profiles open before playback; chat delivered both ways; mobile portrait, narrow, keyboard-height and landscape panels are visible and interactive")
   results.matchUi = { profilesBeforePlayback: true, bidirectionalChat: true, mobileViewports: 4 }
@@ -171,6 +178,15 @@ try {
     assert.ok(audio >= 0 && video > audio, "audio-first delivery must still render the later video track")
   })
   console.log("BROWSER: both cameras render in correct tiles; both SDP directions sendrecv; one peer per side")
+  await Promise.all(browsers.map(b => b.evaluate("document.querySelector('video[data-video-role=peer]').dispatchEvent(new Event('waiting'))")))
+  await delay(100)
+  assert.ok(healthy(await Promise.all(browsers.map(b => b.snapshot())), 1), "brief waiting events must not flash Connecting on either device")
+  await browsers[0].evaluate("window.harness.blockVideo(true); document.querySelector('video[data-video-role=peer]').pause()")
+  await delay(300)
+  assert.ok((await Promise.all(browsers.map(b => b.snapshot()))).every(s => s.state === "active" && s.roomId === room && s.pcCount === 1), "a brief playback interruption must retain the same active call")
+  await browsers[0].evaluate("window.harness.blockVideo(false); document.querySelector('video[data-video-role=peer]').play()")
+  await until("brief playback interruption recovers", s => healthy(s, 1))
+  results.bufferingRecovery = { passed: true }
   // StrictMode intentionally opens/closes an initial socket at app mount;
   // there must be NO additional socket once this room exists.
   const socketCounts = snapshots.map(s => s.socketCount)
