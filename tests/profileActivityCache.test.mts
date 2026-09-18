@@ -12,14 +12,14 @@ test("history survives a storage round trip, including a match still in progress
   assert.deepEqual(rememberMatch(restored, { ...peer, username: "updated" }), [{ ...peer, username: "updated" }])
 })
 
-test("history keeps the newest 30 profiles after repeated matches and refreshes", () => {
+test("history keeps the newest 50 profiles after repeated matches and refreshes", () => {
   let history: PublicPeerIdentity[] = []
-  for (let index = 0; index < 40; index++) {
+  for (let index = 0; index < 60; index++) {
     history = rememberMatch(history, { ...peer, displayId: `peer-${index}` })
   }
   const restored = parseMatchHistory(JSON.stringify(history))
   assert.equal(restored.length, MAX_MATCH_HISTORY)
-  assert.equal(restored[0].displayId, "peer-39")
+  assert.equal(restored[0].displayId, "peer-59")
   assert.equal(restored.at(-1)?.displayId, "peer-10")
 })
 

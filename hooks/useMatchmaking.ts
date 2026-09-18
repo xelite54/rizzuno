@@ -227,7 +227,7 @@ export function useMatchmaking(
   // one — the UI should stop trying to matchmake and say why, not silently
   // spin in "searching" forever.
   const [restriction, setRestriction] = useState<AccountRestriction | null>(null)
-  // Last 30 matched profiles, persisted per account in this browser.
+  // Last 50 matched profiles, persisted per account in this browser.
   const [history, setHistory] = useState<PeerProfile[]>([])
   const historyRef = useRef<PeerProfile[]>([])
   const activityAccountRef = useRef<string | undefined>(undefined)

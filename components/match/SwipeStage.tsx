@@ -318,7 +318,7 @@ export function SwipeStage({
           )}
         </AnimatePresence>
       </motion.div>
-      {/* Mobile keeps Stop in one viewport corner throughout matching. */}
+      {/* Mobile keeps Stop at the bottom left of the peer video throughout matching. */}
       {matchState !== "idle" && matchState !== "paused" && onPauseMatching && (
         <button
           type="button"

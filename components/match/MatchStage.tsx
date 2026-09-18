@@ -601,7 +601,7 @@ export function MatchStage() {
               {/* Deliberately faint until touched — this is your own utility
                   corner, not the point of the screen, so it should recede
                   rather than compete with the person you're talking to. */}
-              <div className={`absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : styles.personalTools}`}>
+              <div className={`${styles.personalToolsAppearance} absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${onHomeScreen ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : styles.personalTools}`}>
                 {FRIENDS_ENABLED && (
                   <button
                     type="button"

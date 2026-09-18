@@ -1,6 +1,6 @@
 import type { BlockedUserSummary, PublicPeerIdentity } from "./signaling/protocol"
 
-export const MAX_MATCH_HISTORY = 30
+export const MAX_MATCH_HISTORY = 50
 export const matchHistoryKey = (accountId: string) => `rizzuno:match-history:v1:${accountId}`
 export const blockedUsersKey = (accountId: string) => `rizzuno:blocked-users:v1:${accountId}`
 

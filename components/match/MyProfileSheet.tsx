@@ -4,7 +4,7 @@ import styles from "./MyProfileSheet.module.css"
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronLeftIcon, CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
+import { CloseIcon, PlusIcon, MaleIcon, FemaleIcon, SettingsIcon } from "@/components/icons"
 import { resizeImageToDataUrl, cropAndResizePostToDataUrl, PostImageError } from "@/lib/image"
 import { USERNAME_MAX_LENGTH, normalizeUsername, containsBlockedUsername, USERNAME_BLOCKED_MESSAGE } from "@/lib/username"
 import { containsBlockedChatContent, stripNonEnglish } from "@/lib/textFilter"
@@ -56,6 +56,7 @@ type MyProfileSheetProps = {
 type View = "profile" | "edit" | "newPost" | "viewPost" | "history" | "blocked" | "settings"
 
 const MAX_POSTS = 20
+const MAX_VISIBLE_USERS = 50
 
 // Profile photo, username, bio, and posts persist per guest identity (see
 // useMyProfile) — everything else here (which view is open, in-progress
@@ -83,6 +84,8 @@ export function MyProfileSheet({
   onAddPost,
   onRemovePost,
 }: MyProfileSheetProps) {
+  const visibleHistory = history.slice(0, MAX_VISIBLE_USERS)
+  const visibleBlockedUsers = blockedUsers.slice(0, MAX_VISIBLE_USERS)
   const [view, setView] = useState<View>("profile")
   const restoredView = useRef(false)
   useEffect(() => {
@@ -179,17 +182,10 @@ export function MyProfileSheet({
     resetToProfile()
   }
 
-  // The header's X only actually closes the whole sheet (and drops you back
-  // out to the match screen) from the main profile view. From anywhere
-  // else — Settings included — it's "done with this", not "cancel the
-  // profile too": it returns to the profile view but leaves the sheet
-  // itself open, same as tapping Back until you're home again.
+  // The single close control returns to the parent view, or closes the profile.
   function handleXClick() {
-    if (view === "profile") {
-      handleClose()
-    } else {
-      resetToProfile()
-    }
+    if (view === "profile") handleClose()
+    else goBack()
   }
 
   /** Maps a displayId's raw session outcome ("failed" included) down to the three states PeerProfileSheet's FriendButton actually understands — a failed attempt should just look like "none" there (retryable via the same Add button), whereas the History row list below shows "Try again" explicitly instead of collapsing it. */
@@ -422,10 +418,7 @@ export function MyProfileSheet({
           className={`${panelStyles.panel} ${styles.shell} fixed inset-0 z-50 flex flex-col`}
           data-upgrade-return={`/?panel=profile&view=${view}`}
         >
-          <div className={`${styles.header} flex shrink-0 flex-col gap-1 border-b border-white/8 pb-1 pt-4`}>
-            {/* The title now sits on its own line above the Back/X row
-                (previously all three shared one row) — same text, same
-                meaning, just not sharing a line with the buttons any more. */}
+          <div className={`${styles.header} flex shrink-0 items-center justify-between gap-3 border-b border-white/8 py-1`}>
             <span className="text-[15px] font-semibold text-foreground">
               {view === "edit"
                 ? "Edit profile"
@@ -441,26 +434,6 @@ export function MyProfileSheet({
                           ? "Settings"
                           : "My profile"}
             </span>
-            <div className="-mx-1.5 flex h-11 items-center gap-3">
-              {/* Viewing a single post — and Settings itself — are both dead
-                  ends one level deep where the header's X (handleXClick,
-                  below) already takes you straight back to the profile, the
-                  exact same place Back would; a separate Back button would
-                  just be a second way to do the same thing. History/Blocked
-                  (reached FROM Settings) still keep their own Back, since
-                  THEIRS returns to Settings specifically — genuinely
-                  different from what their own X does. */}
-              {view !== "profile" && view !== "viewPost" && view !== "settings" ? (
-                <button
-                  type="button"
-                  onClick={goBack}
-                  aria-label="Back"
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                >
-                  <ChevronLeftIcon className="h-4 w-4" />
-                </button>
-              ) : null}
-              <span className="flex-1" />
               <button
                 type="button"
                 onClick={handleXClick}
@@ -469,7 +442,6 @@ export function MyProfileSheet({
               >
                 <CloseIcon className="h-4 w-4" />
               </button>
-            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -656,7 +628,7 @@ export function MyProfileSheet({
                   >
                     <span>History</span>
                     <span className="text-[12px] text-muted">
-                      {history.length > 0 ? `Last ${history.length}` : "Nobody yet"}
+                      {history.length > 0 ? `Last ${visibleHistory.length}` : "Nobody yet"}
                     </span>
                   </button>
                   <button
@@ -852,11 +824,11 @@ export function MyProfileSheet({
               <div className="mx-auto w-full max-w-lg px-6 py-6">
                 {history.length === 0 ? (
                   <p className="mt-8 text-center text-[13px] text-muted">
-                    Nobody yet — the last 30 people you match with will show up here.
+                    Nobody yet — the last 50 people you match with will show up here.
                   </p>
                 ) : (
                   <div className="space-y-1">
-                    {history.map((person, index) => {
+                    {visibleHistory.map((person, index) => {
                       const identity = person.username || person.handle
                       const friendAction = friendActionState.get(person.displayId) ?? "none"
                       return (
@@ -920,10 +892,10 @@ export function MyProfileSheet({
                   <>
                     <p className="mb-3 px-1 text-[12px] leading-relaxed text-muted">
                       Unblocking makes it possible to match with this person again — it doesn&apos;t notify them either
-                      way.
+                      way. {blockedUsers.length > MAX_VISIBLE_USERS && `Showing the latest ${MAX_VISIBLE_USERS} blocked users.`}
                     </p>
                     <div className="space-y-1">
-                      {blockedUsers.map((person) => {
+                      {visibleBlockedUsers.map((person) => {
                         const busy = unblockingIds.has(person.id)
                         return (
                           <div key={person.id} className="flex items-center gap-3 min-h-12 rounded-xl px-3 py-3">

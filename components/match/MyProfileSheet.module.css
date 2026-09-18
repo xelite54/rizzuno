@@ -7,6 +7,7 @@
 .header {
   background: #120f16f2;
   padding-inline: clamp(1rem, 5vw, 4rem);
+  padding-top: max(4px, env(safe-area-inset-top));
 }
 
 .layout {

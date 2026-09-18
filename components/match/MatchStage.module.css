@@ -59,12 +59,10 @@
     grid-row: 2;
   }
 
-  .personalTools,
   .mediaControls {
     opacity: 1;
   }
 
-  .personalTools button,
   .mediaControls button {
     min-width: 44px;
     min-height: 44px;
@@ -110,9 +108,9 @@
   }
 
   .stopButton {
-    position: fixed;
-    bottom: max(10px, env(safe-area-inset-bottom));
-    left: max(10px, env(safe-area-inset-left));
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
     z-index: 40;
     display: flex;
     height: 36px;
@@ -123,5 +121,32 @@
 
   .centerStop {
     display: none;
+  }
+}
+
+@media (max-width: 1199px), (hover: none) and (pointer: coarse) {
+  .personalToolsAppearance {
+    opacity: 0.35;
+    gap: 2px;
+    padding: 3px;
+  }
+
+  .personalToolsAppearance:hover,
+  .personalToolsAppearance:focus-within,
+  .personalToolsAppearance:active {
+    opacity: 1;
+  }
+
+  .personalToolsAppearance button {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    min-height: 26px;
+    font-size: 10px;
+  }
+
+  .personalToolsAppearance button svg {
+    width: 14px;
+    height: 14px;
   }
 }
