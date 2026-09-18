@@ -1,5 +1,7 @@
 "use client"
 
+import styles from "./MatchStage.module.css"
+
 import { FriendButton } from "./FriendButton"
 import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
@@ -20,7 +22,7 @@ export function PersonBadge({ peer, friendState, onAddFriend, onViewProfile }: P
   const country = countryLabel(peer.countryCode)
 
   return (
-    <div className="pointer-events-auto absolute left-3 top-9 z-10 max-w-[calc(100%-8rem)] md:left-5 md:top-5 md:max-w-[260px]"
+    <div className={`${styles.personBadge} pointer-events-auto absolute left-3 top-9 z-10 max-w-[calc(100%-8rem)] md:left-5 md:top-5 md:max-w-[260px]`}
       onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
       <div className="flex items-center gap-1.5 rounded-full bg-black/55 p-1.5">
         <button type="button" onClick={onViewProfile} aria-label={`View ${identity}'s profile`}

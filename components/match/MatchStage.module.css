@@ -70,3 +70,58 @@
     min-height: 44px;
   }
 }
+
+.waitingStop {
+  display: none;
+}
+
+@media (max-width: 1199px), (hover: none) and (pointer: coarse) {
+  .personBadge {
+    top: 8px;
+    left: 8px;
+    max-width: calc(100% - 64px);
+    transform: scale(0.85);
+    transform-origin: top left;
+  }
+
+  .peerWordmark {
+    top: 48px;
+    font-size: 12px;
+  }
+
+  .safetyMenu {
+    top: 8px;
+    right: 8px;
+  }
+
+  .safetyMenu > button {
+    width: 32px;
+    height: 32px;
+  }
+
+  .safetyMenu > button svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .mediaControls {
+    bottom: 4px;
+    right: 4px;
+  }
+
+  .stopButton {
+    position: fixed;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
+    z-index: 40;
+    display: flex;
+    height: 36px;
+    gap: 6px;
+    padding-inline: 12px;
+    font-size: 12px;
+  }
+
+  .centerStop {
+    display: none;
+  }
+}

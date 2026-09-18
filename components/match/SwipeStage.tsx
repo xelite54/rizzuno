@@ -1,5 +1,7 @@
 "use client"
 
+import styles from "./MatchStage.module.css"
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { motion, useMotionValue, useTransform, animate, AnimatePresence, useReducedMotion } from "motion/react"
 import type { PeerPlaybackReport } from "@/lib/peerPlayback"
@@ -256,7 +258,7 @@ export function SwipeStage({
         {!isWaitingToStart && (
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute right-2 top-2 z-10 bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-[15px] font-extrabold uppercase tracking-[0.12em] text-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)]"
+            className={`${styles.peerWordmark} pointer-events-none absolute right-2 top-2 z-10 bg-gradient-to-r from-accent to-accent-2 bg-clip-text text-[15px] font-extrabold uppercase tracking-[0.12em] text-transparent drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)]`}
           >
             Rizzuno.com
           </span>
@@ -309,26 +311,20 @@ export function SwipeStage({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: DURATION_BASE, ease: EASE_OUT }}
-              className="pointer-events-none absolute bottom-20 right-4 md:bottom-5 md:right-5"
+              className="pointer-events-none absolute bottom-3 right-4 md:bottom-5 md:right-5"
             >
               <MicOffIcon className="h-5 w-5 text-white/80 drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)]" />
             </motion.div>
           )}
         </AnimatePresence>
       </motion.div>
-      {/* Only for an actual live call now — every other non-idle/paused
-          state (searching/queue-pending/connecting/peer-left/error) shows
-          this same Stop control centered under StatusPill's own logo
-          instead (see StatusPill.tsx), not floating in a corner with
-          nothing to anchor it to. "active" never renders StatusPill at
-          all (the peer's video fills the screen instead), so this corner
-          is the one state that still needs its own copy. */}
-      {matchState === "active" && onPauseMatching && (
+      {/* Mobile keeps Stop in one viewport corner throughout matching. */}
+      {matchState !== "idle" && matchState !== "paused" && onPauseMatching && (
         <button
           type="button"
           onClick={onPauseMatching}
           aria-label="Stop matching"
-          className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 flex h-11 items-center gap-2 rounded-full border border-white/10 bg-black/50 px-4 text-[13px] font-medium text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 md:bottom-5 md:left-5"
+          className={`${styles.stopButton} ${matchState !== "active" ? styles.waitingStop : ""} absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-20 flex h-11 items-center gap-2 rounded-full border border-white/10 bg-black/50 px-4 text-[13px] font-medium text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 md:bottom-5 md:left-5`}
         >
           <span aria-hidden="true" className="h-2.5 w-2.5 rounded-sm bg-current" />
           Stop

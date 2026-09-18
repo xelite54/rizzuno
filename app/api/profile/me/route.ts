@@ -120,7 +120,7 @@ export async function PUT(request: Request) {
     // character stripping already is, for a bio saved some other way
     // (a direct API call, a client that skipped the live filter).
     updates.bio = stripNonEnglish(sanitizeText(body.bio, MAX_BIO_LENGTH))
-    if (containsBlockedChatContent(updates.bio)) {
+    if (containsBlockedChatContent(sanitizeText(body.bio, MAX_BIO_LENGTH)) || containsBlockedChatContent(updates.bio)) {
       return NextResponse.json({ error: "bio_blocked" }, { status: 400 })
     }
   }

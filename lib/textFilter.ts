@@ -1,79 +1,39 @@
-/**
- * A basic, keyword-only safety net for free-text fields (chat, username,
- * bio). This is intentionally simple and should be described honestly as
- * such — it catches obvious, severe terms plus the common ways people try
- * to sneak them past a keyword filter (see normalizeForFilter() and
- * spacedOut() below); it is not content moderation, doesn't understand
- * context, and still won't catch genuinely creative evasion or other
- * languages. Real moderation still depends on report + block + human
- * review (see app/admin). Never claim this filter means messages or profiles
- * are "reviewed" before appearing.
- */
+/** Shared server/client text screening. Normalization catches common evasion,
+ * but keyword matching cannot guarantee detection of every harmful message. */
+const LEET_MAP: Record<string, string> = {
+  "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", "$": "s",
+}
 
-// Unambiguous leetspeak substitutions only — deliberately no 6/9 (too
-// often meant as literal digits/other letters) and no 1→l (1→i covers the
-// common case without also rewriting every plain "1" that isn't standing
-// in for a letter at all any more than this already does).
-const LEET_MAP: Record<string, string> = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "8": "b", "@": "a", "$": "s" }
+// Common Cyrillic/Greek lookalikes used inside otherwise Latin words.
+const LOOKALIKES: Record<string, string> = {
+  "а": "a", "ɑ": "a", "α": "a", "е": "e", "ε": "e", "і": "i", "ι": "i", "ӏ": "i",
+  "о": "o", "ο": "o", "р": "p", "ρ": "p", "с": "c", "ϲ": "c", "ѕ": "s",
+  "у": "y", "х": "x", "χ": "x", "к": "k", "κ": "k", "т": "t", "τ": "t", "ν": "v",
+}
 
-// Invisible/zero-width separators (ZERO WIDTH SPACE/NON-JOINER/JOINER, WORD
-// JOINER, ZERO WIDTH NO-BREAK SPACE) — built from character codes rather
-// than a literal escape in source, the same reasoning CONTROL_CHAR_PATTERN
-// below already uses: keeps an actual invisible character from ever being
-// pasted into the file itself, where it would be impossible to see or diff.
-const ZERO_WIDTH_PATTERN = new RegExp(
-  "[" + String.fromCharCode(0x200b) + "-" + String.fromCharCode(0x200d) +
-    String.fromCharCode(0x2060) + String.fromCharCode(0xfeff) + "]",
-  "g"
-)
-
-/**
- * The one normalization pass every check below runs on — de-obfuscates the
- * common tricks people use to sneak a blocked word past a keyword filter,
- * all at once, so a bypass has to dodge every one of these simultaneously
- * rather than just whichever this filter happened to check for before:
- *   - Unicode compatibility forms + invisible/zero-width separators
- *     ("n" + U+200B + "igger" — a zero-width space slipped between letters)
- *   - leetspeak digit/symbol substitution ("n1gg3r")
- *   - stretched-out spelling ("niggggger") — 3+ repeats of the same letter
- *     collapse to 2, which ordinary English essentially never needs
- *     (a genuine double letter like "will" or "committee" is untouched;
- *     this only fires on runs of 3+)
- * Deliberately does NOT remove spaces/punctuation between letters — that
- * would merge unrelated words together and invent false positives out of
- * ordinary sentences. spacedOut() below handles the "n.i.g.g.e.r" /
- * "n i g g e r" bypass a different, much narrower way instead.
- */
 function normalizeForFilter(text: string): string {
-  return text
-    .normalize("NFKC")
-    .replace(ZERO_WIDTH_PATTERN, "")
-    .toLowerCase()
-    .replace(/[0134578@$]/g, (character) => LEET_MAP[character] ?? character)
-    .replace(/([a-z])\1{2,}/g, "$1$1")
+  return text.normalize("NFKD").toLowerCase()
+    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}]/gu, "")
+    .replace(/[аɑαеεіιӏоοрρсϲѕухχкκтτν]/gu, (character) => LOOKALIKES[character])
+    .replace(/[0134578@$]/g, (character) => LEET_MAP[character])
 }
 
-function escapeRegexChar(character: string): string {
-  return character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const LETTER_VARIANTS: Record<string, string> = {
+  g: "[g69]", i: "[i!|]", l: "[li!|]", z: "[z2]",
 }
+const SEPARATOR = "[^\\p{L}\\p{N}]*"
 
-/**
- * Builds a pattern matching `word`'s letters in order, tolerating up to 2
- * inserted non-alphanumeric characters between each one — the "n.i.g.g.e.r"
- * / "n i g g e r" / "n-i-g-g-e-r" bypass — while still requiring the match
- * not be embedded inside a longer run of letters on either side, the same
- * protection a plain `\b` boundary gives a non-spaced word, just tolerant
- * of gaps *inside*. That boundary check is what keeps this safe against
- * false positives on ordinary words that happen to contain the same
- * letters run together: "raccoon" never matches a spaced "coon" (the "c"
- * immediately before its own "coon" substring is itself a letter, which
- * fails the lookbehind), and "niggling" never matches spaced "nigger"
- * (there's no "e" where the pattern needs one, and the gap-matcher can't
- * skip over an actual letter to go find one further along).
- */
-function spacedOut(word: string): RegExp {
-  const body = word.split("").map(escapeRegexChar).join("[\\W_]{0,2}")
-  return new RegExp(`(?<![a-z0-9])${body}(?![a-z0-9])`, "i")
+/** Match separators and stretching at every letter, keeping Unicode word
+ * boundaries so innocent words such as raccoon and Essex stay usable.
+ * Requiring dictionary double letters avoids treating Niger as a slur. */
+function spacedOut(word: string, plural = false): RegExp {
+  const letters = word.replace(/ /g, "").split("")
+  const body = letters.map((letter, index) => {
+    const token = LETTER_VARIANTS[letter] ?? letter
+    // Only the final letter of a repeated run consumes extra copies.
+    return letters[index + 1] === letter ? token : `${token}(?:${SEPARATOR}${token})*`
+  }).join(SEPARATOR)
+  return new RegExp(`(?<![\\p{L}\\p{N}])${body}${plural ? `(?:${SEPARATOR}s)?` : ""}(?![\\p{L}\\p{N}])`, "u")
 }
 
 // Racial/ethnic slurs, self-harm incitement, and CSAM-adjacent terms — kept
@@ -83,9 +43,9 @@ function spacedOut(word: string): RegExp {
 const SPACED_SEVERE_WORDS = [
   "faggot", "nigger", "nigga", "chink", "gook", "spic", "kike", "wetback",
   "raghead", "towelhead", "paki", "coon", "whitepower", "heilhitler",
-  "killyourself", "kys", "childporn",
+  "killyourself", "kys", "childporn", "retard", "retarded",
 ]
-const SPACED_SEVERE_PATTERNS = SPACED_SEVERE_WORDS.map(spacedOut)
+const SPACED_SEVERE_PATTERNS = SPACED_SEVERE_WORDS.map((word) => spacedOut(word, true))
 
 const BLOCKED_PATTERNS: RegExp[] = [
   /\bfaggot\b/i,
@@ -134,7 +94,7 @@ export function containsSevereContent(text: string): boolean {
   )
 }
 
-// Chat-only rules: do not change username or bio policy. Whole-word
+// Additional chat and bio rules. Whole-word
 // matching avoids blocking innocent words such as "grape" and "skill".
 const CHAT_PATTERNS = [
   /\brap(?:e[ds]?|ing|ists?)\b/i,
@@ -143,6 +103,16 @@ const CHAT_PATTERNS = [
   /\b(?:kill(?:s|ed|ing)?|murder(?:s|ed|ing|er)?|stab(?:s|bed|bing)?|behead(?:s|ed|ing)?|tortur(?:e[ds]?|ing))\b/i,
   /\bshoot\s+(?:you|u|him|her|them|everyone)\b/i,
 ]
+
+const OBFUSCATED_CHAT_PATTERNS = [
+  "rape", "raped", "rapes", "raping", "rapist", "rapists",
+  "sex", "sexual", "sexually", "sexting", "sexts", "sexy",
+  "porn", "pornography", "pornographic", "kill", "kills", "killed", "killing",
+  "murder", "murders", "murdered", "murdering", "murderer",
+  "stab", "stabs", "stabbed", "stabbing", "behead", "beheads", "beheaded", "beheading",
+  "torture", "tortured", "tortures", "torturing",
+  "shoot you", "shoot u", "shoot him", "shoot her", "shoot them", "shoot everyone",
+].map((word) => spacedOut(word))
 
 export const CHAT_BLOCKED_MESSAGE = "Message not sent. Please remove sexual or violent language."
 
@@ -156,7 +126,8 @@ export const CHAT_BLOCKED_MESSAGE = "Message not sent. Please remove sexual or v
 export function containsBlockedChatContent(text: string): boolean {
   if (containsSevereContent(text)) return true
   const normalized = normalizeForFilter(text)
-  return CHAT_PATTERNS.some((pattern) => pattern.test(normalized))
+  return CHAT_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    OBFUSCATED_CHAT_PATTERNS.some((pattern) => pattern.test(normalized))
 }
 
 // Control characters (C0 + DEL), built from character codes rather than a

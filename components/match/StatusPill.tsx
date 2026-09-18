@@ -1,5 +1,7 @@
 "use client"
 
+import styles from "./MatchStage.module.css"
+
 import { BrandMark } from "./BrandMark"
 import { PausedNotice } from "./PausedNotice"
 import type { MatchState } from "@/hooks/useMatchmaking"
@@ -107,7 +109,7 @@ export function StatusPill({ state, cameraUnavailable = false, onPauseMatching, 
           type="button"
           onClick={onPauseMatching}
           aria-label="Stop matching"
-          className="flex h-11 items-center gap-2 rounded-full border border-white/10 bg-black/50 px-4 text-[13px] font-medium text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
+          className={`${styles.centerStop} flex h-11 items-center gap-2 rounded-full border border-white/10 bg-black/50 px-4 text-[13px] font-medium text-white backdrop-blur-sm transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2`}
         >
           <span aria-hidden="true" className="h-2.5 w-2.5 rounded-sm bg-current" />
           Stop

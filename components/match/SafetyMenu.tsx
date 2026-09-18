@@ -1,5 +1,7 @@
 "use client"
 
+import styles from "./MatchStage.module.css"
+
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { DotsIcon, CheckIcon } from "@/components/icons"
@@ -60,7 +62,7 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
   return (
     // Keep safety separate from Stop; the menu can extend over the lower
     // video panel and scroll within short landscape viewports.
-    <div ref={rootRef} className="absolute right-3 top-9 z-40 md:right-5">
+    <div ref={rootRef} className={`${styles.safetyMenu} absolute right-3 top-9 z-40 md:right-5`}>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
