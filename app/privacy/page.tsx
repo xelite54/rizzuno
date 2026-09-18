@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "August 25, 2026"
+const LAST_UPDATED = "September 18, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
@@ -77,7 +77,7 @@ export default function PrivacyPolicyPage() {
               </p>
             ) : (
               <p className="mt-2 text-muted">
-                This policy refers to the Rizzuno service itself as &ldquo;Rizzuno,&rdquo; &ldquo;we,&rdquo;
+                The operator’s legal identity has not yet been published. This policy refers to the Rizzuno service itself as &ldquo;Rizzuno,&rdquo; &ldquo;we,&rdquo;
                 &ldquo;us,&rdquo; or &ldquo;our.&rdquo;
               </p>
             )}
@@ -108,133 +108,29 @@ export default function PrivacyPolicyPage() {
 
           <section id="database-info">
             <h2 className="text-[16px] font-semibold">3. What Rizzuno&apos;s database stores</h2>
-            <p className="mt-2 text-muted">Rizzuno&apos;s database (hosted Postgres) stores, keyed to your account ID:</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
-              <li>Your account identifier (Google&apos;s stable account ID) and when the account row was first created.</li>
-              <li>
-                Your <strong className="text-foreground">username</strong>, once you&apos;ve chosen one — see Section 4 for why this one
-                field is different from the rest of your profile.
-              </li>
-              <li>Whether the account is banned or suspended, and any reason/expiry recorded for that.</li>
-              <li>Whether the account has been marked deleted, and when.</li>
-              <li>
-                Legal acceptance records — which version of the age affirmation, Terms, and Privacy Policy the
-                account accepted, and when — appended to, never overwritten.
-              </li>
-              <li>Which other account IDs this account has blocked.</li>
-              <li>
-                Reports involving this account (as reporter or as the account reported): category, any details
-                typed in, which call it relates to, and status.
-              </li>
-              <li>Moderation actions taken against this account, who (which admin) took them, and why.</li>
-              <li>
-                Friend requests this account has sent or received, and their status (pending, accepted, or
-                declined), and any resulting friendships — the accounts on each side and when the friendship
-                formed. Sending or accepting a friend request is a deliberate action you take, not something that
-                happens automatically.
-              </li>
-              <li>
-                Your <strong className="text-foreground">profile photo</strong> and <strong className="text-foreground">bio</strong>,
-                once you&apos;ve set one — see Section 4 for why these moved server-side alongside username.
-              </li>
-              <li>
-                Any <strong className="text-foreground">posts</strong> you&apos;ve added (each one&apos;s image and
-                when it was added) — up to the most recent 20; adding a 21st removes the oldest automatically.
-              </li>
-              <li>
-                A record of each <strong className="text-foreground">automated image-safety check</strong> performed
-                on a profile photo, post, or chat image you send — a hash of the image content, which surface it was
-                for, which category (if any) it was flagged under, the decision, and when. This record does not
-                include a copy of the image itself — see Section 4.
-              </li>
-            </ul>
-            <p className="mt-2 text-muted">
-              Your <strong className="text-foreground">gender</strong> is the one remaining piece of profile content
-              not written to this database — see Section 4.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Hosted Postgres stores your Google account identifier; account creation, deletion and enforcement state; username, gender, profile photo, bio and posts; friend requests and friendships; friend messages; directional blocks; reports and moderation actions; legal acceptances; membership entitlement records; and abuse-prevention counters. Legal acceptances record the document, version and time and are appended without replacing prior versions.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Friend messages include text, sender and recipient account references, friendship ID, client message ID for retry deduplication, creation time, optional read time, and an optional reference to an earlier message in that friendship. Moderator records include reasons, responsible moderator, relevant report and timestamps. Image checks retain a hash, category scores, provider/reference, policy/model versions and decision metadata, without an additional image copy.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Privacy export/erasure operations record the responsible operator, account, action, time and request case reference. Free test Rizz+ grants store entitlement status and expiry; activation does not create a Stripe customer or charge a card.</p>
+
           </section>
 
           <section id="profile-info">
             <h2 className="text-[16px] font-semibold">4. Profile information: what&apos;s stored, and where</h2>
-            <p className="mt-2 text-muted">
-              Your <strong className="text-foreground">username</strong>,{" "}
-              <strong className="text-foreground">profile photo</strong>, <strong className="text-foreground">bio</strong>, and any{" "}
-              <strong className="text-foreground">posts</strong> you add are all stored server-side, in Rizzuno&apos;s database
-              (Section 3), tied to your account ID. Your browser also keeps a local copy of these in its own storage, as a
-              cache for instant loading — but the database copy is the authoritative one: it&apos;s what actually loads when
-              you sign in on a new device or a browser with no local cache, and it&apos;s what a friend actually sees when they open
-              your profile from their own Friends list, since another account&apos;s browser has no access to your
-              browser&apos;s local storage at all. Editing any of these fields from My Profile sends the change to
-              Rizzuno&apos;s server to be saved, the same
-              way choosing or changing your username already does.
-            </p>
-            <p className="mt-2 text-muted">
-              Your <strong className="text-foreground">gender</strong> works differently: it is set and stored{" "}
-              <strong className="text-foreground">persistently</strong> only in your own browser&apos;s local storage,
-              keyed to your account ID — Rizzuno&apos;s database never persists it. This means your gender selection does
-              not sync across devices or browsers, and clearing your browser&apos;s site data for Rizzuno removes it
-              entirely, the same as it always has.
-            </p>
-            <p className="mt-2 text-muted">
-              Your <strong className="text-foreground">gender</strong> and <strong className="text-foreground">profile photo</strong>{" "}
-              are also handled differently while you&apos;re actively using Rizzuno: both are transmitted to and processed{" "}
-              <strong className="text-foreground">temporarily</strong> by Rizzuno&apos;s realtime service — your gender is
-              used there to pair you with an opposite-selected-gender match, and both are passed along live so the person
-              you&apos;re currently matched with can see them, in addition to your profile photo being stored in the
-              database as described above. Your username is passed along live to a current match the same way, in
-              addition to being stored in the database. This realtime processing happens in-memory on the realtime server
-              for the duration of your connection; it is discarded once you disconnect, separately from whatever is or
-              isn&apos;t written to the database.
-            </p>
-            <p className="mt-2 text-muted">
-              A new profile photo or post is also analyzed by the automated image-safety check described in Section
-              5 before it&apos;s saved — a submission that check doesn&apos;t pass is never saved, and an existing
-              profile photo isn&apos;t replaced by one that failed the check.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Username, gender, profile photo, bio and posts are stored in Postgres against your account. Browser copies are caches; clearing site storage does not delete the server records. The server reads gender during profile loading and realtime connection/profile updates to pair opposite-selected genders during random matching. Mutually accepted friend calls do not use that gender rule.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Your current match receives your username, gender, photo and approximate country flag. Signed-in users can search usernames and open public profiles subject to account/block checks; public profile responses include username, photo, bio and posts. Friends can view the same profile information. Your Google email and name are not included in match profiles.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">You can edit your profile in My Profile. Gender changes after the initial choice, friend-request initiation and posting depend on Rizz+ entitlement under the current feature rules. Gender remains stored until changed or cleared through an approved account privacy request. Profile edits replace the current values; deleting a post removes it, and adding beyond the 20-post limit removes the oldest.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Images must pass validation and automated screening before publication. Approved profile/post images currently remain in the database as image data; rejected images are not saved as profile content. A transient realtime identity copy lasts for the connection.</p>
+
           </section>
 
           <section id="communications">
             <h2 className="text-[16px] font-semibold">5. Video, audio, chat &amp; signaling</h2>
-            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-              <li>
-                <strong className="text-foreground">Video/audio</strong> — streams directly between your device and your match&apos;s device (WebRTC,
-                peer-to-peer). Rizzuno&apos;s server does not receive, transmit, monitor, or store this media.
-                Rizzuno does not intentionally record or persist live video or audio on its own servers. Rizzuno has
-                no visibility into, and no control over, whether the person you&apos;re matched with (or their
-                device, browser, or operating system) independently records, screenshots, or otherwise captures the
-                call on their end — our{" "}
-                <Link href="/terms" className="underline underline-offset-2 hover:text-accent">
-                  Terms
-                </Link>{" "}
-                prohibit doing that without consent, but Rizzuno cannot technically detect or prevent it.
-              </li>
-              <li>
-                <strong className="text-foreground">Signaling</strong> — the short technical handshake (connection offers/answers, network routing
-                candidates) that sets up the direct video/audio connection is relayed live through Rizzuno&apos;s
-                server. Transient — not stored after it&apos;s relayed. This handshake necessarily carries network
-                routing information (including public IP addresses) between you and your match, and to connectivity
-                infrastructure such as Google&apos;s STUN servers — see Section 6.
-              </li>
-              <li>
-                <strong className="text-foreground">Chat text/images</strong> — relayed live through Rizzuno&apos;s server to your current match. Not
-                stored once relayed, aside from the automated-check record described below.
-              </li>
-              <li>
-                <strong className="text-foreground">Automated image-safety check</strong> — before any image (a chat
-                image, a new profile photo, or a new post) is shown to anyone else or saved, it&apos;s analyzed by an
-                automated content-safety system that checks the image is a genuine, correctly-formed file of a
-                supported type and screens it for prohibited-content categories (such as nudity, graphic violence,
-                or hate imagery). This may involve sending the image to a third-party content-moderation service to
-                perform that analysis — if Rizzuno integrates one, it will be named in Section 8, the same as any
-                other third-party integration. The image itself is not additionally retained because of this check;
-                what&apos;s kept from it is described in Section 3.
-              </li>
-              <li>
-                <strong className="text-foreground">Reports</strong> — if you file one, the category, any details you type, and which call it relates
-                to are stored as part of that report. Filing a report does not itself capture or store the
-                underlying chat, image, or video/audio content of the call — only what you write in the report.
-              </li>
-            </ul>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Video and audio use WebRTC directly between participants when possible, or through a configured TURN relay when necessary. Rizzuno does not intentionally record or persist calls or automatically review live video/audio. The other participant can capture what they receive despite our rules prohibiting recording without consent.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Signaling offers, answers and network candidates pass through the realtime service to establish calls. P2P negotiation can expose public IP/network information to your match. STUN and TURN infrastructure process connection addresses; TURN relays encrypted WebRTC traffic. Media packets are not sent through the matchmaking database.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">In-call text and images are relayed live and are not retained as chat history on the server. Friend text messages are persisted for offline retrieval and later history, independently of an active call. The history endpoint returns the latest 50 messages, oldest first within that page. Delivery acknowledgment means the server stored a friend message; a separate read timestamp reflects the recipient marking messages read. Blocking or ending a friendship prevents further access/delivery through that relationship; it does not by itself erase stored messages.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Username, bio, match chat and friend chat use server-side text screening, including common obfuscation checks; policy differs by field and no filter catches every evasion. Images are sent to Sightengine for general content screening when configured. Failed, unavailable or borderline image checks prevent publication. Generic nudity detection is not child sexual abuse material identification; no specialized illegal-content provider is currently enabled.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Reports retain category, optional details, target and call context where available. Reporting does not record the call or attach chat/image content automatically. Underage concerns are prioritized for moderator review; the system does not automatically submit reports to authorities.</p>
+
           </section>
 
           <section id="technical-info">
@@ -284,41 +180,18 @@ export default function PrivacyPolicyPage() {
 
           <section id="third-parties">
             <h2 className="text-[16px] font-semibold">8. Third parties &amp; processors</h2>
-            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-              <li><strong className="text-foreground">Google</strong> — sign-in/authentication, and public STUN servers used to help establish direct peer-to-peer video calls.</li>
-              <li><strong className="text-foreground">Vercel</strong> — hosts Rizzuno&apos;s Next.js web application.</li>
-              <li><strong className="text-foreground">Railway</strong> — hosts Rizzuno&apos;s realtime matchmaking/signaling server.</li>
-              <li><strong className="text-foreground">Supabase / Postgres</strong> — hosts the database described in Section 3.</li>
-            </ul>
-            <p className="mt-2 text-muted">
-              Auth.js is a software library that runs as part of Rizzuno&apos;s own server code — it is not a
-              separate company or service that receives your data independently of Rizzuno. This is the complete
-              list of third parties Rizzuno currently integrates: Rizzuno does not currently use a payment processor,
-              an advertising network, or an analytics/tracking provider. If that changes, this policy will be
-              updated first.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Google supplies authentication and public STUN connectivity. Vercel hosts the web application, Railway hosts realtime services, and the configured Postgres provider (such as Supabase) stores application records. Sightengine receives submitted images for automated content screening. These providers may process technical data needed to deliver their services.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">When TURN is enabled, the operator-configured TURN provider processes relay credentials, network addresses and encrypted media relay traffic. Its identity and regions must be published by the operator before launch; this code alone does not establish which provider is deployed. No permanent TURN shared secret is sent to browsers.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Rizz+ is currently free test access: no card is requested, activation does not charge, and paid Stripe checkout/webhook processing is disabled. Stripe integration code remains in the repository but is not active paid checkout in this release. Any transition to paid billing requires a new reviewed release and updated disclosures.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Auth.js, Next.js and database client libraries execute as application software rather than independent data recipients. Rizzuno does not integrate advertising or cross-site tracking services. Deployment-specific monitoring, storage and coordination providers must be disclosed before enabling them.</p>
+
           </section>
 
           <section id="cookies">
             <h2 className="text-[16px] font-semibold">9. Cookies &amp; browser storage</h2>
-            <p className="mt-2 text-muted">
-              Auth.js sets a small number of cookies to keep you signed in and to protect the sign-in process — this
-              generally includes a signed, httpOnly session cookie, a CSRF-protection cookie, and, during the Google
-              sign-in handshake itself, one or more short-lived security cookies (such as an OAuth state or PKCE
-              verifier) that are cleared once sign-in completes. Exact cookie names can change between Auth.js
-              versions; what stays true is their purpose — all of them exist strictly for authentication and
-              security, and none of them are used for advertising, cross-site tracking, or analytics.
-            </p>
-            <p className="mt-2 text-muted">
-              Your browser&apos;s local storage is also used, entirely on your own device: to keep a local cache of
-              your profile (username, gender, bio, photo, posts) keyed to your account ID, and to cache a cosmetic
-              fallback display name shown before you&apos;ve chosen a username. Rizzuno does not currently use
-              browser session storage. Your username, profile photo, bio, and posts are deliberately sent to
-              Rizzuno&apos;s server whenever you set or change them — the local copy is a cache for instant loading,
-              not the authoritative one (Section 4). Your gender is the exception: it stays local-storage-only and
-              is never sent to Rizzuno&apos;s server to be persisted — it&apos;s only sent live, temporarily, while
-              you&apos;re actually searching for or in a match (Section 4).
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Auth.js uses secure authentication/session and OAuth security cookies. The session is HTTP-only; production cookies use HTTPS. The configured session lifetime is seven days, subject to session refresh and sign-out. Cookies protect sign-in and do not serve advertising.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Browser local storage caches profile fields, friends/requests, blocked accounts, recent match history (up to 50), and a cosmetic fallback handle. These caches can persist after a connection ends and are keyed by account where applicable; they are not the authority for server-side blocks or profile data. Clearing site storage removes browser copies, not Postgres records. The application also uses navigation state to return to profile panels.</p>
+
           </section>
 
           <section id="tracking">
@@ -350,105 +223,25 @@ export default function PrivacyPolicyPage() {
 
           <section id="retention">
             <h2 className="text-[16px] font-semibold">12. Data retention</h2>
-            <p className="mt-2 text-muted">
-              This section describes Rizzuno&apos;s actual current behavior — as built today, the application does
-              not run any automatic process that purges old records, so server-side data in the categories below is
-              retained indefinitely.
-            </p>
-            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-              <li>
-                <strong className="text-foreground">Legal acceptance records</strong> — kept indefinitely as a factual history of what was agreed to and
-                when; never overwritten or deleted.
-              </li>
-              <li>
-                <strong className="text-foreground">Reports</strong> — kept indefinitely; no automatic deletion of resolved or pending reports.
-              </li>
-              <li>
-                <strong className="text-foreground">Moderation actions</strong> — kept indefinitely as the record of what enforcement was taken, by whom,
-                and why.
-              </li>
-              <li>
-                <strong className="text-foreground">Bans/suspensions</strong> — a suspension automatically stops being enforced once its end time passes,
-                but the record of it having happened is retained indefinitely; a ban remains in effect, and its
-                record retained, until Rizzuno&apos;s moderation reverses it.
-              </li>
-              <li>
-                <strong className="text-foreground">Blocks</strong> — kept indefinitely; no feature currently removes a block once made (see Section 18).
-              </li>
-              <li>
-                <strong className="text-foreground">Usernames</strong> — kept indefinitely once claimed (see Section 4), including if the account that
-                claimed it later stops using Rizzuno; no feature currently releases a username automatically.
-              </li>
-              <li>
-                <strong className="text-foreground">Profile photo &amp; bio</strong> — kept until you change or clear them from My Profile; each edit
-                simply overwrites what was there before.
-              </li>
-              <li>
-                <strong className="text-foreground">Posts</strong> — kept until you delete them yourself, or until the count exceeds 20, at which point
-                the oldest is removed automatically to make room for a new one.
-              </li>
-              <li>
-                <strong className="text-foreground">Friend requests</strong> — kept indefinitely regardless of outcome (pending, accepted, or declined); no
-                feature currently deletes the record of a request once made.
-              </li>
-              <li>
-                <strong className="text-foreground">Friendships</strong> — kept until either side unfriends the other (see Section 18) — this is the one
-                relationship in this list a user can actually end themselves, rather than it being retained
-                indefinitely by default.
-              </li>
-              <li>
-                <strong className="text-foreground">Automated image-safety check records</strong> — kept indefinitely, the same as reports and
-                moderation actions above, since they serve the same enforcement/abuse-prevention purpose (recognizing
-                a pattern of repeated violations). As described in Section 3, this is a hash and decision, not a copy
-                of the image itself.
-              </li>
-            </ul>
-            <p className="mt-2 text-muted">
-              Rizzuno has not yet adopted formal maximum retention periods for the categories above. Until it does,
-              the accurate statement is that this data is retained indefinitely, as described.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Profile fields including gender remain until changed, cleared or handled under an approved privacy request. Posts remain until deleted or displaced by the 20-post limit. Friendships remain until ended; blocks remain until the account that created them unblocks, or a separately reviewed privacy decision changes retention.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Friend messages and request records have no automatic age-based deletion in this release. Ending a friendship does not automatically purge its stored messages. Approved account erasure removes the account’s friend conversations, friendships, requests, posts, profile fields and free membership records.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Legal acceptance history, reports, enforcement history, image-check metadata and identity tombstones currently have no automatic expiry. Retention of these records requires operator review for security, dispute handling and applicable legal obligations; indefinite retention is not presented as a legal requirement. Privacy requests are assessed individually, including records needing restricted retention or legal hold.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">An hourly cleanup removes expired rate-limit records after a one-day grace period. Temporary connections, pending invitations and room setup state expire with their liveness/deadline rules. Infrastructure log and backup retention is controlled by the relevant provider and operator configuration, not an application promise of immediate erasure. See the contact process to request details about your data.</p>
+
           </section>
 
           <section id="deletion">
             <h2 className="text-[16px] font-semibold">13. Privacy and deletion requests</h2>
-            <p className="mt-2 text-muted">
-              Rizzuno does not currently provide an automated, self-service account-deletion feature. To request
-              deletion of personal information associated with your Rizzuno account, or to make another privacy
-              request, contact{" "}
-              <a
-                href={`mailto:${LEGAL_CONFIG.contactEmail}`}
-                className="underline underline-offset-2 hover:text-accent"
-              >
-                {LEGAL_CONFIG.contactEmail}
-              </a>
-              . Requests will be evaluated and handled as required by applicable law.
-            </p>
-            <p className="mt-2 text-muted">
-              Some information may need to be retained even after a request is honored, where permitted or required
-              for legitimate purposes such as security, abuse/fraud prevention, enforcement, dispute handling, or
-              maintaining legal-acceptance records — consistent with Section 12. Rizzuno does not promise that every
-              record will always be deleted, and does not commit to a specific response or deletion deadline unless
-              applicable law actually requires one.
-            </p>
-            <p className="mt-2 text-muted">
-              Your username, profile photo, bio, and posts are stored server-side (Section 4): you can remove or
-              change them yourself at any time from My Profile, and a deletion request that includes them —
-              including releasing your claimed username — is something Rizzuno can act on directly, through the
-              contact process above. Your gender is different: it stays only in your own browser (Section 4), so
-              you remove it yourself by editing your profile or clearing Rizzuno&apos;s site data in that browser —
-              Rizzuno has no way to remotely clear it from a device other than the one you&apos;re using, because it
-              was never sent to Rizzuno&apos;s server to begin with.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Account deletion remains contact-based. Send a privacy request to the contact address below; the operator must verify your identity and review retention/legal holds before using restricted export or erasure tools. Signing out, clearing browser storage or deleting a Google account does not itself delete Rizzuno’s database records.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Approved erasure clears username (releasing it), gender, bio, photo, posts, friendships, requests, friend conversations and free membership. It marks the account deleted so the same account cannot resume realtime access. Safety/legal records and an account-identity tombstone remain restricted pending an appropriate retention decision; erasure is not a promise to delete every record. Accounts with a stored payment-customer mapping require separate billing review before erasure.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Rizzuno cannot remotely delete copies another participant captured or browser copies on a disconnected device. Eligible requests and any applicable response deadlines are handled under the law that applies to the request.</p>
+
           </section>
 
           <section id="export">
             <h2 className="text-[16px] font-semibold">14. Data export</h2>
-            <p className="mt-2 text-muted">
-              Rizzuno does not currently offer a self-service &ldquo;download my data&rdquo; control in the app. If
-              you&apos;d like a copy of the server-side information Rizzuno holds about your account, you can request
-              one through the contact process in Section 13 — the same channel used for privacy and deletion
-              requests. Requests will be evaluated and handled as required by applicable law.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">There is no self-service export button. Verified contact requests can be fulfilled by an authorized operator using a structured export of profile, posts, relationship/request information, messages you sent, blocks you created, legal acceptances and membership information. Another person’s stable account identifiers, confidential reports and internal moderation information are excluded from this standard export. Additional access requests require individual review.</p>
+
           </section>
 
           <section id="children">
@@ -502,40 +295,10 @@ export default function PrivacyPolicyPage() {
 
           <section id="rights">
             <h2 className="text-[16px] font-semibold">18. Your rights &amp; controls</h2>
-            <p className="mt-2 text-muted">These are the controls Rizzuno actually provides today, and exactly what each one does:</p>
-            <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-              <li>
-                <strong className="text-foreground">Request a copy of your data</strong> — no self-service button; see
-                Section 14 for how to ask.
-              </li>
-              <li>
-                <strong className="text-foreground">Block</strong> — enforced server-side; as currently built, Rizzuno does not provide a way to
-                reverse a block once made — we do not promise an &ldquo;unblock&rdquo; capability that doesn&apos;t
-                exist.
-              </li>
-              <li><strong className="text-foreground">Report</strong> — sent to human moderation for review; never shown to the reported user.</li>
-              <li>
-                <strong className="text-foreground">Edit or clear your profile</strong> — profile photo, bio, and posts, directly, any time, from
-                My Profile; changes save to Rizzuno&apos;s server (Section 4). Gender is edited the same way but stays
-                local-storage-only.
-              </li>
-              <li>
-                <strong className="text-foreground">Change your username</strong> — from My Profile → Edit profile, any time, subject to it not
-                already being claimed by another account (see Section 4).
-              </li>
-              <li>
-                <strong className="text-foreground">Send, accept, or decline a friend request</strong> — directly, from the match or friends
-                screens; declining does not notify the sender.
-              </li>
-              <li>
-                <strong className="text-foreground">Remove friend</strong> — ends the friendship immediately for both accounts; either side can do
-                this at any time, and Rizzuno does not notify the other account when it happens.
-              </li>
-            </ul>
-            <p className="mt-2 text-muted">
-              Rizzuno does not currently offer a self-service account-deletion control. Eligible privacy or
-              deletion requests can be submitted through the contact information in Section 13.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">You can edit your profile, change an available username, send or respond to friend requests, search usernames, message friends, end friendships, report users and block accounts. Some creation/change features require Rizz+; existing friendship chat remains available under the current rules.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">In My Profile → Settings → Blocked users, you can remove blocks you created. Blocks are directional: unblocking does not remove the other person’s block. If neither account blocks the other, future matching can resume subject to ordinary eligibility and recent-partner cooldown. Unblocking does not recreate old friendships or pending requests.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Contact the published address for privacy/export/deletion requests, complaints or review of an enforcement decision. These requests are reviewed; there is no automatic guarantee of reinstatement or disclosure of another person’s protected information.</p>
+
           </section>
 
           <section id="state-rights">

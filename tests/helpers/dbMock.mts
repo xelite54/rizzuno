@@ -13,6 +13,7 @@ import { mock } from "node:test"
  * whole process).
  */
 export const dbMockState = {
+  usernames: new Map<string, string>(),
   incomingRequests: [] as { requestId: string; senderId: string; username: string; createdAt: number }[],
   genders: new Map<string, "male" | "female">(),
   plusEnabled: true,
@@ -58,6 +59,7 @@ function pairKey(a: string, b: string): string {
 let friendMessageCounter = 0
 
 export function resetDbMockState() {
+  dbMockState.usernames.clear()
   dbMockState.incomingRequests = []
   dbMockState.genders.clear()
   dbMockState.plusEnabled = true
@@ -77,7 +79,10 @@ export function resetDbMockState() {
 
 mock.module("../../lib/db.ts", {
   exports: {
-    getPublicProfile: async () => ({ username: null, profilePhoto: null, bio: "", posts: [] }),
+    checkAndIncrementApiRateLimit: async () => false,
+    hasAcceptedCurrent: async () => true,
+    canTargetUser: async (a: string, b: string) => [...dbMockState.friendships.values()].some((pair) => pair.includes(a) && pair.includes(b)) || dbMockState.incomingRequests.some((r) => r.senderId === b),
+    getPublicProfile: async (userId: string) => ({ username: dbMockState.usernames.get(userId) ?? null, profilePhoto: null, bio: "", posts: [] }),
     hasRizzPlus: async () => dbMockState.plusEnabled,
     getAccountGender: async (id: string) => dbMockState.genders.get(id) ?? null,
     claimAccountGender: async (id: string, gender: "male" | "female") => {

@@ -20,7 +20,7 @@ export async function resolveReportAction(formData: FormData) {
   if (!isAdminEmail(session?.user?.email)) {
     throw new Error("Not authorized")
   }
-  if (isRateLimited(`admin-resolve:${session!.user!.id}`, 60, 60_000)) {
+  if (await isRateLimited(`admin-resolve:${session!.user!.id}`, 60, 60_000)) {
     throw new Error("Rate limited")
   }
 
@@ -29,13 +29,13 @@ export async function resolveReportAction(formData: FormData) {
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 500) || null
   const suspendDays = Number(formData.get("suspendDays") ?? 0)
 
-  if (!reportId || !VALID_ACTIONS.includes(actionRaw as ModerationAction)) {
+  if (!/^[0-9a-f-]{36}$/i.test(reportId) || !VALID_ACTIONS.includes(actionRaw as ModerationAction)) {
     throw new Error("Invalid input")
   }
   const action = actionRaw as ModerationAction
 
   const suspendUntil =
-    action === "suspend" && suspendDays > 0 ? Date.now() + suspendDays * 24 * 60 * 60 * 1000 : null
+    action === "suspend" && Number.isInteger(suspendDays) && suspendDays > 0 && suspendDays <= 365 ? Date.now() + suspendDays * 24 * 60 * 60 * 1000 : null
   if (action === "suspend" && !suspendUntil) {
     throw new Error("Suspend requires a positive number of days")
   }

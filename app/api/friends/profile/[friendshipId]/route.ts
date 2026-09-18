@@ -1,3 +1,4 @@
+import { log } from "../../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getFriendshipOtherUser, getPublicProfile, describeDbError } from "@/lib/db"
@@ -27,7 +28,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
   try {
     session = await auth()
   } catch (err) {
-    console.error("friends/profile: auth() threw — returning 500", describeDbError(err))
+    log.error("friends/profile: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -36,8 +37,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`friends-profile:${userId}`, 60, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`friends-profile:${userId}`, 60, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   const { friendshipId } = await params
@@ -56,14 +57,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     // Temporary diagnostic for the friend-posts investigation — safe to
     // leave in (or remove once confirmed fixed): booleans/counts only,
     // never a real id, username, or the image data itself.
-    console.log("friends/profile: GET result", {
+    log.log("friends/profile: GET result", {
       usernameExists: Boolean(profile.username),
       postCount: profile.posts.length,
     })
     return NextResponse.json(profile)
   } catch (err) {
     const details = describeDbError(err)
-    console.error("friends/profile: GET failed", { userId, ...details })
+    log.error("friends/profile: GET failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

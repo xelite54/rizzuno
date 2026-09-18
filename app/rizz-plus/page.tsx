@@ -93,7 +93,7 @@ export default function RizzPlusPage() {
           <div className={styles.pass} aria-label="Rizz+ membership pass preview">
             <div className={styles.passMain}>
               <div className={styles.passName}>Rizz<span>+</span></div>
-              <div className={styles.price}><span>$4.99</span><p>/ month at launch</p></div>
+              <div className={styles.price}><span>Free</span><p>test access · no automatic charges</p></div>
             </div>
           </div>
         </section>

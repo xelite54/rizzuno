@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { claimUsername, getUsername, getUserStatus, describeDbError } from "@/lib/db"
@@ -35,7 +36,7 @@ export async function GET() {
   try {
     session = await auth()
   } catch (err) {
-    console.error("profile/username: auth() threw on GET — returning 500", describeDbError(err))
+    log.error("profile/username: auth() threw on GET — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -49,7 +50,7 @@ export async function GET() {
     return NextResponse.json({ username })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("profile/username: GET failed", { userId, ...details })
+    log.error("profile/username: GET failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
   try {
     session = await auth()
   } catch (err) {
-    console.error("profile/username: auth() threw — returning 500", {
+    log.error("profile/username: auth() threw — returning 500", {
       databaseUrlConfigured,
       ...describeDbError(err),
     })
@@ -77,8 +78,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`username-claim:${userId}`, 10, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`username-claim:${userId}`, 10, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   let body: { username?: unknown }
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
   }
 
   if (!databaseUrlConfigured) {
-    console.error("profile/username: DATABASE_URL is not configured — returning 500", { userId })
+    log.error("profile/username: DATABASE_URL is not configured — returning 500", { userId })
     return NextResponse.json({ error: "database_not_configured" }, { status: 500 })
   }
 
@@ -109,11 +110,11 @@ export async function POST(request: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: "username_taken" }, { status: 409 })
     }
-    console.log("profile/username: returning 200", { userId })
+    log.log("profile/username: returning 200", { userId })
     return NextResponse.json({ ok: true, username })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("profile/username: failed to claim username — returning 500", {
+    log.error("profile/username: failed to claim username — returning 500", {
       userId,
       databaseUrlConfigured,
       ...details,

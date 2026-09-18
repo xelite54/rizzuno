@@ -1,3 +1,4 @@
+import { log } from "../lib/observability"
 import { randomUUID } from "node:crypto"
 import type { Gender } from "../lib/signaling/protocol"
 import { isBlockedEitherWay } from "../lib/db"
@@ -60,32 +61,14 @@ export type CheckLive = (userId: string, expectedGeneration: number) => { live: 
 // If matching between two accounts that have *never* met seems blocked,
 // this cooldown is not why; look at gender pairing or blocks instead.
 //
-// This lives in `recentPartners`, in-process memory (see the class doc
-// comment below) — restarting the single Railway process (or the local dev
-// server) clears it completely. That's expected, not a bug: it's exactly
-// how you get two test accounts to immediately re-match each other while
-// testing locally, without waiting out the full 10 minutes. Production
-// behavior is unaffected by that — Railway isn't restarting mid-session
-// under normal operation, and this cooldown existing at all, even
-// imperfectly durable, is what the spec actually asks for.
+// Cluster deployments additionally persist each pair cooldown in Redis with a TTL.
 const RECENT_PARTNER_TTL_MS = 10 * 60 * 1000
 
 /**
- * In-memory matching engine. The queue and active-room state are still
- * in-memory (there's no product reason to survive a restart mid-search —
- * everyone just re-enters the queue), but blocks are checked against the
- * shared Postgres database (see lib/db.ts) — not local memory — so a block
- * made through either the Vercel app or another realtime instance is
- * respected here immediately.
- *
- * `reserveMatch` is async now (the block check is a real database round
- * trip) — see server/ws-server.ts's caller, which awaits it.
- *
- * This queue lives in one process's memory, correct for exactly the one
- * realtime instance this is meant to run as (see server.ts). Running more
- * than one realtime instance at once would need this queue moved to a
- * shared store (e.g. Redis) — two instances each holding a different half
- * of the waiting list would otherwise just never match each other.
+ * Matching engine executed only by the fenced cluster coordinator in production.
+ * All gateways feed the same Redis command stream; failover disconnects old
+ * sessions before admitting new ones. Queue/room snapshots are TTL-backed in
+ * Redis; recent-partner cooldown survives coordinator replacement.
  *
  * MATCHING IS TWO-PHASE — reserve, then commit or roll back. `reserveMatch`
  * only removes both candidates from `waiting` and creates the room-in-
@@ -108,6 +91,10 @@ const RECENT_PARTNER_TTL_MS = 10 * 60 * 1000
 // `waiting`) interfere with a later, unrelated test's assumptions about who
 // else is in the queue.
 export class Matchmaker {
+  private sharedRecent?: { has(a: string, b: string): Promise<boolean>; remember(a: string, b: string): Promise<void> }
+  configureSharedRecent(backend: typeof this.sharedRecent) { this.sharedRecent = backend }
+  snapshot() { return { queue: this.waiting.map(({ debugId, searchGeneration, gender, enqueuedAt }) => ({ displayId: debugId, searchGeneration, gender, enqueuedAt })), rooms: [...this.rooms.values()].map(({ id, createdAt }) => ({ id, createdAt })) } }
+  reset() { this.waiting = []; this.rooms.clear(); this.roomByGuest.clear(); this.recentPartners.clear() }
   private waiting: QueuedClient[] = []
   private rooms = new Map<string, Room>()
   private roomByGuest = new Map<string, string>()
@@ -191,23 +178,23 @@ export class Matchmaker {
    */
   async reserveMatch(client: QueuedClient, checkLive: CheckLive): Promise<Room | null> {
     this.removeFromQueue(client.userId)
-    console.log("matchmaker: queue entered", { debugId: client.debugId, queueSize: this.waiting.length })
+    log.log("matchmaker: queue entered", { debugId: client.debugId, queueSize: this.waiting.length })
 
     for (const candidate of [...this.waiting]) {
-      console.log("matchmaker: candidate considered", { debugId: client.debugId, candidateDebugId: candidate.debugId })
+      log.log("matchmaker: candidate considered", { debugId: client.debugId, candidateDebugId: candidate.debugId })
 
       if (!this.isOppositeGender(client.gender, candidate.gender)) {
-        console.log("matchmaker: candidate skipped: same_gender", { debugId: client.debugId, candidateDebugId: candidate.debugId })
+        log.log("matchmaker: candidate skipped: same_gender", { debugId: client.debugId, candidateDebugId: candidate.debugId })
         continue
       }
-      if (this.isRecentPartner(client.userId, candidate.userId)) {
-        console.log("matchmaker: candidate skipped: recent_partner", { debugId: client.debugId, candidateDebugId: candidate.debugId })
+      if (this.isRecentPartner(client.userId, candidate.userId) || (this.sharedRecent && await this.sharedRecent.has(client.userId, candidate.userId))) {
+        log.log("matchmaker: candidate skipped: recent_partner", { debugId: client.debugId, candidateDebugId: candidate.debugId })
         continue
       }
 
       const blocked = await isBlockedEitherWay(client.userId, candidate.userId)
       if (blocked) {
-        console.log("matchmaker: candidate skipped: blocked", { debugId: client.debugId, candidateDebugId: candidate.debugId })
+        log.log("matchmaker: candidate skipped: blocked", { debugId: client.debugId, candidateDebugId: candidate.debugId })
         continue
       }
 
@@ -226,7 +213,7 @@ export class Matchmaker {
       const candidateStillCurrent = currentEntry?.searchGeneration === candidate.searchGeneration
       const candidateCheck = candidateStillCurrent ? checkLive(candidate.userId, candidate.searchGeneration) : { live: false }
       if (!candidateCheck.live) {
-        console.log("matchmaker: candidate disappeared", { debugId: client.debugId, candidateDebugId: candidate.debugId })
+        log.log("matchmaker: candidate disappeared", { debugId: client.debugId, candidateDebugId: candidate.debugId })
         continue
       }
 
@@ -238,7 +225,7 @@ export class Matchmaker {
         // of, and no point trying further candidates for a request that's
         // already been superseded or abandoned. Leave `candidate` waiting
         // for the next comer.
-        console.log("matchmaker: initiator no longer eligible mid-check — abandoning this attempt", { debugId: client.debugId })
+        log.log("matchmaker: initiator no longer eligible mid-check — abandoning this attempt", { debugId: client.debugId })
         return null
       }
 
@@ -249,7 +236,7 @@ export class Matchmaker {
       // client's own would be — see server/ws-server.ts's serialization
       // notes).
       if (!this.isOppositeGender(clientCheck.gender, candidateCheck.gender)) {
-        console.log("matchmaker: candidate skipped: gender changed mid-check", { debugId: client.debugId, candidateDebugId: candidate.debugId })
+        log.log("matchmaker: candidate skipped: gender changed mid-check", { debugId: client.debugId, candidateDebugId: candidate.debugId })
         continue
       }
 
@@ -270,7 +257,7 @@ export class Matchmaker {
       this.rooms.set(room.id, room)
       this.roomByGuest.set(room.a, room.id)
       this.roomByGuest.set(room.b, room.id)
-      console.log("matchmaker: pair reserved", { roomId: room.id, debugId: client.debugId, candidateDebugId: candidate.debugId })
+      log.log("matchmaker: pair reserved", { roomId: room.id, debugId: client.debugId, candidateDebugId: candidate.debugId })
       // Deliberately NOT calling remember() here — that's commitMatch()'s
       // job, once the caller has actually confirmed and dispatched a real
       // match (see the class doc comment).
@@ -282,11 +269,12 @@ export class Matchmaker {
   }
 
   /** Phase 2a — confirms a reservation actually turned into a real, delivered match: records the recent-partner cooldown now, not at reservation time (see the class doc comment for why that distinction matters). */
-  commitMatch(roomId: string) {
+  async commitMatch(roomId: string) {
     const room = this.rooms.get(roomId)
     if (!room) return
+    if (this.sharedRecent) await this.sharedRecent.remember(room.a, room.b)
     this.remember(room.a, room.b)
-    console.log("matchmaker: pair committed", { roomId })
+    log.log("matchmaker: pair committed", { roomId })
   }
 
   /**
@@ -307,7 +295,7 @@ export class Matchmaker {
       this.roomByGuest.delete(room.b)
       this.rooms.delete(roomId)
     }
-    console.log("matchmaker: pair rollback", { roomId, reason: "final eligibility check failed before commit" })
+    log.log("matchmaker: pair rollback", { roomId, reason: "final eligibility check failed before commit" })
   }
 
   leaveRoom(userId: string) {

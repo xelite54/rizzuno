@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { addPost, getUserStatus, describeDbError, hasRizzPlus } from "@/lib/db"
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
   try {
     session = await auth()
   } catch (err) {
-    console.error("profile/posts: auth() threw — returning 500", describeDbError(err))
+    log.error("profile/posts: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ post })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("profile/posts: POST failed", { userId, ...details })
+    log.error("profile/posts: POST failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

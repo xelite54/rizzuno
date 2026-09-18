@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "August 25, 2026"
+const LAST_UPDATED = "September 18, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -158,11 +158,8 @@ export default function TermsOfServicePage() {
 
           <section id="stranger-interaction">
             <h2 className="text-[16px] font-semibold">6. Random stranger interaction</h2>
-            <p className="mt-2 text-muted">
-              Every person you&apos;re matched with is someone you have not chosen and have no prior relationship
-              with through Rizzuno. Matching pairs opposite-selected genders at random among whoever is available;
-              you don&apos;t pick, preview, or vet who you&apos;re about to talk to before the call starts.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Random matching pairs available opposite-selected genders. You may encounter someone you have met before, subject to a recent-partner cooldown and blocks. A separate mutually accepted friend invitation connects two friends regardless of gender; it is not random stranger matching.</p>
+
           </section>
 
           <section id="webrtc">
@@ -208,20 +205,10 @@ export default function TermsOfServicePage() {
 
           <section id="profiles-ugc">
             <h2 className="text-[16px] font-semibold">9. Profiles &amp; user-generated content</h2>
-            <p className="mt-2 text-muted">
-              Your username is claimed through Rizzuno&apos;s server and kept permanently unique — no two accounts
-              can hold the same one, checked and enforced when you first choose it and again if you ever change it
-              from My Profile. Your profile photo, bio, and any posts are stored server-side too, the same way your
-              username is — visible to friends who open your profile, not just to a current match. Your gender is
-              the exception: it&apos;s stored persistently only in your own browser, and is sent to Rizzuno&apos;s
-              realtime service (like your profile photo and username) only temporarily, while you&apos;re actively
-              using it, so a current match can see it. You&apos;re solely responsible for what you put in your
-              profile, including your username. See our{" "}
-              <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
-                Privacy Policy
-              </Link>{" "}
-              for the exact, field-by-field breakdown.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Your current username is unique across accounts and stored by Rizzuno. Changing it releases the previous name. Gender, profile photo, bio and posts are also stored in Postgres. Gender is read for random matching and is visible to your current match; clearing browser storage does not clear it. You can change gender through Settings subject to the current Rizz+ entitlement rule, or request account privacy handling through our contact process.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Signed-in users can search usernames and view public profile information subject to account/block restrictions. You are responsible for your profile content. Images are screened before publication; text uses server-side filtering. See the Privacy Policy for storage, visibility and retention.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Rizz+ currently provides free test access. No card is requested and activation causes no charge or automatic paid renewal. You may cancel the free entitlement in the app. A future paid offering requires a separate reviewed release, accurate price/renewal disclosures and your agreement; this activation does not authorize a future charge.</p>
+
           </section>
 
           <section id="acceptable-use">
@@ -343,7 +330,7 @@ export default function TermsOfServicePage() {
           <section id="reports">
             <h2 className="text-[16px] font-semibold">22. Reports</h2>
             <p className="mt-2 text-muted">
-              You can report a user during or after a call from the in-call safety menu, in one of a few categories,
+              You can report a current match from the in-call safety menu, and use supported friend/request or username-result reporting controls, in one of a few categories,
               with optional details. A report is recorded (its category, any details you add, and which call it
               relates to) and queued for a human moderator&apos;s review. It is never shown to the person you
               reported.
@@ -352,31 +339,16 @@ export default function TermsOfServicePage() {
 
           <section id="blocks">
             <h2 className="text-[16px] font-semibold">23. Blocks</h2>
-            <p className="mt-2 text-muted">
-              You can block a user at any time from the in-call safety menu. A block is enforced by our server: once
-              you block someone, the two Rizzuno/Google accounts involved will not be matched with each other
-              again. As currently built, Rizzuno does not have a feature that lets you reverse a block once made —
-              we don&apos;t promise an &ldquo;unblock&rdquo; capability that doesn&apos;t exist.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Blocking ends the current interaction and prevents matching or friend communication between the two accounts once the server confirms the block. It also severs friendships and pending requests. A failed persistence response is not confirmation that a permanent block was saved.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">You can unblock accounts in My Profile → Settings → Blocked users. You can remove only your own directional block. If the other account still blocks you, that protection remains. Unblocking permits future eligible matching subject to cooldown; it does not recreate friendships or pending requests.</p>
+
           </section>
 
           <section id="friends">
             <h2 className="text-[16px] font-semibold">24. Friends &amp; friend requests</h2>
-            <p className="mt-2 text-muted">
-              You can send a friend request to someone you&apos;re matched with, and accept, decline, or ignore a
-              request someone sends you. Rizzuno delivers a pending request to the other account live, if
-              they&apos;re online, and stores it either way so it&apos;s still there the next time they connect.
-              Declining a request does not notify the sender. Either side of a friendship can end it at any time
-              (&ldquo;unfriend&rdquo;), and Rizzuno does not notify the other account when that happens. Blocking
-              someone (see Section 23) also ends any existing friendship or pending request between you
-              automatically.
-            </p>
-            <p className="mt-2 text-muted">
-              Being friends on Rizzuno only affects who can send each other friend requests and how you appear to
-              one another in the friends list — it does not currently provide a way to message a friend outside of
-              an active video call, and does not let you find someone by searching for their username. Features
-              that appear to offer either of those today are not yet functional.
-            </p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">You can find accounts by username, send requests where eligible, and accept or decline received requests. Friend-request initiation requires Rizz+ under the current feature rules. Requests and friendships are stored so they remain available across sessions. Both sides’ relationship state is refreshed when it changes.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Friends can exchange stored text messages outside active calls, see read status and reply to earlier messages. Offline recipients retrieve history when they return; the latest 50 messages are returned per history request. Friends can also send short-lived call invitations. Blocking or unfriending ends access through that friendship but does not itself erase old stored messages. Privacy requests are handled as described in the Privacy Policy.</p>
+
           </section>
 
           <section id="moderation">
@@ -475,7 +447,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">31. Third-party infrastructure</h2>
             <p className="mt-2 text-muted">
               Rizzuno relies on third-party infrastructure to operate — sign-in through Google, hosting through
-              Vercel and Railway, a database provider (e.g. Supabase), and Google&apos;s public STUN servers to help
+              Vercel and Railway, a database provider (e.g. Supabase), Sightengine for image screening, configured TURN relays, and Google&apos;s public STUN servers to help
               establish peer-to-peer calls. See our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy

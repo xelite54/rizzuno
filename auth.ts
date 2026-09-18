@@ -13,23 +13,8 @@ declare module "next-auth" {
   }
 }
 
-/**
- * Rizzuno's authentication system. There was no existing auth framework to
- * reuse — no NextAuth/Supabase/Firebase/Clerk, no database, no email/password
- * login anywhere in this codebase (verified by inspection, not assumed) — so
- * this is the first and only one.
- *
- * Session strategy is JWT, not database, because there's no database yet to
- * attach a persistent user row to. That has one real consequence worth being
- * honest about: "the Rizzuno user" is fully described by the Google account's
- * own stable id (`sub`) inside a signed, httpOnly session cookie — there's no
- * separate account record that could ever become a *duplicate*. Signing in
- * with the same Google account always resolves to the same `sub`, whether
- * it's your first time or your hundredth. When a real database is added
- * later, this becomes `session: { strategy: "database" }` with an adapter,
- * and that's the point where a Google login actually creates or links a row
- * — right now there's nothing to create or link *to*.
- */
+/** Google stable sub is the authoritative account key. JWT sessions coexist
+ * with persisted profile, social, legal and enforcement data in Postgres. */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Google({
@@ -41,7 +26,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
 
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
 
   // Without this, Auth.js only trusts the Host header on environments it can
   // auto-detect (Vercel). Local dev runs behind server.ts's own http server,
@@ -64,15 +49,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // Google marks unverified addresses; refuse to treat one as an identity.
     // In practice this essentially never fires for a normal Google account.
     async signIn({ profile }) {
-      if (profile?.email_verified === false) return false
-      return true
+      return profile?.email_verified === true && typeof profile.sub === "string"
     },
 
     // Open-redirect prevention: only ever send the browser somewhere on this
     // same site. `url` can arrive as a bare path or a full URL depending on
     // the caller — both are checked against `baseUrl`, never trusted as-is.
     async redirect({ url, baseUrl }) {
-      if (url.startsWith("/")) return `${baseUrl}${url}`
+      if (url.startsWith("/") && !url.startsWith("//") && !url.includes("\\")) return `${baseUrl}${url}`
       try {
         if (new URL(url).origin === baseUrl) return url
       } catch {

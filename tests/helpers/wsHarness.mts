@@ -2,7 +2,7 @@
 // mock.module()) BEFORE server/ws-server.ts or server/matchmaker.ts are
 // ever imported anywhere in the process — both pull in lib/db.ts, which
 // this replaces entirely so no test needs a live Postgres.
-import "./dbMock.mts"
+import { dbMockState } from "./dbMock.mts"
 
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -111,6 +111,7 @@ export async function connectAndHello(
   userId: string,
   options: { handle?: string; username?: string; gender?: "male" | "female"; profilePhoto?: string | null } = {}
 ): Promise<TestClient> {
+  if (options.username) dbMockState.usernames.set(userId, options.username) // Persisted account profile fixture.
   const client = new TestClient(url)
   await client.waitForOpen()
   client.send({

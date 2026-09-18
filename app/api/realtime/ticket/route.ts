@@ -28,8 +28,8 @@ export async function GET(request: Request) {
   // Generous — a fresh ticket is minted on every reconnect and every
   // profile-field edit (see useMatchmaking.ts's `announce`), both of which
   // are normal, if this account is behaving itself.
-  if (isRateLimited(`realtime-ticket:${userId}`, 30, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`realtime-ticket:${userId}`, 30, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   const status = await getUserStatus(userId)

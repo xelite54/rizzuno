@@ -66,15 +66,11 @@ export type RtcSignal =
   | { kind: "answer"; sdp: string }
   | { kind: "ice"; candidate: IceCandidateInit }
 
-export type ReportCategory =
-  | "sexual_content"
-  | "harassment"
-  | "hate"
-  | "scam"
-  | "spam"
-  | "underage_concern"
-  | "violence"
-  | "other"
+export const REPORT_CATEGORIES = ["sexual_content", "harassment", "hate", "scam", "spam", "underage_concern", "violence", "other"] as const
+export type ReportCategory = typeof REPORT_CATEGORIES[number]
+export function isValidReportCategory(value: unknown): value is ReportCategory {
+  return typeof value === "string" && (REPORT_CATEGORIES as readonly string[]).includes(value)
+}
 
 /** A chat message body — text, or an image sent as a resized data URL. */
 export type ChatContent = { kind: "text"; text: string } | { kind: "image"; dataUrl: string }

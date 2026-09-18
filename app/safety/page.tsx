@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Practical safety guidance for meeting strangers on live video through Rizzuno.",
 }
 
-const LAST_UPDATED = "August 24, 2026"
+const LAST_UPDATED = "September 18, 2026"
 
 export default function SafetyPage() {
   return (
@@ -22,7 +22,7 @@ export default function SafetyPage() {
         <section>
           <h2 className="text-[16px] font-semibold">You&apos;re talking to a stranger</h2>
           <p className="mt-2 text-muted">
-            Every match on Rizzuno is someone you&apos;ve never spoken to before, matched at random. Every Rizzuno
+            Random matches may be strangers or people you have met before. Mutually accepted friend invitations are separate from random matching. Every Rizzuno
             user is required to affirm that they meet Rizzuno&apos;s age requirement before matching, and is
             signed in with a Google account — that&apos;s it. Rizzuno does not independently verify each
             user&apos;s actual age, identity, intentions, or honesty beyond that affirmation, so you should not

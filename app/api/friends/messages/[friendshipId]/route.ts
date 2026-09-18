@@ -1,3 +1,4 @@
+import { log } from "../../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { listFriendMessages, describeDbError } from "@/lib/db"
@@ -27,7 +28,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
   try {
     session = await auth()
   } catch (err) {
-    console.error("friends/messages: auth() threw — returning 500", describeDbError(err))
+    log.error("friends/messages: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -36,8 +37,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`friends-messages:${userId}`, 60, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`friends-messages:${userId}`, 60, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   const { friendshipId } = await params
@@ -51,7 +52,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
       return NextResponse.json({ error: "not_found" }, { status: 404 })
     }
     // Diagnostic — count only, never message content or an account id.
-    console.log("friends/messages: GET result", { messageCount: result.messages.length })
+    log.log("friends/messages: GET result", { messageCount: result.messages.length })
     return NextResponse.json({
       // `readAt` only actually means anything for a message this account
       // sent itself (a received message's own read state is never shown
@@ -62,7 +63,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("friends/messages: GET failed", { userId, ...details })
+    log.error("friends/messages: GET failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

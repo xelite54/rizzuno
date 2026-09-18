@@ -2,35 +2,17 @@ import { createServer } from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Duplex } from "node:stream"
 import next from "next"
-import { createRizzunoWebSocketServer } from "./server/ws-server"
+import { createClusterGateway } from "./server/clusterGateway"
+import { validateProductionConfig } from "./lib/productionConfig"
+import { log } from "./lib/observability"
+import { createRizzunoWebSocketServer, configureRealtimeCluster, realtimeSnapshot, resetRealtimeState } from "./server/ws-server"
 import { WS_PATH } from "./lib/signaling/protocol"
-import { closeDb } from "./lib/db"
+import { closeDb, checkDatabaseReady, cleanupEphemeralRecords } from "./lib/db"
 
 const port = Number(process.env.PORT) || 3000
 const dev = process.env.NODE_ENV !== "production"
 
-// Rejects a WebSocket upgrade whose Origin isn't one we recognize — a bare
-// upgrade path with no auth of its own (identity comes later, from the
-// "hello" ticket) is otherwise a plausible cross-site WebSocket hijacking
-// target: an attacker's page could open a WS connection to this server
-// using a victim's browser/cookies. Configurable via ALLOWED_WS_ORIGINS
-// (comma-separated) — required in production, where the frontend (Vercel)
-// and this realtime service (Railway) are different hosts, so same-origin
-// can't be inferred from the request itself.
-function isAllowedOrigin(req: IncomingMessage): boolean {
-  const origin = req.headers.origin
-  if (!origin) return dev // browsers always send Origin on a WS upgrade; only tolerate its absence (e.g. a non-browser dev tool) outside production
-  const configured = process.env.ALLOWED_WS_ORIGINS
-  if (configured) {
-    const allowed = configured.split(",").map((entry) => entry.trim()).filter(Boolean)
-    return allowed.includes(origin)
-  }
-  try {
-    return new URL(origin).host === req.headers.host
-  } catch {
-    return false
-  }
-}
+import { isAllowedWsOrigin } from "./lib/requestSecurity"
 
 // Created before `next()` and handed to it via the `httpServer` option so
 // Next.js registers its own upgrade handling (dev-mode HMR, etc.) directly
@@ -47,6 +29,13 @@ httpServer.on("request", (req: IncomingMessage, res: ServerResponse) => {
   // brief database blip doesn't trip a restart loop on a process that's
   // otherwise fine. Real Postgres errors still surface per-request through
   // the routes/WS messages that actually need the database.
+  if (req.url === "/ready") {
+    void checkDatabaseReady().then(() => {
+      const ready = process.env.NODE_ENV !== "production" || cluster?.ready()
+      res.writeHead(ready ? 200 : 503, { "content-type": "text/plain", "cache-control": "no-store" }); res.end(ready ? "ready" : "unavailable")
+    }).catch(() => { res.writeHead(503, { "content-type": "text/plain" }); res.end("unavailable") })
+    return
+  }
   if (req.url === "/health") {
     res.writeHead(200, { "content-type": "text/plain" })
     res.end("ok")
@@ -55,7 +44,9 @@ httpServer.on("request", (req: IncomingMessage, res: ServerResponse) => {
   handle(req, res)
 })
 
-const wss = createRizzunoWebSocketServer()
+let cluster: Awaited<ReturnType<typeof createClusterGateway>> | undefined
+let wss: ReturnType<typeof createRizzunoWebSocketServer>
+
 
 httpServer.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname
@@ -65,7 +56,8 @@ httpServer.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) =>
     // whatever this actually is.
     return
   }
-  if (!isAllowedOrigin(req)) {
+  if (!wss) { socket.destroy(); return }
+  if (!isAllowedWsOrigin(req.headers.origin, req.headers.host)) {
     socket.destroy()
     return
   }
@@ -78,11 +70,27 @@ httpServer.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) =>
   })
 })
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
+  validateProductionConfig("realtime")
+  if (process.env.REDIS_URL) {
+    cluster = await createClusterGateway(async (backend) => {
+      resetRealtimeState()
+      await configureRealtimeCluster(backend)
+      const engine = createRizzunoWebSocketServer()
+      return { server: engine, snapshot: realtimeSnapshot, stop: () => { engine.close(); resetRealtimeState() } }
+    })
+    wss = cluster.server
+  } else {
+    wss = createRizzunoWebSocketServer()
+  }
+  const cleanup = () => void cleanupEphemeralRecords().catch(() => log.error("retention.cleanup_failed"))
+  cleanup()
+  setInterval(cleanup, 3_600_000).unref()
+
   httpServer.listen(port, "0.0.0.0", () => {
     console.log(`> Rizzuno ready on 0.0.0.0:${port}`)
   })
-})
+}).catch(() => { log.error("startup.failed"); process.exit(1) })
 
 // Graceful shutdown: Railway (and most container platforms) send SIGTERM
 // before killing a deploy's old instance. Without handling it, in-flight
@@ -106,6 +114,7 @@ function shutdown(signal: string) {
     ws.close(1001, "server shutting down")
   }
 
+  void cluster?.close()
   httpServer.close(() => {
     closeDb()
       .catch(() => {})
@@ -118,3 +127,6 @@ function shutdown(signal: string) {
 
 process.on("SIGTERM", () => shutdown("SIGTERM"))
 process.on("SIGINT", () => shutdown("SIGINT"))
+
+process.on("unhandledRejection", () => { log.error("process.unhandled_rejection"); shutdown("unhandledRejection") })
+process.on("uncaughtException", () => { log.error("process.uncaught_exception"); shutdown("uncaughtException") })

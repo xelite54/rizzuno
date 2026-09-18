@@ -1,3 +1,4 @@
+import { log } from "../observability"
 import type { CategoryScore, ModerationCategory } from "./types"
 import type { ModerationProvider, ProviderOutcome } from "./provider"
 
@@ -88,7 +89,7 @@ export class SightengineProvider implements ModerationProvider {
       // etc.), rather than being misclassified as "malformed_response"
       // (which is reserved for a 200 whose *body* doesn't look right).
       if (!res.ok) {
-        console.error("imageModeration: sightengine returned a non-OK HTTP status", { status: res.status })
+        log.error("imageModeration: sightengine returned a non-OK HTTP status", { status: res.status })
         return { ok: false, reason: "error" }
       }
 
@@ -96,17 +97,17 @@ export class SightengineProvider implements ModerationProvider {
       try {
         body = await res.json()
       } catch {
-        console.error("imageModeration: sightengine response was not valid JSON", { status: res.status })
+        log.error("imageModeration: sightengine response was not valid JSON", { status: res.status })
         return { ok: false, reason: "malformed_response" }
       }
 
       return parseSightengineResponse(body)
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        console.error("imageModeration: sightengine request timed out")
+        log.error("imageModeration: sightengine request timed out")
         return { ok: false, reason: "timeout" }
       }
-      console.error("imageModeration: sightengine request failed", { error: err instanceof Error ? err.message : String(err) })
+      log.error("imageModeration: sightengine request failed", { error: err instanceof Error ? err.message : String(err) })
       return { ok: false, reason: "error" }
     } finally {
       clearTimeout(timeout)
@@ -151,7 +152,7 @@ function parseSightengineResponse(body: unknown): ProviderOutcome {
 
   if (status === "failure") {
     const error = (body as { error?: { type?: unknown; code?: unknown; message?: unknown } }).error
-    console.error("imageModeration: sightengine reported a failure", {
+    log.error("imageModeration: sightengine reported a failure", {
       type: error?.type,
       code: error?.code,
       message: error?.message,

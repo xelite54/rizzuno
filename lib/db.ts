@@ -1,41 +1,15 @@
+import { log } from "./observability"
 import { Pool } from "pg"
+import { databaseConfig } from "./dbConfig"
+import { isValidReportCategory } from "./signaling/protocol"
+import { isWireId } from "./signaling/validation"
 import { randomUUID } from "node:crypto"
 import { REQUIRED_DOCUMENTS } from "./legalVersions"
 import { MIGRATIONS } from "./migrations"
 
-/**
- * Rizzuno's persistent store — hosted Postgres (e.g. Supabase), shared by
- * both the Vercel-deployed Next.js app and the Railway-deployed realtime
- * server (server.ts). Both connect to the same `DATABASE_URL`; neither
- * depends on the other's local filesystem, because on Vercel there isn't
- * a durable one to depend on.
- *
- * This file previously used Node's built-in `node:sqlite` — correct for a
- * single co-located process, but a local file is invisible to a second
- * service on a second host, and Vercel's filesystem isn't durable across
- * invocations to begin with. There is no local-filesystem fallback here on
- * purpose: production must not silently depend on process disk.
- *
- * Deliberately minimal schema: the only "account" data kept here is the
- * Google account's stable id (`sub`) and moderation/legal state tied to it —
- * no email, name, or profile content lives server-side (see useMyProfile.ts
- * for why that's still client-side). That keeps deletion/anonymization
- * trivial (there's barely any PII to remove in the first place).
- */
-
+/** Shared persistent account, profile, social, moderation, billing and legal store. */
 const connectionString = process.env.DATABASE_URL
-const isLocalDb = Boolean(connectionString && /localhost|127\.0\.0\.1/.test(connectionString))
-
-const pool = connectionString
-  ? new Pool({
-      connectionString,
-      // Managed Postgres (Supabase included) terminates TLS with a
-      // certificate chain `pg` doesn't validate by default in this setup;
-      // `rejectUnauthorized: false` still gets an encrypted connection,
-      // just without pinning the CA. Not needed for a plain local instance.
-      ssl: isLocalDb ? undefined : { rejectUnauthorized: false },
-    })
-  : null
+const pool = connectionString ? new Pool(databaseConfig(connectionString)) : null
 
 function requirePool(): Pool {
   if (!pool) {
@@ -127,7 +101,7 @@ export async function claimAccountGender(userId: string, gender: "male" | "femal
  * signal there: a Postgres error code (e.g. `28P01` bad password, `3D000`
  * database doesn't exist, `42P07` relation already exists) for a query that
  * reached the server, or a plain Node network error code (`ECONNREFUSED`,
- * `ENOTFOUND`, `ETIMEDOUT`) for one that never did. `console.error`ing a raw
+ * `ENOTFOUND`, `ETIMEDOUT`) for one that never did. `log.error`ing a raw
  * Error object alone tends to lose exactly this field in Vercel's log
  * viewer; pulling it out explicitly is what actually makes "the database is
  * unreachable" and "the database rejected this query" distinguishable at a
@@ -136,9 +110,9 @@ export async function claimAccountGender(userId: string, gender: "male" | "femal
 export function describeDbError(err: unknown): Record<string, unknown> {
   if (err instanceof Error) {
     const e = err as Error & { code?: string; detail?: string }
-    return { name: e.name, message: e.message, code: e.code, detail: e.detail }
+    return { name: "DatabaseError", message: "Database operation failed", code: e.code }
   }
-  return { err }
+  return { message: "Database operation failed" }
 }
 
 // Runs each pending migration at most once per database. Previously guarded
@@ -184,7 +158,7 @@ function ensureMigrated(): Promise<void> {
       try {
         await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at BIGINT NOT NULL)`)
       } catch (err) {
-        console.error("db: failed to create schema_migrations table", describeDbError(err))
+        log.error("db: failed to create schema_migrations table", describeDbError(err))
         throw err
       }
 
@@ -208,7 +182,7 @@ function ensureMigrated(): Promise<void> {
           await client.query("COMMIT")
         } catch (err) {
           await client.query("ROLLBACK").catch(() => {})
-          console.error(`db: migration "${migration.id}" failed`, describeDbError(err))
+          log.error(`db: migration "${migration.id}" failed`, describeDbError(err))
           throw err
         } finally {
           client.release()
@@ -401,7 +375,7 @@ function pairKey(a: string, b: string): [string, string] {
  */
 export async function addBlock(blockerId: string, blockedId: string) {
   await ensureUser(blockerId)
-  await ensureUser(blockedId)
+  if (blockerId === blockedId || !await lookupExistingTarget(blockedId)) throw new Error("invalid_target")
   const ts = now()
   const client = await requirePool().connect()
   try {
@@ -490,7 +464,7 @@ export type SendFriendRequestResult =
 export async function sendFriendRequest(senderId: string, recipientId: string): Promise<SendFriendRequestResult> {
   if (senderId === recipientId) return { status: "blocked" }
   await ensureUser(senderId)
-  await ensureUser(recipientId)
+  if (!await lookupExistingTarget(recipientId)) return { status: "blocked" }
   if (await isBlockedEitherWay(senderId, recipientId)) return { status: "blocked" }
 
   const client = await requirePool().connect()
@@ -686,14 +660,25 @@ export type ReportInput = {
 }
 
 export async function fileReport(input: ReportInput): Promise<string> {
-  await ensureUser(input.reporterId)
-  await ensureUser(input.reportedId)
-  const id = randomUUID()
-  await q(
-    `INSERT INTO reports (id, reporter_id, reported_id, category, details, match_id, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)`,
-    [id, input.reporterId, input.reportedId, input.category, input.details ?? null, input.matchId ?? null, now()]
-  )
-  return id
+  if (!isValidReportCategory(input.category) || input.reporterId === input.reportedId || !await lookupExistingTarget(input.reportedId)) throw new Error("invalid_target")
+  if (input.details && input.details.length > 500) throw new Error("invalid_report")
+  if (await checkAndIncrementApiRateLimit(`report:${input.reporterId}`, 20, 3_600_000)) throw new Error("rate_limited")
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`report:${input.reporterId}:${input.reportedId}`])
+    // Different category, detail or room remains a new report, including urgent safety information.
+    const existing = await client.query(`SELECT id FROM reports WHERE reporter_id=$1 AND reported_id=$2 AND category=$3 AND COALESCE(details,'')=$4 AND COALESCE(match_id,'')=$5 AND created_at>$6 LIMIT 1`,
+      [input.reporterId,input.reportedId,input.category,input.details ?? "",input.matchId ?? "",now()-3_600_000])
+    const id = existing.rows[0]?.id ?? randomUUID()
+    if (!existing.rows.length) await client.query(
+      `INSERT INTO reports(id,reporter_id,reported_id,category,details,match_id,status,created_at,priority) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8)`,
+      [id,input.reporterId,input.reportedId,input.category,input.details ?? null,input.matchId ?? null,now(),input.category === "underage_concern" ? "urgent" : "normal"])
+    await client.query("COMMIT")
+    return id
+  } catch (err) { await client.query("ROLLBACK").catch(() => {}); throw err }
+  finally { client.release() }
 }
 
 export type ReportRow = {
@@ -701,6 +686,7 @@ export type ReportRow = {
   reporter_id: string
   reported_id: string
   category: string
+  priority: string
   details: string | null
   match_id: string | null
   status: string
@@ -710,8 +696,8 @@ export type ReportRow = {
 /** Admin-only — reports are never exposed to regular clients (see the admin route's authorization check). */
 export async function listReports(status?: string): Promise<ReportRow[]> {
   const { rows } = status
-    ? await q(`SELECT * FROM reports WHERE status = $1 ORDER BY created_at DESC`, [status])
-    : await q(`SELECT * FROM reports ORDER BY created_at DESC`)
+    ? await q(`SELECT * FROM reports WHERE status = $1 ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`, [status])
+    : await q(`SELECT * FROM reports ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`)
   return (rows as Record<string, unknown>[]).map((r) => ({ ...r, created_at: Number(r.created_at) })) as ReportRow[]
 }
 
@@ -731,6 +717,8 @@ export async function resolveReport(
   reason: string | null,
   suspendUntilMs: number | null
 ) {
+  if (!isWireId(reportId) || !["no_action", "warning", "suspend", "ban"].includes(action)) throw new Error("invalid_action")
+  if (action === "suspend" && (!Number.isSafeInteger(suspendUntilMs) || suspendUntilMs! <= now() || suspendUntilMs! > now() + 366 * 86_400_000)) throw new Error("invalid_suspension")
   await ensureMigrated()
   const client = await requirePool().connect()
   try {
@@ -742,6 +730,7 @@ export async function resolveReport(
       | undefined
     if (!report) throw new Error("report not found")
 
+    const previous = await client.query('SELECT banned_at,ban_reason,suspended_until,suspend_reason FROM users WHERE id=$1 FOR UPDATE', [report.reported_id])
     if (action === "ban") {
       await client.query(`INSERT INTO users (id, created_at) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [
         report.reported_id,
@@ -768,8 +757,8 @@ export async function resolveReport(
 
     await client.query(`UPDATE reports SET status = 'reviewed' WHERE id = $1`, [reportId])
     await client.query(
-      `INSERT INTO moderation_actions (id, target_user_id, actor_admin_id, report_id, action, reason, suspend_until, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [randomUUID(), report.reported_id, actorAdminId, reportId, action, reason, suspendUntilMs, now()]
+      `INSERT INTO moderation_actions (id, target_user_id, actor_admin_id, report_id, action, reason, suspend_until, created_at, previous_state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [randomUUID(), report.reported_id, actorAdminId, reportId, action, reason, suspendUntilMs, now(), JSON.stringify(previous.rows[0] ?? {})]
     )
 
     await client.query("COMMIT")
@@ -945,8 +934,8 @@ export async function sendFriendMessage(
   if (await isBlockedEitherWay(senderId, recipientId)) return { status: "blocked" }
 
   const existing = await q<{ id: string; text: string; created_at: string; read_at: string | null; reply_to_id: string | null }>(
-    `SELECT id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
-    [senderId, clientMessageId]
+    `SELECT id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2 AND friendship_id = $3`,
+    [senderId, clientMessageId, friendshipId]
   )
   if (existing.rows[0]) {
     const row = existing.rows[0]
@@ -981,8 +970,8 @@ export async function sendFriendMessage(
       // the SELECT above and this INSERT) — re-read rather than fail the
       // send outright; the row genuinely exists either way.
       const raced = await q<{ id: string; text: string; created_at: string; read_at: string | null; reply_to_id: string | null }>(
-        `SELECT id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2`,
-        [senderId, clientMessageId]
+        `SELECT id, text, created_at, read_at, reply_to_id FROM friend_messages WHERE sender_id = $1 AND client_message_id = $2 AND friendship_id = $3`,
+        [senderId, clientMessageId, friendshipId]
       )
       const row = raced.rows[0]
       if (row) {
@@ -1372,4 +1361,88 @@ export async function checkAndIncrementTurnCredentialRateLimit(userId: string, l
     [userId, windowStart]
   )
   return (rows[0]?.count ?? 0) > limit
+}
+
+/** Keys are hashed to avoid putting stable account identifiers in limiter storage. */
+export async function checkAndIncrementApiRateLimit(key: string, limit: number, windowMs: number): Promise<boolean> {
+  const { createHash } = await import("node:crypto")
+  const keyHash = createHash("sha256").update(key).digest("hex")
+  const ts = now()
+  const { rows } = await q<{ count: number }>(`
+    INSERT INTO api_rate_limits(key,window_start,expires_at,count) VALUES($1,$2,$3,1)
+    ON CONFLICT(key) DO UPDATE SET
+      count=CASE WHEN api_rate_limits.expires_at <= $2 THEN 1 ELSE LEAST(api_rate_limits.count + 1, 1000000) END,
+      window_start=CASE WHEN api_rate_limits.expires_at <= $2 THEN $2 ELSE api_rate_limits.window_start END,
+      expires_at=CASE WHEN api_rate_limits.expires_at <= $2 THEN $3 ELSE api_rate_limits.expires_at END
+    RETURNING count`, [keyHash, ts, ts + windowMs])
+  return Number(rows[0].count) > limit
+}
+
+export async function lookupExistingTarget(userId: string): Promise<boolean> {
+  if (!isWireId(userId)) return false
+  const { rows } = await q(`SELECT 1 FROM users WHERE id=$1 AND deleted_at IS NULL`, [userId])
+  return rows.length > 0
+}
+
+/** Only server-established social relationships authorize off-call raw-ID targets. */
+export async function canTargetUser(actorId: string, targetId: string): Promise<boolean> {
+  if (actorId === targetId || !await lookupExistingTarget(targetId)) return false
+  const { rows } = await q(`SELECT 1 FROM friendships WHERE (user_a_id=$1 AND user_b_id=$2) OR (user_a_id=$2 AND user_b_id=$1)
+    UNION ALL SELECT 1 FROM friend_requests WHERE status='pending' AND ((sender_id=$1 AND recipient_id=$2) OR (sender_id=$2 AND recipient_id=$1)) LIMIT 1`, [actorId, targetId])
+  return rows.length > 0
+}
+
+export async function checkDatabaseReady(): Promise<void> { await q('SELECT 1') }
+
+/** Run hourly from the operator scheduler or persistent realtime process. */
+export async function cleanupEphemeralRecords(): Promise<void> {
+  const { RETENTION } = await import("./retention")
+  const cutoff = now() - RETENTION.expiredRateLimitGraceMs
+  await q('DELETE FROM api_rate_limits WHERE expires_at < $1', [cutoff])
+  await q('DELETE FROM image_moderation_rate_limits WHERE window_start < $1', [cutoff - RETENTION.imageRateWindowMs])
+  await q('DELETE FROM turn_credential_rate_limits WHERE window_start < $1', [cutoff - RETENTION.turnRateWindowMs])
+}
+
+/** Restricted caller must verify the requester's identity and record a case reference. */
+export async function exportUserData(userId: string, actorId: string, caseReference: string) {
+  if (!await lookupExistingTarget(userId)) throw new Error("not_found")
+  const results = await Promise.all([
+    q('SELECT username,gender,profile_photo,bio,created_at,deleted_at FROM users WHERE id=$1', [userId]),
+    q('SELECT id,data_url,created_at FROM user_posts WHERE user_id=$1', [userId]),
+    q('SELECT f.id, u.username AS other_username, f.created_at FROM friendships f JOIN users u ON u.id=CASE WHEN f.user_a_id=$1 THEN f.user_b_id ELSE f.user_a_id END WHERE f.user_a_id=$1 OR f.user_b_id=$1', [userId]),
+    q('SELECT id,status,created_at,resolved_at,(sender_id=$1) AS sent_by_you FROM friend_requests WHERE sender_id=$1 OR recipient_id=$1', [userId]),
+    q('SELECT id,friendship_id,text,created_at,read_at,reply_to_id FROM friend_messages WHERE sender_id=$1 ORDER BY created_at', [userId]),
+    q('SELECT u.username,b.created_at FROM blocks b JOIN users u ON u.id=b.blocked_id WHERE blocker_id=$1', [userId]),
+    q('SELECT document,version,accepted_at FROM legal_acceptance WHERE user_id=$1 ORDER BY accepted_at', [userId]),
+    q('SELECT status,paid_until FROM billing_subscriptions WHERE user_id=$1', [userId]),
+  ])
+  await q('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at) VALUES($1,$2,$3,$4,$5,$6)', [randomUUID(),userId,actorId,'export',caseReference,now()])
+  return { exportedAt: now(), profile: results[0].rows[0], posts: results[1].rows, friendships: results[2].rows,
+    requests: results[3].rows, sentMessages: results[4].rows, blocks: results[5].rows, legalAcceptances: results[6].rows, subscriptions: results[7].rows }
+}
+
+/** Erases product data; keeps an inaccessible identity tombstone and safety/legal audit records.
+ * Cases needing a legal hold must not use this operation until reviewed. */
+export async function eraseUserData(userId: string, actorId: string, caseReference: string): Promise<void> {
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  try {
+    await client.query('BEGIN')
+    const account = await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId])
+    if (!account.rowCount) throw new Error('not_found')
+    // Paid accounts require separate verified cancellation/finance handling.
+    const paid = await client.query("SELECT 1 FROM billing_customers WHERE user_id=$1", [userId])
+    if (paid.rowCount) throw new Error('billing_review_required')
+    await client.query('DELETE FROM friend_messages WHERE sender_id=$1 OR recipient_id=$1', [userId])
+    await client.query('DELETE FROM friendships WHERE user_a_id=$1 OR user_b_id=$1', [userId])
+    await client.query('DELETE FROM friend_requests WHERE sender_id=$1 OR recipient_id=$1', [userId])
+    await client.query('DELETE FROM user_posts WHERE user_id=$1', [userId])
+    await client.query('DELETE FROM billing_subscriptions WHERE user_id=$1', [userId])
+    await client.query('DELETE FROM image_moderation_rate_limits WHERE user_id=$1', [userId])
+    await client.query('DELETE FROM turn_credential_rate_limits WHERE user_id=$1', [userId])
+    await client.query('UPDATE users SET username=NULL,gender=NULL,profile_photo=NULL,bio=NULL,deleted_at=$2 WHERE id=$1', [userId,now()])
+    await client.query('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at) VALUES($1,$2,$3,$4,$5,$6)', [randomUUID(),userId,actorId,'erase',caseReference,now()])
+    await client.query('COMMIT')
+  } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err }
+  finally { client.release() }
 }

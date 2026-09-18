@@ -1,20 +1,10 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getUserIdByUsername, fileReport, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { sanitizeText } from "@/lib/textFilter"
-import type { ReportCategory } from "@/lib/signaling/protocol"
-
-const CATEGORIES: ReportCategory[] = [
-  "sexual_content",
-  "harassment",
-  "hate",
-  "scam",
-  "spam",
-  "underage_concern",
-  "violence",
-  "other",
-]
+import { isValidReportCategory } from "@/lib/signaling/protocol"
 
 const MAX_DETAILS_LENGTH = 500
 
@@ -31,7 +21,7 @@ export async function POST(request: Request) {
   try {
     session = await auth()
   } catch (err) {
-    console.error("friends/report: auth() threw — returning 500", describeDbError(err))
+    log.error("friends/report: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -40,8 +30,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`friends-report:${userId}`, 20, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`friends-report:${userId}`, 20, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   let body: { username?: unknown; category?: unknown; details?: unknown }
@@ -52,9 +42,7 @@ export async function POST(request: Request) {
   }
 
   const username = typeof body.username === "string" ? body.username.trim().toLowerCase() : ""
-  const category = typeof body.category === "string" && (CATEGORIES as string[]).includes(body.category)
-    ? (body.category as ReportCategory)
-    : null
+  const category = isValidReportCategory(body.category) ? body.category : null
   if (!username || !category) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 })
   }
@@ -77,7 +65,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("friends/report: failed", { userId, ...details })
+    log.error("friends/report: failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

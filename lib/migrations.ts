@@ -334,4 +334,28 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE friend_messages ADD COLUMN reply_to_id TEXT;
     `,
   },
+  {
+    id: "0012_production_safety",
+    sql: `
+      CREATE TABLE api_rate_limits (key TEXT PRIMARY KEY, window_start BIGINT NOT NULL, expires_at BIGINT NOT NULL, count INTEGER NOT NULL);
+      CREATE INDEX api_rate_expiry ON api_rate_limits(expires_at);
+      ALTER TABLE reports ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal';
+      UPDATE reports SET priority='urgent' WHERE category='underage_concern';
+      CREATE INDEX reports_priority ON reports(priority, status, created_at);
+      CREATE TABLE privacy_operations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL, reason TEXT NOT NULL, created_at BIGINT NOT NULL);
+      ALTER TABLE moderation_actions ADD COLUMN previous_state JSONB;
+      ALTER TABLE blocks ADD CONSTRAINT blocks_no_self CHECK (blocker_id <> blocked_id) NOT VALID;
+      ALTER TABLE friendships ADD CONSTRAINT friendships_ordered CHECK (user_a_id < user_b_id) NOT VALID;
+      ALTER TABLE friend_requests ADD CONSTRAINT requests_no_self CHECK (sender_id <> recipient_id) NOT VALID;
+      ALTER TABLE friend_requests ADD CONSTRAINT requests_status CHECK (status IN ('pending','accepted','declined')) NOT VALID;
+      ALTER TABLE reports ADD CONSTRAINT reports_category CHECK (category IN ('sexual_content','harassment','hate','scam','spam','underage_concern','violence','other')) NOT VALID;
+      ALTER TABLE reports ADD CONSTRAINT reports_status CHECK (status IN ('pending','reviewed')) NOT VALID;
+      ALTER TABLE friend_messages ADD CONSTRAINT messages_no_self CHECK (sender_id <> recipient_id) NOT VALID;
+      CREATE UNIQUE INDEX friend_message_reply_identity ON friend_messages(friendship_id,id);
+      ALTER TABLE friend_messages ADD CONSTRAINT replies_same_friendship FOREIGN KEY(friendship_id,reply_to_id) REFERENCES friend_messages(friendship_id,id) DEFERRABLE INITIALLY DEFERRED NOT VALID;
+      ALTER TABLE user_posts ADD CONSTRAINT posts_owner FOREIGN KEY(user_id) REFERENCES users(id) NOT VALID;
+      ALTER TABLE billing_customers ADD CONSTRAINT billing_owner FOREIGN KEY(user_id) REFERENCES users(id) NOT VALID;
+      ALTER TABLE billing_subscriptions ADD CONSTRAINT subscription_owner FOREIGN KEY(user_id) REFERENCES users(id) NOT VALID;
+    `,
+  },
 ]

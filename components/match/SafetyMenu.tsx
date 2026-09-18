@@ -6,20 +6,15 @@ import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { DotsIcon, CheckIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_QUICK } from "@/lib/motion"
-import type { ReportCategory } from "@/lib/signaling/protocol"
+import { REPORT_CATEGORIES as CATEGORY_VALUES, type ReportCategory } from "@/lib/signaling/protocol"
 
 // Shared with ReportButton.tsx (the equivalent report flow for a friend's
 // or another account's profile, reported outside a live call).
-export const REPORT_CATEGORIES: { value: ReportCategory; label: string }[] = [
-  { value: "sexual_content", label: "Sexual content" },
-  { value: "harassment", label: "Harassment" },
-  { value: "hate", label: "Hate" },
-  { value: "scam", label: "Scam" },
-  { value: "spam", label: "Spam" },
-  { value: "underage_concern", label: "Underage concern" },
-  { value: "violence", label: "Violence" },
-  { value: "other", label: "Other" },
-]
+const CATEGORY_LABELS: Record<ReportCategory, string> = {
+  sexual_content: "Sexual content", harassment: "Harassment", hate: "Hate", scam: "Scam", spam: "Spam",
+  underage_concern: "Underage concern", violence: "Violence", other: "Other",
+}
+export const REPORT_CATEGORIES = CATEGORY_VALUES.map((value) => ({ value, label: CATEGORY_LABELS[value] }))
 
 type SafetyMenuProps = {
   disabled: boolean

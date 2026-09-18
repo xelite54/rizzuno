@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { searchUsersByUsername, describeDbError } from "@/lib/db"
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   try {
     session = await auth()
   } catch (err) {
-    console.error("friends/search: auth() threw — returning 500", describeDbError(err))
+    log.error("friends/search: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -30,8 +31,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`friends-search:${userId}`, 30, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`friends-search:${userId}`, 30, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   const url = new URL(request.url)
@@ -45,7 +46,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ results })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("friends/search: query failed", { userId, ...details })
+    log.error("friends/search: query failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

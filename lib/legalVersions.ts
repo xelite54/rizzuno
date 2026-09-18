@@ -11,6 +11,8 @@
  * from client components too (e.g. to show "you're being asked again
  * because Terms changed" copy), unlike lib/db.ts itself.
  */
+// 2026-09-18: persisted gender/friend chat, unblock/search, providers, retention and free billing disclosures reconciled.
+// Earlier comments below describe historical releases, not current behavior.
 export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; version: string }[] = [
   // Bumped 2026-08-23 (age18 "2"): the affirmation itself changed — from a
   // flat "at least 18" to "at least 18, or the age of majority where you
@@ -164,6 +166,6 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // §7 adds it as a purpose of processing; §12 adds its retention entry.
   // Material change to how content is handled before publication, so
   // every account with a prior acceptance record is asked again.
-  { document: "terms", version: "2026-09-01" },
-  { document: "privacy", version: "2026-09-01b" },
+  { document: "terms", version: "2026-09-18" },
+  { document: "privacy", version: "2026-09-18" },
 ]

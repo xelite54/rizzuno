@@ -7,6 +7,7 @@ let incoming = false
 let resolvedRequestExists = false
 const writes: string[] = []
 async function query(sql: string) {
+  if (sql.includes("SELECT 1 FROM users WHERE id=")) return { rows: [{}], rowCount: 1 } // Existing recipient fixture.
   if (resolvedRequestExists && sql.includes("INSERT INTO friend_requests") && !sql.includes("ON CONFLICT (sender_id, recipient_id)")) throw new Error("duplicate key violates friend_requests_sender_id_recipient_id_key")
   if (sql.includes("FROM billing_subscriptions")) return { rows: member ? [{}] : [] }
   if (sql.includes("SELECT id FROM friend_requests") && sql.includes("FOR UPDATE")) return { rows: incoming ? [{ id: "request" }] : [] }

@@ -38,7 +38,7 @@ export default async function AdminPage() {
               {new Date(report.created_at).toLocaleString()} · match {report.match_id ?? "—"}
             </div>
             <div className="mt-1 text-[14px]">
-              <span className="font-semibold">{report.category}</span> — reporter{" "}
+              <span className="font-semibold">{report.priority === "urgent" ? "URGENT — " : ""}{report.category}</span> — reporter{" "}
               <code className="text-[12px]">{report.reporter_id}</code> reported{" "}
               <code className="text-[12px]">{report.reported_id}</code>
             </div>

@@ -86,7 +86,7 @@ export function buildIceServers(): RTCIceServer[] {
     return servers
   }
   const turnUrl = process.env.NEXT_PUBLIC_TURN_URL
-  if (turnUrl && process.env.NEXT_PUBLIC_TURN_USERNAME && process.env.NEXT_PUBLIC_TURN_CREDENTIAL) {
+  if (process.env.NODE_ENV !== "production" && turnUrl && process.env.NEXT_PUBLIC_TURN_USERNAME && process.env.NEXT_PUBLIC_TURN_CREDENTIAL) {
     const urls = sortUdpFirst(
       turnUrl
         .split(",")

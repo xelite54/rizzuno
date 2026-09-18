@@ -28,7 +28,7 @@ type CategoryPolicy = {
  * provider is wired up (see provider.ts), not a validated final answer.
  * `csam_suspected` has no thresholds at all — see its own entry below.
  */
-const CATEGORY_POLICY: Record<ModerationCategory, CategoryPolicy> = {
+export const CATEGORY_POLICY: Record<ModerationCategory, CategoryPolicy> = {
   nudity: { block: 0.5, review: 0.2 },
   explicit_sexual: { block: 0.35, review: 0.15 },
   // "suggestive content -> REVIEW/BLOCK conservatively": a high bar for
@@ -68,6 +68,7 @@ export function decideModeration(categories: CategoryScore[]): ModerationDecisio
   let decision: ModerationDecision = "allow"
   for (const { category, score } of categories) {
     const policy = CATEGORY_POLICY[category]
+    if (!Number.isFinite(score) || score < 0 || score > 1) return "block"
     if (!policy) continue // an unrecognized category from a provider is never trusted to affect the decision
     const categoryDecision: ModerationDecision =
       category === "csam_suspected"

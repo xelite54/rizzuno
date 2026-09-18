@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { hasAcceptedCurrent, describeDbError } from "@/lib/db"
@@ -28,7 +29,7 @@ export async function GET() {
   try {
     session = await auth()
   } catch (err) {
-    console.error("legal/status: auth() threw — returning 500", {
+    log.error("legal/status: auth() threw — returning 500", {
       databaseUrlConfigured,
       ...describeDbError(err),
     })
@@ -37,7 +38,7 @@ export async function GET() {
 
   const userId = session?.user?.id
   if (!userId) {
-    console.error("legal/status: no session.user.id — returning 401", {
+    log.error("legal/status: no session.user.id — returning 401", {
       hasSession: Boolean(session),
       databaseUrlConfigured,
     })
@@ -45,13 +46,13 @@ export async function GET() {
   }
 
   if (!databaseUrlConfigured) {
-    console.error("legal/status: DATABASE_URL is not configured — returning 500", { userId })
+    log.error("legal/status: DATABASE_URL is not configured — returning 500", { userId })
     return NextResponse.json({ error: "database_not_configured" }, { status: 500 })
   }
 
   try {
     const accepted = await hasAcceptedCurrent(userId)
-    console.log("legal/status: returning 200", { userId, accepted })
+    log.log("legal/status: returning 200", { userId, accepted })
     return NextResponse.json({ accepted })
   } catch (err) {
     // A real failure (e.g. the database being unreachable, or misconfigured
@@ -62,7 +63,7 @@ export async function GET() {
     // "error" state, carrying this exact error code, instead of quietly
     // re-showing AgeGate as if this were a normal first-time flow.
     const details = describeDbError(err)
-    console.error("legal/status: hasAcceptedCurrent() threw — returning 500", {
+    log.error("legal/status: hasAcceptedCurrent() threw — returning 500", {
       userId,
       databaseUrlConfigured,
       ...details,

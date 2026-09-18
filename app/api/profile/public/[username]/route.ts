@@ -6,7 +6,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
 export async function GET(_request: Request, { params }: { params: Promise<{ username: string }> }) {
   const userId = (await auth())?.user?.id
   if (!userId) return Response.json({ error: "not_authenticated" }, { status: 401 })
-  if (isRateLimited(`public-profile:${userId}`, 60, 60_000)) return Response.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`public-profile:${userId}`, 60, 60_000)) return Response.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   const username = normalizeUsername((await params).username)
   if (!username) return Response.json({ error: "not_found" }, { status: 404 })
   try {

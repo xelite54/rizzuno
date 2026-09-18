@@ -1,3 +1,7 @@
+import type { ClusterBackend } from "./clusterGateway"
+import { log } from "../lib/observability"
+import { isClientMessage, MAX_WS_PAYLOAD } from "../lib/signaling/validation"
+import { isRateLimited } from "../lib/apiRateLimit"
 import { randomUUID } from "node:crypto"
 import { WebSocketServer, WebSocket } from "ws"
 import type { RawData } from "ws"
@@ -8,6 +12,8 @@ import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from ".
 import { verifyTicket } from "../lib/realtimeTicket"
 import {
   getUserStatus,
+  hasAcceptedCurrent,
+  canTargetUser,
   getAccountGender,
   getPublicProfile,
   claimAccountGender,
@@ -28,10 +34,37 @@ import {
   countUnreadFriendMessages,
   getFriendshipOtherUser,
 } from "../lib/db"
-import { sanitizeText, containsBlockedChatContent } from "../lib/textFilter"
 import { normalizeUsername } from "../lib/username"
+import { sanitizeText, containsBlockedChatContent } from "../lib/textFilter"
 import { MATCH_CALL_LIMIT_MS } from "../lib/matchCallLimit"
 import { moderateImage } from "../lib/imageModeration"
+
+let clusterBackend: ClusterBackend | undefined
+let persistedInvitations: { id: string; senderId: string; recipientId: string; expiresAt: number }[] = []
+function saveInvitations() {
+  if (!clusterBackend) return
+  const live = [...friendInvitations.values()].map((i) => ({ id: i.id, senderId: i.sender.userId, recipientId: i.recipient.userId, expiresAt: i.expiresAt }))
+  persistedInvitations = [...persistedInvitations.filter((i) => i.expiresAt > Date.now() && !live.some((v) => v.id === i.id)), ...live]
+  void clusterBackend.saveInvitations(persistedInvitations).catch(() => {
+    for (const s of connections.values()) s.ws.close(1013, "service unavailable")
+  })
+}
+export async function configureRealtimeCluster(backend: ClusterBackend) {
+  clusterBackend = backend
+  matchmaker.configureSharedRecent(backend.recent)
+  const saved = await backend.loadInvitations()
+  persistedInvitations = Array.isArray(saved) ? saved.filter((v) => v && typeof v.id === "string" && v.expiresAt > Date.now()) : []
+}
+export function realtimeSnapshot() {
+  return { ...matchmaker.snapshot(), presence: [...connections.values()].map((s) => ({ displayId: s.displayId, searching: s.seeking, generation: s.searchGeneration, roomId: s.roomId, alive: s.isAlive })) }
+}
+export function resetRealtimeState() {
+  for (const i of friendInvitations.values()) clearTimeout(i.timer)
+  friendInvitations.clear()
+  for (const id of roomSetups.keys()) clearRoomSetup(id)
+  connections.clear(); connectionsByDisplayId.clear(); matchmaker.reset()
+  clusterBackend = undefined; persistedInvitations = []
+}
 
 const MAX_HANDLE_LENGTH = 40
 
@@ -51,6 +84,8 @@ function publishInvitations(state: ConnectionState) {
 function removeInvitation(invite: FriendInvitation) {
   clearTimeout(invite.timer)
   friendInvitations.delete(invite.id)
+  persistedInvitations = persistedInvitations.filter((i) => i.id !== invite.id)
+  saveInvitations()
   publishInvitations(invite.sender)
   publishInvitations(invite.recipient)
 }
@@ -88,7 +123,6 @@ async function friendsMayCall(a: ConnectionState, b: ConnectionState): Promise<b
   return friends && !blocked && [aStatus, bStatus].every((status) => !status.banned && !status.deleted && !(status.suspendedUntil && status.suspendedUntil > Date.now()))
 }
 
-const MAX_USERNAME_LENGTH = 24
 const MAX_REPORT_DETAILS_LENGTH = 500
 const DATA_URL_IMAGE_PATTERN = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i
 
@@ -273,14 +307,14 @@ async function sendFriendsSnapshot(state: ConnectionState) {
   // a friend's `users.username` NULL despite that, worth chasing from here
   // rather than guessing client-side.
   const missingUsernames = friends.filter((f) => !f.username).length
-  console.log("ws-server: friends snapshot", {
+  log.log("ws-server: friends snapshot", {
     displayId: state.displayId,
     friendCount: friends.length,
     usernames: friends.map((f) => Boolean(f.username)),
     missingUsernames,
   })
   if (missingUsernames > 0) {
-    console.warn("ws-server: confirmed friend(s) with no username in the snapshot — upstream data issue, not a display bug", {
+    log.warn("ws-server: confirmed friend(s) with no username in the snapshot — upstream data issue, not a display bug", {
       displayId: state.displayId,
       missingUsernames,
     })
@@ -318,7 +352,7 @@ async function trySendFriendsSnapshot(state: ConnectionState) {
   try {
     await sendFriendsSnapshot(state)
   } catch (err) {
-    console.error("ws-server: friends snapshot failed — friends feature degraded, unrelated to matchmaking", {
+    log.error("ws-server: friends snapshot failed — friends feature degraded, unrelated to matchmaking", {
       displayId: state.displayId,
       ...describeErr(err),
     })
@@ -401,7 +435,7 @@ function broadcastOnlineCount() {
 async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   if (state.roomId) return
   if (state.searchGeneration !== expectedGeneration) {
-    console.log("ws-server: find superseded before it could even start — aborting", {
+    log.log("ws-server: find superseded before it could even start — aborting", {
       displayId: state.displayId,
       expectedGeneration,
       liveGeneration: state.searchGeneration,
@@ -417,10 +451,10 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
     // must not resurrect a "queued" ack after the guest has since paused,
     // left, or started an entirely different search.
     if (state.searchGeneration === expectedGeneration && state.seeking && !state.roomId) {
-      console.log("ws-server: queue entered", { displayId: state.displayId, queueSize: matchmaker.queueSize })
+      log.log("ws-server: queue entered", { displayId: state.displayId, queueSize: matchmaker.queueSize })
       send(state.ws, { type: "queued" })
     } else {
-      console.log("ws-server: find superseded before queueing — dropping the stale 'queued' ack", {
+      log.log("ws-server: find superseded before queueing — dropping the stale 'queued' ack", {
         displayId: state.displayId,
       })
     }
@@ -435,7 +469,7 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   try {
     alreadyFriends = await areFriends(room.a, room.b)
   } catch (err) {
-    console.error("ws-server: areFriends failed — proceeding without it, match still commits", {
+    log.error("ws-server: areFriends failed — proceeding without it, match still commits", {
       roomId: room.id,
       ...describeErr(err),
     })
@@ -451,7 +485,7 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   const pairStillOpposite = Boolean(aCheck.gender && bCheck.gender && aCheck.gender !== bCheck.gender)
 
   if (!aCheck.live || !bCheck.live || !pairStillOpposite) {
-    console.warn("ws-server: pair rollback — no longer eligible right before commit", {
+    log.warn("ws-server: pair rollback — no longer eligible right before commit", {
       roomId: room.id,
       aLive: aCheck.live,
       bLive: bCheck.live,
@@ -484,17 +518,21 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
 
   const aState = connections.get(room.a)!
   const bState = connections.get(room.b)!
+  await matchmaker.commitMatch(room.id)
+  if (!checkLive(room.a, room.aGeneration).live || !checkLive(room.b, room.bGeneration).live) {
+    matchmaker.deleteReservation(room.id)
+    return
+  }
   aState.seeking = false
   bState.seeking = false
 
   dispatchMatch(aState, bState, room.id, "random", alreadyFriends)
-  console.log("ws-server: matched sent to A", { roomId: room.id, displayId: aState.displayId })
-  console.log("ws-server: matched sent to B", { roomId: room.id, displayId: bState.displayId })
+  log.log("ws-server: matched sent to A", { roomId: room.id, displayId: aState.displayId })
+  log.log("ws-server: matched sent to B", { roomId: room.id, displayId: bState.displayId })
 
   // Recorded ONLY now — after both "matched" sends, both to sockets this
   // function itself just confirmed were OPEN with no async gap in between
   // (see the class doc comment on why that ordering is the entire point).
-  matchmaker.commitMatch(room.id)
 }
 
 type RoomEndReason = "user_skip" | "user_leave" | "blocked" | "socket_closed" | "account_changed" | "socket_replaced" | "setup_timeout"
@@ -600,14 +638,14 @@ function abortRoomSetup(roomId: string) {
   if (!setup) return
   clearRoomSetup(roomId)
   matchmaker.destroyRoom(roomId)
-  console.warn("rtc: setup timeout", {
+  log.warn("rtc: setup timeout", {
     roomId,
     source: setup.source,
     aReady: setup.aReady,
     bReady: setup.bReady,
     offerRelayed: setup.offerRelayed,
   })
-  if (setup.source === "friend") console.log("direct-call: room aborted", { roomId })
+  if (setup.source === "friend") log.log("direct-call: room aborted", { roomId })
   for (const userId of [setup.aUserId, setup.bUserId]) {
     const s = connections.get(userId)
     if (s && s.roomId === roomId) {
@@ -652,7 +690,7 @@ function dispatchMatch(
     answerRelayed: false,
     deadline,
   })
-  console.log(source === "friend" ? "direct-call: room created" : "rtc: room created", { roomId, source })
+  log.log(source === "friend" ? "direct-call: room created" : "rtc: room created", { roomId, source })
   const serverNow = Date.now()
   const expiresAt = serverNow + roomCallTestConfig.limitMs
   const callTimer = setTimeout(() => expireMatch(roomId, [aState.userId, bState.userId]), roomCallTestConfig.limitMs)
@@ -665,7 +703,7 @@ function dispatchMatch(
 function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason: RoomEndReason) {
   if (!state.roomId) return
   const roomId = state.roomId
-  console.info("ws-server: room destroyed", { roomId, reason })
+  log.info("ws-server: room destroyed", { roomId, reason })
   clearRoomSetup(roomId)
   const partner = roomPartner(state)
   matchmaker.leaveRoom(state.userId)
@@ -694,7 +732,7 @@ function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason
 function cleanUpAccount(oldState: ConnectionState, reason: RoomEndReason, preserveInvitations = false) {
   const wasCurrent = connections.get(oldState.userId) === oldState
   if (!wasCurrent) {
-    console.log("ws-server: cleanup skipped — this state was already superseded", { displayId: oldState.displayId })
+    log.log("ws-server: cleanup skipped — this state was already superseded", { displayId: oldState.displayId })
     return
   }
   leaveCurrentRoom(oldState, true, reason)
@@ -706,7 +744,7 @@ function cleanUpAccount(oldState: ConnectionState, reason: RoomEndReason, preser
   if (connectionsByDisplayId.get(oldState.displayId) === oldState.userId) {
     connectionsByDisplayId.delete(oldState.displayId)
   }
-  console.log("ws-server: queue removed", { displayId: oldState.displayId })
+  log.log("ws-server: queue removed", { displayId: oldState.displayId })
   broadcastOnlineCount()
 }
 
@@ -736,10 +774,10 @@ function createRateLimiter() {
 }
 
 export function createRizzunoWebSocketServer() {
-  const wss = new WebSocketServer({ noServer: true })
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD, perMessageDeflate: false })
 
   wss.on("connection", (ws: WebSocket) => {
-    console.log("ws-server: connection accepted")
+    log.log("ws-server: connection accepted")
     let state: ConnectionState | null = null
     // Keeps `state.isAlive` honest for the heartbeat below — registered
     // once per physical connection (not per-hello) since `state` itself
@@ -759,7 +797,7 @@ export function createRizzunoWebSocketServer() {
     const HELLO_TIMEOUT_MS = 15_000
     const helloTimeout = setTimeout(() => {
       if (!state) {
-        console.log("ws-server: closing connection — no 'hello' received in time")
+        log.log("ws-server: closing connection — no 'hello' received in time")
         ws.close(1008, "hello timeout")
       }
     }, HELLO_TIMEOUT_MS)
@@ -789,9 +827,14 @@ export function createRizzunoWebSocketServer() {
     // "leave"'s `leaveCurrentRoom`/partner notification) still goes through
     // the normal serialized chain below — only the eligibility-critical
     // fields jump ahead.
+    const helloDeadline = setTimeout(() => { if (!state) ws.close(1008, "hello required") }, 10_000)
+    helloDeadline.unref()
+    ws.once("close", () => clearTimeout(helloDeadline))
     let processingChain: Promise<void> = Promise.resolve()
 
-    ws.on("message", (raw: RawData) => {
+    ws.on("error", () => { /* Oversized or malformed frames terminate only this socket. */ })
+    ws.on("message", (raw: RawData, isBinary: boolean) => {
+      if (isBinary) { ws.close(1003, "text messages required"); return }
       const rate = checkRate()
       if (rate === "abuse") {
         ws.close(1008, "rate limit exceeded")
@@ -801,7 +844,12 @@ export function createRizzunoWebSocketServer() {
 
       let message: ClientMessage
       try {
-        message = JSON.parse(raw.toString())
+        const parsed: unknown = JSON.parse(raw.toString())
+        if (!isClientMessage(parsed)) {
+          send(ws, { type: "error", message: "Invalid message." })
+          return
+        }
+        message = parsed
       } catch {
         return
       }
@@ -810,11 +858,12 @@ export function createRizzunoWebSocketServer() {
       // immediate, synchronous mutation, and it happens before this
       // message even joins the serialized chain.
       let capturedGeneration: number | undefined
+      if (state && connections.get(state.userId) !== state) return
       if (state) {
         // Retries/resumes are not skips. Never let a delayed find command
         // abandon an established room (including a direct friend call).
         if (message.type === "find" && state.roomId) {
-          console.debug("ws-server: find ignored", { roomId: state.roomId, reason: "already_matched" })
+          log.debug("ws-server: find ignored", { roomId: state.roomId, reason: "already_matched" })
           return
         }
         if (message.type === "find" || message.type === "skip") {
@@ -849,7 +898,7 @@ export function createRizzunoWebSocketServer() {
           // the client so it isn't left hanging; the connection itself stays
           // open either way (one bad/failed message must only ever cost
           // itself, not the whole connection).
-          console.error("ws-server: message handling failed", {
+          log.error("ws-server: message handling failed", {
             type: message.type,
             displayId: state?.displayId,
             ...describeErr(err),
@@ -880,9 +929,9 @@ export function createRizzunoWebSocketServer() {
 
       async function handleParsedMessage(message: ClientMessage, capturedGeneration: number | undefined) {
       if (message.type === "hello") {
-        console.log("ws-server: hello received")
+        log.log("ws-server: hello received")
         if (typeof message.ticket !== "string" || typeof message.handle !== "string") {
-          console.warn("ws-server: hello malformed — missing ticket/handle")
+          log.warn("ws-server: hello malformed — missing ticket/handle")
           return
         }
 
@@ -892,27 +941,27 @@ export function createRizzunoWebSocketServer() {
         // said about itself directly.
         const verified = verifyTicket(message.ticket)
         if (!verified) {
-          console.warn("ws-server: hello rejected — invalid or expired ticket")
+          log.warn("ws-server: hello rejected — invalid or expired ticket")
           send(ws, { type: "rejected", reason: "invalid_ticket" })
           return
         }
         const { userId } = verified
-        console.log("ws-server: hello authenticated")
+        log.log("ws-server: hello authenticated")
 
         // Defense in depth: the ticket route already refuses to mint a
         // ticket for a banned/suspended/deleted account, but a ticket is
         // valid for up to two minutes — re-check here (against the shared
         // database, not a local cache) in case status changed in that
-        // window, on a different instance, or via the admin console.
+        // window, on a different instance, or via the admin log.
         const status = await getUserStatus(userId)
         if (status.deleted || status.banned) {
-          console.warn("ws-server: hello rejected — account banned/deleted", { userId })
+          log.warn("ws-server: hello rejected — account banned/deleted", { userId })
           send(ws, { type: "rejected", reason: "banned" })
           ws.close(1008, "account banned")
           return
         }
         if (status.suspendedUntil) {
-          console.warn("ws-server: hello rejected — account suspended", { userId })
+          log.warn("ws-server: hello rejected — account suspended", { userId })
           send(ws, { type: "rejected", reason: "suspended" })
           ws.close(1008, "account suspended")
           return
@@ -928,7 +977,7 @@ export function createRizzunoWebSocketServer() {
         // superseded by nothing — but we only call it for an actual
         // account change, so it never runs in that case at all).
         if (state && state.userId !== userId) {
-          console.log("ws-server: hello for a new account on an already-authenticated socket — cleaning up the old one first", {
+          log.log("ws-server: hello for a new account on an already-authenticated socket — cleaning up the old one first", {
             oldDisplayId: state.displayId,
           })
           cleanUpAccount(state, "account_changed")
@@ -970,7 +1019,7 @@ export function createRizzunoWebSocketServer() {
         if (existing && existing.ws !== ws) {
           const existingIsExclusive = Boolean(existing.roomId) || existing.seeking
           if (existing.ws.readyState === WebSocket.OPEN && existing.isAlive && existingIsExclusive) {
-            console.log("ws-server: hello rejected — account already has a healthy connection in a room/search", {
+            log.log("ws-server: hello rejected — account already has a healthy connection in a room/search", {
               existingDisplayId: existing.displayId,
             })
             send(ws, { type: "superseded" })
@@ -989,10 +1038,12 @@ export function createRizzunoWebSocketServer() {
           existing = undefined
         }
 
+        if (!await hasAcceptedCurrent(userId)) {
+          send(ws, { type: "rejected", reason: "invalid_ticket" }); ws.close(1008, "acceptance required"); return
+        }
         const handle = sanitizeText(message.handle, MAX_HANDLE_LENGTH) || "Someone"
-        const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
         // Realtime uses the same strict validation as username claims.
-        const username = normalizeUsername(rawUsername) ?? undefined
+        const username = normalizeUsername((await getPublicProfile(userId)).username) ?? undefined
         // Validated the same way "profile-update" validates it below — a
         // malformed/tampered value must never slip into matching as some
         // unhandled third gender.
@@ -1019,6 +1070,15 @@ export function createRizzunoWebSocketServer() {
         }
         connections.set(userId, state)
         connectionsByDisplayId.set(state.displayId, userId)
+        for (const saved of persistedInvitations) {
+          if (friendInvitations.has(saved.id) || saved.expiresAt <= Date.now()) continue
+          const sender = connections.get(saved.senderId), recipient = connections.get(saved.recipientId)
+          if (!sender || !recipient) continue
+          const timer = setTimeout(() => { const invite = friendInvitations.get(saved.id); if (invite) removeInvitation(invite) }, saved.expiresAt - Date.now())
+          timer.unref()
+          friendInvitations.set(saved.id, { id: saved.id, sender, recipient, expiresAt: saved.expiresAt, timer })
+          publishInvitations(sender); publishInvitations(recipient)
+        }
         let restoredInvitation = false
         for (const invite of friendInvitations.values()) {
           if (invite.sender.userId === userId) { invite.sender = state; restoredInvitation = true }
@@ -1048,7 +1108,7 @@ export function createRizzunoWebSocketServer() {
         // NOT awaited before this: four optional DB queries must never be a
         // prerequisite for matchmaking working at all (see
         // trySendFriendsSnapshot below).
-        console.log("ws-server: ready sent", { displayId: state.displayId })
+        log.log("ws-server: ready sent", { displayId: state.displayId })
         send(ws, { type: "ready" })
 
         // A reconnect on an account that was already counted doesn't change
@@ -1072,10 +1132,16 @@ export function createRizzunoWebSocketServer() {
         // stray/malicious frame — logged so a production report of "stuck
         // searching forever" can be told apart from this from an actual
         // dropped "ready".
-        console.warn("ws-server: message before hello — ignoring", { type: message.type })
+        log.warn("ws-server: message before hello — ignoring", { type: message.type })
         return
       }
 
+      if (connections.get(state.userId) !== state || ws.readyState !== WebSocket.OPEN) return
+      const limitedActions = new Set(["friends-refresh", "profile-update", "friend-request", "friend-respond", "unfriend", "friend-block", "unblock", "user-report", "report", "match-invite", "match-invite-respond", "friend-chat-send", "friend-chat-read"])
+      if (limitedActions.has(message.type) && await isRateLimited(`ws:${message.type}:${state.userId}`, message.type === "friend-chat-send" ? 60 : 30, 60_000)) {
+        send(ws, { type: "error", message: "Too many requests. Please try again shortly." }); return
+      }
+      if (connections.get(state.userId) !== state || ws.readyState !== WebSocket.OPEN) return
       switch (message.type) {
         case "friends-refresh":
           await trySendFriendsSnapshot(state)
@@ -1084,7 +1150,7 @@ export function createRizzunoWebSocketServer() {
         case "find":
         case "skip": {
           if (message.type === "find" && state.roomId) break
-          console.log("ws-server: find received", { displayId: state.displayId, type: message.type })
+          log.log("ws-server: find received", { displayId: state.displayId, type: message.type })
           if (message.type === "skip") leaveCurrentRoom(state, true, "user_skip")
           // capturedGeneration was set synchronously at message-receipt
           // time, above — always defined here (state existed then too,
@@ -1100,7 +1166,7 @@ export function createRizzunoWebSocketServer() {
           // seeking/searchGeneration were already invalidated synchronously
           // at message-receipt time, above — nothing left to do for them
           // here.
-          console.log("ws-server: queue removed (explicit leave)", { displayId: state.displayId })
+          log.log("ws-server: queue removed (explicit leave)", { displayId: state.displayId })
           break
         }
         case "signal": {
@@ -1124,10 +1190,10 @@ export function createRizzunoWebSocketServer() {
               if (message.data.kind === "offer" && !setup.offerRelayed) {
                 setup.offerRelayed = true
                 clearTimeout(setup.deadline)
-                console.log("rtc: initial offer relayed", { roomId: message.roomId })
+                log.log("rtc: initial offer relayed", { roomId: message.roomId })
               } else if (message.data.kind === "answer" && !setup.answerRelayed) {
                 setup.answerRelayed = true
-                console.log("rtc: initial answer relayed", { roomId: message.roomId })
+                log.log("rtc: initial answer relayed", { roomId: message.roomId })
               }
             }
             send(partner.ws, { type: "signal", roomId: message.roomId, data: message.data })
@@ -1147,11 +1213,11 @@ export function createRizzunoWebSocketServer() {
           if (state.userId === setup.aUserId) {
             if (setup.aReady) break // idempotent — a duplicate must never re-trigger rtc-start
             setup.aReady = true
-            console.log("rtc: side A ready", { roomId: message.roomId })
+            log.log("rtc: side A ready", { roomId: message.roomId })
           } else if (state.userId === setup.bUserId) {
             if (setup.bReady) break
             setup.bReady = true
-            console.log("rtc: side B ready", { roomId: message.roomId })
+            log.log("rtc: side B ready", { roomId: message.roomId })
           } else {
             break // not actually a participant in this exact room
           }
@@ -1159,7 +1225,7 @@ export function createRizzunoWebSocketServer() {
             setup.startSent = true
             const initiatorState = connections.get(setup.initiatorUserId)
             if (initiatorState && initiatorState.roomId === message.roomId) {
-              console.log("rtc: both ready — starting initiator", { roomId: message.roomId })
+              log.log("rtc: both ready — starting initiator", { roomId: message.roomId })
               send(initiatorState.ws, { type: "rtc-start", roomId: message.roomId })
             } else {
               // The designated initiator vanished between becoming ready
@@ -1169,7 +1235,7 @@ export function createRizzunoWebSocketServer() {
               // nothing here clears it) is what bounds this rather than
               // leaving the other side waiting on a "rtc-start" that will
               // never come.
-              console.warn("rtc: initiator missing at start time — leaving the setup deadline to abort", { roomId: message.roomId })
+              log.warn("rtc: initiator missing at start time — leaving the setup deadline to abort", { roomId: message.roomId })
             }
           }
           break
@@ -1182,7 +1248,7 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "chat": {
-          console.debug("match-chat: send requested", { roomId: message.roomId })
+          log.debug("match-chat: send requested", { roomId: message.roomId })
           // Authoritative staleness check — covers all three ways this can
           // be stale at once: this account has no room at all, the
           // supplied roomId doesn't match its actual live one (roomPartner
@@ -1196,7 +1262,7 @@ export function createRizzunoWebSocketServer() {
           // is what fixes that.
           const partner = roomPartner(state)
           if (!partner || partner.roomId !== message.roomId) {
-            console.debug("match-chat: rejected stale room", { roomId: message.roomId })
+            log.debug("match-chat: rejected stale room", { roomId: message.roomId })
             send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "stale_room" })
             break
           }
@@ -1217,7 +1283,7 @@ export function createRizzunoWebSocketServer() {
               ts,
             })
             send(state.ws, { type: "chat-sent", roomId: message.roomId, clientMessageId: message.clientMessageId, ts })
-            console.debug("match-chat: delivered", { roomId: message.roomId })
+            log.debug("match-chat: delivered", { roomId: message.roomId })
           } else if (
             content.kind === "image" &&
             typeof content.dataUrl === "string" &&
@@ -1240,6 +1306,9 @@ export function createRizzunoWebSocketServer() {
               dataUrl: content.dataUrl,
               surface: "chat",
             })
+            if (connections.get(state.userId) !== state || state.roomId !== message.roomId || roomPartner(state) !== partner || partner.roomId !== message.roomId) {
+              send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "stale_room" }); break
+            }
             if (moderation.decision === "allow") {
               const ts = Date.now()
               send(partner.ws, {
@@ -1250,7 +1319,7 @@ export function createRizzunoWebSocketServer() {
                 ts,
               })
               send(state.ws, { type: "chat-sent", roomId: message.roomId, clientMessageId: message.clientMessageId, ts })
-              console.debug("match-chat: delivered", { roomId: message.roomId })
+              log.debug("match-chat: delivered", { roomId: message.roomId })
             } else {
               send(state.ws, { type: "chat-failed", roomId: message.roomId, clientMessageId: message.clientMessageId, reason: "blocked" })
             }
@@ -1267,6 +1336,7 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "report": {
+          if (state.roomId !== message.roomId) break
           const partner = roomPartner(state)
           if (partner) {
             await fileReport({
@@ -1281,6 +1351,7 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "block": {
+          if (state.roomId !== message.roomId) break
           const partner = roomPartner(state)
           let ok = false
           if (partner) {
@@ -1288,7 +1359,7 @@ export function createRizzunoWebSocketServer() {
               await addBlock(state.userId, partner.userId)
               ok = true
             } catch (err) {
-              console.error("ws-server: addBlock failed — block NOT persisted", {
+              log.error("ws-server: addBlock failed — block NOT persisted", {
                 displayId: state.displayId,
                 ...describeErr(err),
               })
@@ -1305,7 +1376,7 @@ export function createRizzunoWebSocketServer() {
               await refreshSnapshotIfOnline(partner.userId)
             }
           }
-          console.log("ws-server: block", { displayId: state.displayId, ok })
+          log.log("ws-server: block", { displayId: state.displayId, ok })
           send(state.ws, { type: "blocked", ok })
           break
         }
@@ -1315,9 +1386,9 @@ export function createRizzunoWebSocketServer() {
           try {
             ok = await removeBlock(state.userId, message.targetUserId)
           } catch (err) {
-            console.error("ws-server: removeBlock failed", { displayId: state.displayId, ...describeErr(err) })
+            log.error("ws-server: removeBlock failed", { displayId: state.displayId, ...describeErr(err) })
           }
-          console.log("ws-server: unblock", { displayId: state.displayId, ok })
+          log.log("ws-server: unblock", { displayId: state.displayId, ok })
           send(state.ws, { type: "unblocked", ok, targetUserId: message.targetUserId })
           if (ok) {
             await trySendFriendsSnapshot(state)
@@ -1331,7 +1402,7 @@ export function createRizzunoWebSocketServer() {
             // re-scan within the currently-active one, so its current
             // generation is captured and reused as-is.
             if (state.seeking && !state.roomId) {
-              console.log("ws-server: unblock — re-evaluating queue", { displayId: state.displayId })
+              log.log("ws-server: unblock — re-evaluating queue", { displayId: state.displayId })
               await tryMatch(state, state.searchGeneration)
             }
           }
@@ -1339,7 +1410,7 @@ export function createRizzunoWebSocketServer() {
         }
         case "profile-update": {
           if (typeof message.revision !== "number" || message.revision <= state.profileRevision) {
-            console.warn("ws-server: profile-update ignored — stale or invalid revision", {
+            log.warn("ws-server: profile-update ignored — stale or invalid revision", {
               displayId: state.displayId,
               revision: message.revision,
               current: state.profileRevision,
@@ -1351,8 +1422,7 @@ export function createRizzunoWebSocketServer() {
           const previousUsername = state.username
           const previousProfilePhoto = state.profilePhoto
 
-          const rawUsername = sanitizeText(message.username, MAX_USERNAME_LENGTH)
-          const nextUsername = normalizeUsername(rawUsername) ?? state.username
+            const nextUsername = normalizeUsername((await getPublicProfile(state.userId)).username) ?? state.username
           if (isValidGender(message.gender) && message.gender !== state.gender) await claimAccountGender(state.userId, message.gender)
           const nextGender = (await getAccountGender(state.userId)) ?? state.gender
           const genderChanged = nextGender !== state.gender
@@ -1361,7 +1431,7 @@ export function createRizzunoWebSocketServer() {
           state.gender = nextGender
           if (message.profilePhoto !== undefined) state.profilePhoto = (await getPublicProfile(state.userId)).profilePhoto
 
-          console.log("ws-server: profile-update applied", {
+          log.log("ws-server: profile-update applied", {
             displayId: state.displayId,
             revision: state.profileRevision,
             genderChanged,
@@ -1383,7 +1453,7 @@ export function createRizzunoWebSocketServer() {
             // server/matchmaker.ts) rather than leaving a stale entry
             // sitting in the queue until the next explicit find/skip. Not
             // a new search intent, so the current generation is reused.
-            console.log("ws-server: gender changed while queued — re-evaluating queue", { displayId: state.displayId })
+            log.log("ws-server: gender changed while queued — re-evaluating queue", { displayId: state.displayId })
             await tryMatch(state, state.searchGeneration)
           }
           // PAUSED (no room, not seeking): identity is already updated
@@ -1398,7 +1468,7 @@ export function createRizzunoWebSocketServer() {
           if (nextUsername !== previousUsername || (message.profilePhoto !== undefined && message.profilePhoto !== previousProfilePhoto)) {
             const { userId, displayId } = state
             notifyFriendsOfProfileChange(userId).catch((err) =>
-              console.error("ws-server: notifying friends of a profile change failed", { displayId, ...describeErr(err) })
+              log.error("ws-server: notifying friends of a profile change failed", { displayId, ...describeErr(err) })
             )
           }
           break
@@ -1421,6 +1491,7 @@ export function createRizzunoWebSocketServer() {
           const timer = setTimeout(() => { const invite = friendInvitations.get(id); if (invite) removeInvitation(invite) }, 60_000)
           timer.unref()
           friendInvitations.set(id, { id, sender: state, recipient: target, expiresAt: Date.now() + 60_000, timer })
+          saveInvitations()
           publishInvitations(state)
           publishInvitations(target)
           break
@@ -1475,7 +1546,7 @@ export function createRizzunoWebSocketServer() {
           if (!room) { removeInvitation(invite); break }
           cancelInvitations(sender)
           cancelInvitations(state)
-          console.log("direct-call: invite accepted", { roomId: room.id })
+          log.log("direct-call: invite accepted", { roomId: room.id })
           // `sender` is always the room-establishment handshake's
           // designated initiator — see dispatchMatch's own doc comment.
           // Media readiness (a live local video track, not just "the
@@ -1485,8 +1556,9 @@ export function createRizzunoWebSocketServer() {
           // the server has no visibility into the browser's actual
           // MediaStreamTrack state, only into the handshake built on top
           // of it.
+          await matchmaker.commitMatch(room.id)
+          if (!availableForInvitation(sender) || !availableForInvitation(state) || sender.searchGeneration !== senderGeneration || state.searchGeneration !== recipientGeneration) { matchmaker.deleteReservation(room.id); break }
           dispatchMatch(sender, state, room.id, "friend", true)
-          matchmaker.commitMatch(room.id)
           break
         }
         case "friend-request": {
@@ -1520,7 +1592,7 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "user-report": {
-          if (message.targetUserId && message.targetUserId !== state.userId) {
+          if (await canTargetUser(state.userId, message.targetUserId)) {
             await fileReport({
               reporterId: state.userId,
               reportedId: message.targetUserId,
@@ -1532,11 +1604,11 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "friend-block": {
-          if (message.targetUserId && message.targetUserId !== state.userId) {
+          if (await canTargetUser(state.userId, message.targetUserId)) {
             try {
               await addBlock(state.userId, message.targetUserId)
             } catch (err) {
-              console.error("ws-server: friend-block addBlock failed", { displayId: state.displayId, ...describeErr(err) })
+              log.error("ws-server: friend-block addBlock failed", { displayId: state.displayId, ...describeErr(err) })
               break
             }
             await trySendFriendsSnapshot(state)
@@ -1545,7 +1617,7 @@ export function createRizzunoWebSocketServer() {
           break
         }
         case "friend-chat-send": {
-          console.debug("friend-chat: send requested", { displayId: state.displayId })
+          log.debug("friend-chat: send requested", { displayId: state.displayId })
           const text = sanitizeText(message.text, 500)
           if (!text || containsBlockedChatContent(text)) {
             send(state.ws, {
@@ -1560,7 +1632,7 @@ export function createRizzunoWebSocketServer() {
           try {
             result = await sendFriendMessage(state.userId, message.friendshipId, message.clientMessageId, text, message.replyToId)
           } catch (err) {
-            console.error("ws-server: friend-chat-send failed", { displayId: state.displayId, ...describeErr(err) })
+            log.error("ws-server: friend-chat-send failed", { displayId: state.displayId, ...describeErr(err) })
             send(state.ws, {
               type: "friend-chat-error",
               friendshipId: message.friendshipId,
@@ -1582,7 +1654,7 @@ export function createRizzunoWebSocketServer() {
             })
             break
           }
-          console.debug("friend-chat: persisted", { friendshipId: message.friendshipId, duplicate: result.duplicate })
+          log.debug("friend-chat: persisted", { friendshipId: message.friendshipId, duplicate: result.duplicate })
           send(state.ws, {
             type: "friend-chat-sent",
             friendshipId: message.friendshipId,
@@ -1602,18 +1674,18 @@ export function createRizzunoWebSocketServer() {
               friendshipId: message.friendshipId,
               message: { id: result.message.id, text: result.message.text, createdAt: result.message.createdAt, replyToId: result.message.replyToId },
             })
-            console.debug("friend-chat: live delivery", { friendshipId: message.friendshipId })
+            log.debug("friend-chat: live delivery", { friendshipId: message.friendshipId })
             // Keeps the recipient's own unread badge correct the instant
             // the message arrives, not just on their next hello.
             await trySendFriendsSnapshot(recipient)
           } else {
-            console.debug("friend-chat: recipient offline", { friendshipId: message.friendshipId })
+            log.debug("friend-chat: recipient offline", { friendshipId: message.friendshipId })
           }
           break
         }
         case "friend-chat-read": {
           const result = await markFriendMessagesRead(state.userId, message.friendshipId)
-          console.debug("friend-chat: marked read", { displayId: state.displayId, result: result.status, updated: result.status === "ok" ? result.updated : undefined })
+          log.debug("friend-chat: marked read", { displayId: state.displayId, result: result.status, updated: result.status === "ok" ? result.updated : undefined })
           if (result.status !== "ok") break
           await trySendFriendsSnapshot(state)
           // Tell the sender their messages were just read — but only when
@@ -1647,7 +1719,7 @@ export function createRizzunoWebSocketServer() {
 
     ws.on("close", () => {
       if (!state) return
-      console.log("ws-server: peer disconnected", { displayId: state.displayId })
+      log.log("ws-server: peer disconnected", { displayId: state.displayId })
       // Keep the short-lived invitation until its original expiry so a
       // transient socket loss does not erase it from the friend's Requests.
       cleanUpAccount(state, "socket_closed", true)
@@ -1671,7 +1743,7 @@ export function createRizzunoWebSocketServer() {
     for (const connectionState of connections.values()) {
       if (connectionState.ws.readyState !== WebSocket.OPEN) continue // its own close handler already cleans it up
       if (!connectionState.isAlive) {
-        console.log("ws-server: heartbeat missed — terminating unresponsive connection", { displayId: connectionState.displayId })
+        log.log("ws-server: heartbeat missed — terminating unresponsive connection", { displayId: connectionState.displayId })
         connectionState.ws.terminate()
         continue
       }
@@ -1680,6 +1752,7 @@ export function createRizzunoWebSocketServer() {
     }
   }, HEARTBEAT_INTERVAL_MS)
   heartbeatTimer.unref()
+  wss.on("close", () => clearInterval(heartbeatTimer))
 
   return wss
 }

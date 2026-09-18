@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getPublicProfile, updateOwnProfile, getUserStatus, describeDbError, hasRizzPlus, getAccountGender } from "@/lib/db"
@@ -19,7 +20,7 @@ export async function GET() {
   try {
     session = await auth()
   } catch (err) {
-    console.error("profile/me: auth() threw on GET — returning 500", describeDbError(err))
+    log.error("profile/me: auth() threw on GET — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -33,7 +34,7 @@ export async function GET() {
     return NextResponse.json({ ...profile, gender: await getAccountGender(userId) })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("profile/me: GET failed", { userId, ...details })
+    log.error("profile/me: GET failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
@@ -62,7 +63,7 @@ export async function PUT(request: Request) {
   try {
     session = await auth()
   } catch (err) {
-    console.error("profile/me: auth() threw on PUT — returning 500", describeDbError(err))
+    log.error("profile/me: auth() threw on PUT — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -71,8 +72,8 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`profile-update:${userId}`, 30, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`profile-update:${userId}`, 30, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   let body: { profilePhoto?: unknown; bio?: unknown }
@@ -138,7 +139,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("profile/me: PUT failed", { userId, ...details })
+    log.error("profile/me: PUT failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

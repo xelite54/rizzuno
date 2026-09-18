@@ -1,8 +1,10 @@
+import { billingMode } from "@/lib/billingMode"
 import { stripeClient, syncSubscription } from "@/lib/billing"
 import type Stripe from "stripe"
 
 export const runtime = "nodejs"
 export async function POST(request: Request) {
+  if (billingMode() === "free_test") return Response.json({ error: "billing_disabled" }, { status: 503 })
   if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.STRIPE_RIZZ_PLUS_PRICE_ID) return Response.json({ error: "not_configured" }, { status: 503 })
   const signature = request.headers.get("stripe-signature")
   if (!signature) return Response.json({ error: "missing_signature" }, { status: 400 })

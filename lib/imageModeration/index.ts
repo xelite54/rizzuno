@@ -1,9 +1,10 @@
+import { log } from "../observability"
 import { recordModerationEvent, getCachedModerationDecision, checkAndIncrementImageModerationRateLimit, describeDbError } from "@/lib/db"
 import { validateAndDecodeImage } from "./imageValidation"
 import { hashImageBytes } from "./hash"
 import { decideModeration, POLICY_VERSION } from "./policy"
 import { getConfiguredProvider } from "./provider"
-import { checkSevereContent } from "./severeContent"
+import { checkSevereContent, severeContentCapability } from "./severeContent"
 import { checkAbuseRestriction } from "./abuse"
 import type { ModerateImageInput, ModerationResult, CategoryScore } from "./types"
 
@@ -52,7 +53,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // moderateImage() (see that function's own doc comment), which a
   // per-process in-memory counter can't be.
   if (await checkImageModerationRateLimit(userId, surface)) {
-    console.warn("imageModeration: rate limited", { surface })
+    log.warn("imageModeration: rate limited", { surface })
     return { decision: "block", categories: [], provider: "rate_limited", moderationId: "", unavailable: true }
   }
 
@@ -61,7 +62,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // an upload that's being rejected regardless (see abuse.ts).
   const abuseCheck = await checkAbuseRestriction(userId)
   if (abuseCheck.restricted) {
-    console.warn("imageModeration: upload restricted after recent violations", { surface, reason: abuseCheck.reason })
+    log.warn("imageModeration: upload restricted after recent violations", { surface, reason: abuseCheck.reason })
     return { decision: "block", categories: [], provider: "restricted", moderationId: "", unavailable: false }
   }
 
@@ -69,7 +70,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // byte/dimension limits — all of imageValidation.ts's job.
   const validated = validateAndDecodeImage(dataUrl)
   if (!validated.ok) {
-    console.warn("imageModeration: rejected at validation", { surface, reason: validated.reason })
+    log.warn("imageModeration: rejected at validation", { surface, reason: validated.reason })
     return { decision: "block", categories: [], provider: "validation", moderationId: "", unavailable: false }
   }
 
@@ -91,9 +92,10 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // decided under the exact same policy + provider model version, reuses
   // that decision instead of a fresh provider call.
   const provider = getConfiguredProvider()
-  const cached = await getCachedModerationDecision(imageHash, POLICY_VERSION, provider.modelVersion)
+  const modelVersion = `${provider.modelVersion}:specialized:${severeContentCapability().version}`
+  const cached = await getCachedModerationDecision(imageHash, POLICY_VERSION, modelVersion)
   if (cached) {
-    console.log("imageModeration: cache hit", { surface, decision: cached.decision })
+    log.log("imageModeration: cache hit", { surface, decision: cached.decision })
     // Still one row per attempt (see this function's own note on why) —
     // just without a provider call.
     // lib/db.ts's ModerationCategoryScore deliberately types `category` as a
@@ -111,7 +113,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
       provider: cached.provider,
       providerReference: cached.providerReference,
       policyVersion: POLICY_VERSION,
-      providerModelVersion: provider.modelVersion,
+      providerModelVersion: modelVersion,
     })
     return { decision: cached.decision, categories: cachedCategories, provider: cached.provider, moderationId }
   }
@@ -124,13 +126,15 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // early return) — only an attempt that actually produced real category
   // scores is a genuine content decision worth recording and worth
   // counting toward abuse.ts's escalation.
-  const [outcome, severeCategories] = await Promise.all([provider.analyze(bytes, validated.format), checkSevereContent(bytes)])
+  let outcome, severeCategories
+  try { [outcome, severeCategories] = await Promise.all([provider.analyze(bytes, validated.format), checkSevereContent(bytes)]) }
+  catch { return { decision: "block", categories: [], provider: provider.name, moderationId: "", unavailable: true } }
 
   if (!outcome.ok) {
     // FAIL CLOSED — a provider that times out, errors, is unconfigured,
     // or returns something malformed is NEVER interpreted as "safe". No
     // moderation_events row: this was never actually evaluated.
-    console.error("imageModeration: provider unavailable — failing closed, image rejected", { surface, reason: outcome.reason })
+    log.error("imageModeration: provider unavailable — failing closed, image rejected", { surface, reason: outcome.reason })
     return { decision: "block", categories: [], provider: provider.name, moderationId: "", unavailable: true }
   }
 
@@ -154,11 +158,11 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
     provider: provider.name,
     providerReference: outcome.analysis.providerReference,
     policyVersion: POLICY_VERSION,
-    providerModelVersion: provider.modelVersion,
+    providerModelVersion: modelVersion,
   })
 
   if (decision !== "allow") {
-    console.warn("imageModeration: rejected by policy", { surface, decision })
+    log.warn("imageModeration: rejected by policy", { surface, decision })
   }
 
   return { decision, categories, provider: provider.name, moderationId }
@@ -184,7 +188,7 @@ async function checkImageModerationRateLimit(userId: string, surface: ModerateIm
   try {
     return await checkAndIncrementImageModerationRateLimit(userId, surface, RATE_LIMITS[surface], RATE_LIMIT_WINDOW_MS)
   } catch (err) {
-    console.error("imageModeration: rate limit check failed — failing closed", describeDbError(err))
+    log.error("imageModeration: rate limit check failed — failing closed", describeDbError(err))
     return true
   }
 }

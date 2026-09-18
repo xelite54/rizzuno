@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -51,7 +52,7 @@ export async function GET() {
     // in hooks/useWebRTC.ts) handles this the same safe way it handles a
     // genuine rate limit: STUN-only, or the legacy static TURN vars if
     // configured, until the next scheduled retry.
-    console.error("realtime/turn: rate limit check failed — failing closed, no credential issued", describeDbError(err))
+    log.error("realtime/turn: rate limit check failed — failing closed, no credential issued", describeDbError(err))
     return NextResponse.json({ error: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } })
   }
   if (limited) {

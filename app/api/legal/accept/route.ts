@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { recordAcceptance, getUserStatus, describeDbError } from "@/lib/db"
@@ -26,7 +27,7 @@ export async function POST() {
   try {
     session = await auth()
   } catch (err) {
-    console.error("legal/accept: auth() threw — returning 500", {
+    log.error("legal/accept: auth() threw — returning 500", {
       databaseUrlConfigured,
       ...describeDbError(err),
     })
@@ -35,19 +36,19 @@ export async function POST() {
 
   const userId = session?.user?.id
   if (!userId) {
-    console.error("legal/accept: no session.user.id — returning 401", {
+    log.error("legal/accept: no session.user.id — returning 401", {
       hasSession: Boolean(session),
       databaseUrlConfigured,
     })
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`legal-accept:${userId}`, 10, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`legal-accept:${userId}`, 10, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   if (!databaseUrlConfigured) {
-    console.error("legal/accept: DATABASE_URL is not configured — returning 500", { userId })
+    log.error("legal/accept: DATABASE_URL is not configured — returning 500", { userId })
     return NextResponse.json({ error: "database_not_configured" }, { status: 500 })
   }
 
@@ -58,11 +59,11 @@ export async function POST() {
     }
 
     await recordAcceptance(userId)
-    console.log("legal/accept: returning 200", { userId })
+    log.log("legal/accept: returning 200", { userId })
     return NextResponse.json({ ok: true })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("legal/accept: failed to record acceptance — returning 500", {
+    log.error("legal/accept: failed to record acceptance — returning 500", {
       userId,
       databaseUrlConfigured,
       ...details,

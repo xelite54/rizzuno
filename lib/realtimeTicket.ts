@@ -44,7 +44,7 @@ export function mintTicket(userId: string, countryCode?: string | null): string 
 }
 
 export function verifyTicket(ticket: string): { userId: string; countryCode?: string } | null {
-  if (typeof ticket !== "string" || !ticket.includes(".")) return null
+  if (typeof ticket !== "string" || ticket.length > 2048 || ticket.split(".").length !== 2) return null
   const [encodedPayload, signature] = ticket.split(".")
   if (!encodedPayload || !signature) return null
 
@@ -61,8 +61,8 @@ export function verifyTicket(ticket: string): { userId: string; countryCode?: st
 
   try {
     const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as { sub?: unknown; exp?: unknown; countryCode?: unknown }
-    if (typeof payload.sub !== "string" || !payload.sub) return null
-    if (typeof payload.exp !== "number" || Date.now() > payload.exp) return null
+    if (typeof payload.sub !== "string" || !payload.sub || payload.sub.length > 200) return null
+    if (typeof payload.exp !== "number" || !Number.isSafeInteger(payload.exp) || Date.now() >= payload.exp || payload.exp > Date.now() + TICKET_TTL_MS) return null
     const countryCode = normalizeCountry(payload.countryCode)
     return { userId: payload.sub, ...(countryCode ? { countryCode } : {}) }
   } catch {

@@ -1,3 +1,4 @@
+import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getUserIdByUsername, addBlock, describeDbError } from "@/lib/db"
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
   try {
     session = await auth()
   } catch (err) {
-    console.error("friends/block: auth() threw — returning 500", describeDbError(err))
+    log.error("friends/block: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -25,8 +26,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
 
-  if (isRateLimited(`friends-block:${userId}`, 20, 60_000)) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 })
+  if (await isRateLimited(`friends-block:${userId}`, 20, 60_000)) {
+    return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   }
 
   let body: { username?: unknown }
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("friends/block: failed", { userId, ...details })
+    log.error("friends/block: failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }

@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Rizzuno's rules for how to treat the people you're matched with, and how reporting and blocking work.",
 }
 
-const LAST_UPDATED = "August 24, 2026"
+const LAST_UPDATED = "September 18, 2026"
 
 export default function CommunityGuidelinesPage() {
   return (
@@ -65,7 +65,7 @@ export default function CommunityGuidelinesPage() {
             The ••• menu on a call lets you report someone in one of a few categories (sexual content, harassment,
             hate, scam, spam, underage concern, violence, or other), with optional details. Your report — its
             category, any details you add, and which call it happened in — is queued for a human moderator to
-            review. It is never shown to the person you reported, or to anyone else.
+            review. It is never shown to the person you reported, or publicly. Authorized moderators and lawful disclosures may involve restricted access.
           </p>
         </section>
 

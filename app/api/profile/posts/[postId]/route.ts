@@ -1,3 +1,4 @@
+import { log } from "../../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { removePost, describeDbError } from "@/lib/db"
@@ -8,7 +9,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   try {
     session = await auth()
   } catch (err) {
-    console.error("profile/posts/[postId]: auth() threw — returning 500", describeDbError(err))
+    log.error("profile/posts/[postId]: auth() threw — returning 500", describeDbError(err))
     return NextResponse.json({ error: "auth_error" }, { status: 500 })
   }
 
@@ -27,7 +28,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return NextResponse.json({ ok })
   } catch (err) {
     const details = describeDbError(err)
-    console.error("profile/posts/[postId]: DELETE failed", { userId, ...details })
+    log.error("profile/posts/[postId]: DELETE failed", { userId, ...details })
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
