@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "September 18, 2026"
+const LAST_UPDATED = "September 19, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
@@ -116,10 +116,10 @@ export default function PrivacyPolicyPage() {
 
           <section id="profile-info">
             <h2 className="text-[16px] font-semibold">4. Profile information: what&apos;s stored, and where</h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Username, gender, profile photo, bio and posts are stored in Postgres against your account. Browser copies are caches; clearing site storage does not delete the server records. The server reads gender during profile loading and realtime connection/profile updates to pair opposite-selected genders during random matching. Mutually accepted friend calls do not use that gender rule.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Username, gender, bio and profile/post image references are stored in Postgres against your account. Approved image files are stored in private Supabase Storage; older embedded images may remain in Postgres during migration. Browser copies are caches; clearing site storage does not delete the server records. The server reads gender during profile loading and realtime connection/profile updates to pair opposite-selected genders during random matching. Mutually accepted friend calls do not use that gender rule.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Your current match receives your username, gender, photo and approximate country flag. Signed-in users can search usernames and open public profiles subject to account/block checks; public profile responses include username, photo, bio and posts. Friends can view the same profile information. Your Google email and name are not included in match profiles.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">You can edit your profile in My Profile. Gender changes after the initial choice, friend-request initiation and posting depend on Rizz+ entitlement under the current feature rules. Gender remains stored until changed or cleared through an approved account privacy request. Profile edits replace the current values; deleting a post removes it, and adding beyond the 20-post limit removes the oldest.</p>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Images must pass validation and automated screening before publication. Approved profile/post images currently remain in the database as image data; rejected images are not saved as profile content. A transient realtime identity copy lasts for the connection.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Images must pass validation and automated screening before publication. New approved profile/post images are stored in private object storage and served to authenticated users while referenced by an available profile or post. Rejected uploads are not published. Removing a reference stops delivery; backup and unreferenced-object retention are handled separately. A transient realtime identity copy lasts for the connection.</p>
 
           </section>
 
@@ -180,7 +180,7 @@ export default function PrivacyPolicyPage() {
 
           <section id="third-parties">
             <h2 className="text-[16px] font-semibold">8. Third parties &amp; processors</h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Google supplies authentication and public STUN connectivity. Vercel hosts the web application, Railway hosts realtime services, and the configured Postgres provider (such as Supabase) stores application records. Sightengine receives submitted images for automated content screening. These providers may process technical data needed to deliver their services.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Google supplies authentication and public STUN connectivity. Vercel hosts the web application, Railway hosts realtime services, and the configured Postgres provider (such as Supabase) stores application records. Supabase Storage stores approved profile and post images. Sightengine receives submitted images for automated content screening. These providers may process technical data needed to deliver their services.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">When TURN is enabled, the operator-configured TURN provider processes relay credentials, network addresses and encrypted media relay traffic. Its identity and regions must be published by the operator before launch; this code alone does not establish which provider is deployed. No permanent TURN shared secret is sent to browsers.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Rizz+ is currently free test access: no card is requested, activation does not charge, and paid Stripe checkout/webhook processing is disabled. Stripe integration code remains in the repository but is not active paid checkout in this release. Any transition to paid billing requires a new reviewed release and updated disclosures.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Auth.js, Next.js and database client libraries execute as application software rather than independent data recipients. Rizzuno does not integrate advertising or cross-site tracking services. Deployment-specific monitoring, storage and coordination providers must be disclosed before enabling them.</p>

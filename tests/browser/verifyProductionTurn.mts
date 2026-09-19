@@ -4,32 +4,23 @@
 import fs from "node:fs/promises"
 import { spawn } from "node:child_process"
 import { createServer } from "node:http"
-import { randomUUID } from "node:crypto"
 import { WebSocket } from "ws"
-import { mintTurnCredential } from "../../lib/turnCredentials"
 
-const auth = JSON.parse(await fs.readFile("/Users/sk/Library/Application Support/com.vercel.cli/auth.json", "utf8"))
-async function api(path: string) {
-  const url = new URL(path, "https://api.vercel.com")
-  url.searchParams.set("teamId", "team_M9wfod9hfat8NtdUhR1iQgFH")
-  const response = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } })
-  if (!response.ok) throw new Error(`Vercel request failed: ${response.status}`)
-  return response.json()
-}
-const project = await api("/v9/projects/rizzuno")
-for (const key of ["NEXT_PUBLIC_TURN_URL", "TURN_STATIC_AUTH_SECRET"]) {
-  const entry = project.env.find((item: any) => item.key === key && item.target.includes("production"))
-  if (!entry) throw new Error(`Production ${key} is absent`)
-  const variable = await api(`/v1/projects/${project.id}/env/${entry.id}`)
-  if (typeof variable.value !== "string" || !variable.value) throw new Error(`Production ${key} is unavailable`)
-  process.env[key] = variable.value
-}
-const temporary = mintTurnCredential(randomUUID(), 300)
-if (!temporary) throw new Error("Temporary TURN credential could not be minted")
-// Restrict the probe to destinations already observed in the public app bundle.
-if (!temporary.urls.every(url => /^turns?:(?:global|relay1)\.expressturn\.com(?::\d+)?(?:\?transport=(?:udp|tcp))?$/.test(url))) {
-  throw new Error("Configured TURN destination differs from the reviewed ExpressTURN hosts")
-}
+if (process.env.ALLOW_TURN_PROBE !== "1") throw new Error("Set ALLOW_TURN_PROBE=1 for an intentional relay test")
+// Export JSON from /api/realtime/turn in an authenticated browser. No cookies,
+// permanent shared secret or cloud CLI token is read by this probe.
+const credentialFile = process.env.TURN_PROBE_CREDENTIAL_FILE
+if (!credentialFile) throw new Error("TURN_PROBE_CREDENTIAL_FILE required")
+const supplied = JSON.parse(await fs.readFile(credentialFile, "utf8"))
+const temporary = supplied.iceServers?.[0] ?? supplied
+const expectedHosts = (process.env.TURN_PROBE_ALLOWED_HOSTS ?? "").split(",").filter(Boolean)
+const expiry = Number(String(temporary.username).split(":")[0])
+if (!Array.isArray(temporary.urls) || !temporary.urls.length || !temporary.credential
+  || !Number.isFinite(expiry) || expiry * 1000 <= Date.now() || expiry * 1000 > Date.now() + 86_400_000
+  || !temporary.urls.every((value: string) => {
+    const match = /^turns?:([a-zA-Z0-9.-]+)(?::\d+)?(?:\?transport=(?:udp|tcp))?$/.exec(value)
+    return match && expectedHosts.includes(match[1])
+  })) throw new Error("Invalid short-lived credential or unapproved TURN host")
 const { urls, username, credential } = temporary
 const directory = await fs.mkdtemp("/private/tmp/rizzuno-turn-probe-")
 const server = createServer((_request, response) => response.end("<!doctype html><title>TURN probe</title>"))
@@ -118,7 +109,7 @@ try {
   const result = response.result.value
   console.log(JSON.stringify(result))
   await fs.writeFile("/private/tmp/rizzuno-turn-results.json", JSON.stringify(result, null, 2))
-  if (!result.pingPong) process.exitCode = 1
+  if (!result.pingPong || result.relayCandidateCounts.some((count: number) => count < 1) || result.selected.some((pair: { localType?: string; remoteType?: string } | null) => pair?.localType !== "relay" || pair?.remoteType !== "relay")) process.exitCode = 1
   await call("Browser.close")
 } finally {
   socket?.close(); child.kill()

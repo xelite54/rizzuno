@@ -1,3 +1,5 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
+import { storeApprovedImage } from "@/lib/imageStorage"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -15,7 +17,7 @@ import { moderateImage } from "@/lib/imageModeration"
  * addPost() itself has no way to run without a prior "allow", by
  * construction: there is no code path here that reaches it otherwise.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let session
   try {
     session = await auth()
@@ -60,7 +62,8 @@ export async function POST(request: Request) {
       )
     }
 
-    const post = await addPost(userId, body.dataUrl)
+    const reference = await storeApprovedImage(moderation)
+    const post = await addPost(userId, reference)
     return NextResponse.json({ post })
   } catch (err) {
     const details = describeDbError(err)
@@ -68,3 +71,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const POST = withHttpMetrics("/app/api/profile/posts", handlePOST)

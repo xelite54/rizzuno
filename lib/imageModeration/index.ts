@@ -1,3 +1,4 @@
+import { normalizeImage } from "./normalize"
 import { log } from "../observability"
 import { recordModerationEvent, getCachedModerationDecision, checkAndIncrementImageModerationRateLimit, describeDbError } from "@/lib/db"
 import { validateAndDecodeImage } from "./imageValidation"
@@ -74,16 +75,10 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
     return { decision: "block", categories: [], provider: "validation", moderationId: "", unavailable: false }
   }
 
-  // 5) Normalize/resize if necessary — the client already resizes before
-  // upload (lib/image.ts's resizeImageToDataUrl), and this pipeline has
-  // no server-side image re-encoder (adding one, e.g. sharp, is a real,
-  // separate infrastructure decision — native-binary dependencies on top
-  // of everything already validated above). What "normalize" means here
-  // today is exactly the validated, decoded byte buffer from the step
-  // above — the hash below is computed from these real bytes either way,
-  // so re-encoding would only ever change the hash, never the safety
-  // guarantees already enforced.
-  const bytes = validated.bytes
+  let bytes: Buffer
+  try { bytes = await normalizeImage(dataUrl) }
+  catch { return { decision: "block", categories: [], provider: "validation", moderationId: "", unavailable: false } }
+  const approvedDataUrl = `data:image/webp;base64,${bytes.toString("base64")}`
 
   // 6) Hash.
   const imageHash = hashImageBytes(bytes)
@@ -115,7 +110,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
       policyVersion: POLICY_VERSION,
       providerModelVersion: modelVersion,
     })
-    return { decision: cached.decision, categories: cachedCategories, provider: cached.provider, moderationId }
+    return { decision: cached.decision, categories: cachedCategories, provider: cached.provider, moderationId, ...(cached.decision === "allow" ? { approvedDataUrl } : {}) }
   }
 
   // 8) Moderation provider (the DETECTOR) + the separate severe-content
@@ -127,7 +122,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
   // scores is a genuine content decision worth recording and worth
   // counting toward abuse.ts's escalation.
   let outcome, severeCategories
-  try { [outcome, severeCategories] = await Promise.all([provider.analyze(bytes, validated.format), checkSevereContent(bytes)]) }
+  try { [outcome, severeCategories] = await Promise.all([provider.analyze(bytes, "webp"), checkSevereContent(bytes)]) }
   catch { return { decision: "block", categories: [], provider: provider.name, moderationId: "", unavailable: true } }
 
   if (!outcome.ok) {
@@ -165,7 +160,7 @@ export async function moderateImage(input: ModerateImageInput): Promise<Moderati
     log.warn("imageModeration: rejected by policy", { surface, decision })
   }
 
-  return { decision, categories, provider: provider.name, moderationId }
+  return { decision, categories, provider: provider.name, moderationId, ...(decision === "allow" ? { approvedDataUrl } : {}) }
 }
 
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000

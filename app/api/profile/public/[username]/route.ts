@@ -1,9 +1,10 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { auth } from "@/auth"
 import { getUserIdByUsername, getUserStatus, getPublicProfile, isBlockedEitherWay } from "@/lib/db"
 import { normalizeUsername } from "@/lib/username"
 import { isRateLimited } from "@/lib/apiRateLimit"
 
-export async function GET(_request: Request, { params }: { params: Promise<{ username: string }> }) {
+async function handleGET(_request: Request, { params }: { params: Promise<{ username: string }> }) {
   const userId = (await auth())?.user?.id
   if (!userId) return Response.json({ error: "not_authenticated" }, { status: 401 })
   if (await isRateLimited(`public-profile:${userId}`, 60, 60_000)) return Response.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
@@ -18,3 +19,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ use
     return Response.json(await getPublicProfile(targetId), { headers: { "Cache-Control": "no-store" } })
   } catch { return Response.json({ error: "profile_unavailable" }, { status: 503 }) }
 }
+
+export const GET = withHttpMetrics("/app/api/profile/public/[username]", handleGET)

@@ -18,6 +18,7 @@ async function query(sql: string) {
 process.env.DATABASE_URL = "postgres://localhost/mock"
 const require = createRequire(import.meta.url)
 require("pg").Pool = class {
+  on() { return this }
   query = query
   async connect() { return { query, release() {} } }
 }

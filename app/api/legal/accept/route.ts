@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -16,7 +17,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * whether it's configured, plus the real Postgres/Node error code when a
  * query fails.
  */
-export async function POST() {
+async function handlePOST() {
   const databaseUrlConfigured = Boolean(process.env.DATABASE_URL)
 
   // Not pre-declared with an explicit type: `auth` is an overloaded
@@ -71,3 +72,5 @@ export async function POST() {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const POST = withHttpMetrics("/app/api/legal/accept", handlePOST)

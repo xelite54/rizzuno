@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -17,7 +18,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * username, via POST /api/friends/request and /api/friends/block, which
  * resolve it back to a real id server-side only.
  */
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   let session
   try {
     session = await auth()
@@ -50,3 +51,5 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const GET = withHttpMetrics("/app/api/friends/search", handleGET)

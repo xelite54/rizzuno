@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -12,7 +13,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * calls (severs any friendship/pending request as part of the same
  * transaction, exactly as it does there).
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let session
   try {
     session = await auth()
@@ -59,3 +60,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const POST = withHttpMetrics("/app/api/friends/block", handlePOST)

@@ -1,0 +1,11 @@
+# Railway topology and scaling
+
+Observed production: realtime one replica in us-west2; Redis one replica in ams, with persistence disabled. Target: place BOTH in us-west2 via Railway service settings, using private networking. Region is not hardcoded in application code. Redis is ephemeral coordination state; reports/blocks/legal/account state live in Postgres.
+
+Maintenance procedure: schedule a call-interruption window; stop admission and drain realtime; move/recreate Redis in us-west2 with private authenticated networking; update the service reference if required without printing it; wait for Redis health, then start one realtime coordinator, check /ready, authenticated hello and a two-account call. Monitor Redis RTT and stream lag. Do not scale Redis by cloning independent writable instances: election requires ONE consistent Redis primary. Document the Redis availability/backup plan and provider's failover behavior.
+
+Use /ready as deployment healthcheck after testing startup budget, /health for shallow liveness. Enable wait-for-CI. Start command stays npm run start. Do not silently move a production service or volume through repository changes.
+
+One authoritative coordinator processes matchmaking for all gateways. Lease: 15 seconds, renewal 3 seconds, local monotonic safety margin 1 second. UUID generation tokens are equality-fenced, not monotonically increasing numeric DB fencing tokens. Redis append checks the lease atomically. Retired generations cannot emit matches. Commands are ordered per socket and consumed once per stream cursor. A stream gap invalidates sessions rather than hiding dropped leave/block/report commands. Pending outputs and socket buffers are bounded; overload can disconnect sessions.
+
+Failover interrupts calls and queues; clients must reconnect and retry unacknowledged operations. Persisted blocks/reports survive; an unacknowledged in-flight report is not a durable delivery guarantee. Durable commands need a future acknowledged outbox/retry design if loss-free submission across crashes is required. PostgreSQL idempotency and server eligibility checks remain authoritative. Redis primary loss can lose cooldowns/invitations. Do not describe this model as seamless failover or arbitrarily horizontally scalable.

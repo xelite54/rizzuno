@@ -52,6 +52,7 @@ export type ModerationResult = {
   provider: string
   moderationId: string
   /** Set only when the decision is a rejection caused by the provider itself being unusable (timeout/error/unconfigured), not a real content judgment — see index.ts's FAIL-CLOSED handling. Callers use this to choose between "Image not allowed" and "Couldn't check image — try again." */
+  approvedDataUrl?: string
   unavailable?: boolean
 }
 

@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -18,7 +19,7 @@ import { hasAcceptedCurrent, describeDbError } from "@/lib/db"
  * vs. a real session with no `user.id` vs. DATABASE_URL being unset vs.
  * `hasAcceptedCurrent()` itself throwing (and if so, its real error code).
  */
-export async function GET() {
+async function handleGET() {
   const databaseUrlConfigured = Boolean(process.env.DATABASE_URL)
 
   // Not pre-declared with an explicit type: `auth` is an overloaded
@@ -71,3 +72,5 @@ export async function GET() {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const GET = withHttpMetrics("/app/api/legal/status", handleGET)

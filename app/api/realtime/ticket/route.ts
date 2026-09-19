@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { mintTicket } from "@/lib/realtimeTicket"
@@ -19,7 +20,7 @@ import { requestCountry } from "@/lib/country"
  * server/ws-server.ts) as defense in depth against a ticket minted just
  * before a ban took effect.
  */
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   const session = await auth()
   const userId = session?.user?.id
   if (!userId) {
@@ -48,3 +49,5 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ ticket: mintTicket(userId, requestCountry(request)) }, { headers: { "Cache-Control": "no-store" } })
 }
+
+export const GET = withHttpMetrics("/app/api/realtime/ticket", handleGET)

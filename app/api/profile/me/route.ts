@@ -1,3 +1,5 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
+import { storeApprovedImage } from "@/lib/imageStorage"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -15,7 +17,7 @@ const MAX_BIO_LENGTH = 200
  * truth now) rather than trusting only whatever this browser's own
  * localStorage cache happens to have.
  */
-export async function GET() {
+async function handleGET() {
   let session
   try {
     session = await auth()
@@ -58,7 +60,7 @@ export async function GET() {
  * skips moderation entirely — there's nothing to check when nothing new
  * is being uploaded.
  */
-export async function PUT(request: Request) {
+async function handlePUT(request: Request) {
   let session
   try {
     session = await auth()
@@ -105,7 +107,8 @@ export async function PUT(request: Request) {
           { status: moderation.unavailable ? 503 : 422 }
         )
       }
-      updates.profilePhoto = body.profilePhoto
+      try { updates.profilePhoto = await storeApprovedImage(moderation) }
+      catch { return NextResponse.json({ error: "image_storage_unavailable" }, { status: 503 }) }
     } else {
       return NextResponse.json({ error: "invalid_photo" }, { status: 400 })
     }
@@ -143,3 +146,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const GET = withHttpMetrics("/app/api/profile/me", handleGET)
+
+export const PUT = withHttpMetrics("/app/api/profile/me", handlePUT)

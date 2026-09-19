@@ -5,7 +5,7 @@ import "../helpers/dbMock.mts"
 import { dbMockState } from "../helpers/dbMock.mts"
 import { createRizzunoWebSocketServer } from "../../server/ws-server"
 import { mintTicket } from "../../lib/realtimeTicket"
-import { build } from "esbuild"
+import { build, stop } from "esbuild"
 import postcss from "postcss"
 import tailwind from "@tailwindcss/postcss"
 import { createServer } from "node:http"
@@ -265,5 +265,6 @@ try {
   for (const client of wss.clients) client.terminate()
   await new Promise<void>(resolve => wss.close(() => resolve()))
   await new Promise<void>(resolve => server.close(() => resolve()))
+  await stop() // Release the bundler subprocess after all browser assertions.
   console.log(`BROWSER: evidence ${artifactDir}/results.json`)
 }

@@ -15,7 +15,7 @@ let specialized: SevereContentProvider | null = null
 /** Only a reviewed server-side adapter may register; no fake default detector. */
 export function configureSevereContentProvider(provider: SevereContentProvider | null) { specialized = provider }
 export function severeContentCapability() {
-  return { configured: specialized !== null, provider: specialized?.name ?? null, version: specialized?.version ?? "disabled" }
+  return { state: specialized ? "configured" : "not configured", configured: specialized !== null, provider: specialized?.name ?? null, version: specialized?.version ?? "disabled" }
 }
 export async function checkSevereContent(bytes: Buffer): Promise<CategoryScore[]> {
   if (!specialized) return [] // Not checked, never represented as checked/clean.

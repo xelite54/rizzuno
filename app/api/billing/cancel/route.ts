@@ -1,10 +1,11 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { billingMode } from "@/lib/billingMode"
 import { csrfGuard } from "@/lib/requestSecurity"
 import { auth } from "@/auth"
 import { cancelFreeRizzPlus } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   billingMode()
   const rejected = csrfGuard(request)
   if (rejected) return rejected
@@ -19,3 +20,5 @@ export async function POST(request: Request) {
     return Response.json({ canceled: true }, { headers: { "Cache-Control": "no-store" } })
   } catch { return Response.json({ error: "cancellation_unavailable" }, { status: 503 }) }
 }
+
+export const POST = withHttpMetrics("/app/api/billing/cancel", handlePOST)

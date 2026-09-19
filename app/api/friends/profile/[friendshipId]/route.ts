@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -23,7 +24,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * account id this ever touches is `session.user.id` (from the verified
  * session) and whatever getFriendshipOtherUser() itself resolves from that.
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ friendshipId: string }> }) {
+async function handleGET(_request: Request, { params }: { params: Promise<{ friendshipId: string }> }) {
   let session
   try {
     session = await auth()
@@ -68,3 +69,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const GET = withHttpMetrics("/app/api/friends/profile/[friendshipId]", handleGET)

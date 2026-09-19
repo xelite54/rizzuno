@@ -17,7 +17,7 @@ const VALID_ACTIONS: ModerationAction[] = ["no_action", "warning", "suspend", "b
  */
 export async function resolveReportAction(formData: FormData) {
   const session = await auth()
-  if (!isAdminEmail(session?.user?.email)) {
+  if (!session?.user?.id || !isAdminEmail(session.user.email)) {
     throw new Error("Not authorized")
   }
   if (await isRateLimited(`admin-resolve:${session!.user!.id}`, 60, 60_000)) {
@@ -33,6 +33,7 @@ export async function resolveReportAction(formData: FormData) {
     throw new Error("Invalid input")
   }
   const action = actionRaw as ModerationAction
+  if (["suspend", "ban"].includes(action) && (!reason || formData.get("confirmEnforcement") !== "yes")) throw new Error("Reason and confirmation required")
 
   const suspendUntil =
     action === "suspend" && Number.isInteger(suspendDays) && suspendDays > 0 && suspendDays <= 365 ? Date.now() + suspendDays * 24 * 60 * 60 * 1000 : null

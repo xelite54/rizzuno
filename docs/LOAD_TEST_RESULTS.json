@@ -1,0 +1,210 @@
+{
+  "date": "2026-09-19",
+  "scope": "local two processes, one Redis 7.4.7, fixture database; no real WebRTC media or TURN load",
+  "results": [
+    {
+      "concurrency": 100,
+      "backend": "fixture-database",
+      "opened": 100,
+      "authenticated": 100,
+      "connectionSuccess": 1,
+      "authenticationSuccess": 1,
+      "droppedSockets": 1,
+      "expectedDisconnects": 1,
+      "reconnectSuccess": 1,
+      "matchFailures": 0,
+      "wsMs": {
+        "samples": 100,
+        "p50": 0.9136669999998048,
+        "p95": 3.6368750000001455,
+        "p99": 4.970540999999685
+      },
+      "authMs": {
+        "samples": 100,
+        "p50": 30.074499999999716,
+        "p95": 64.11012500000015,
+        "p99": 87.65862500000003
+      },
+      "searchToMatchMs": {
+        "samples": 200,
+        "p50": 29.25208300000031,
+        "p95": 61.96812499999987,
+        "p99": 76.5230419999998
+      },
+      "skipRequeueMs": {
+        "samples": 100,
+        "p50": 49.17133299999841,
+        "p95": 49.470666999999594,
+        "p99": 76.85137500000019
+      },
+      "redisMs": {
+        "samples": 14,
+        "p50": 0.4455419999994774,
+        "p95": 2.603332999999111,
+        "p99": 2.603332999999111
+      },
+      "coordinatorCpuPercent": {
+        "samples": 28,
+        "p50": 3.120999007304401,
+        "p95": 10.979661928977858,
+        "p99": 12.953578115039774
+      },
+      "processRssBytes": {
+        "samples": 28,
+        "p50": 154746880,
+        "p95": 191725568,
+        "p99": 191725568
+      },
+      "queueDepth": {
+        "samples": 28,
+        "p50": 0,
+        "p95": 1,
+        "p99": 1
+      },
+      "eventStreamLagMs": {
+        "samples": 136,
+        "p50": 19,
+        "p95": 35,
+        "p99": 42
+      },
+      "postgresMs": null,
+      "dbConnectionCount": null
+    },
+    {
+      "concurrency": 500,
+      "backend": "fixture-database",
+      "opened": 500,
+      "authenticated": 500,
+      "connectionSuccess": 1,
+      "authenticationSuccess": 1,
+      "droppedSockets": 1,
+      "expectedDisconnects": 1,
+      "reconnectSuccess": 1,
+      "matchFailures": 0,
+      "wsMs": {
+        "samples": 500,
+        "p50": 1.2040000000015425,
+        "p95": 1.7525000000023283,
+        "p99": 2.072250000001077
+      },
+      "authMs": {
+        "samples": 500,
+        "p50": 27.874792000002344,
+        "p95": 47.944500000001426,
+        "p99": 53.88683300000048
+      },
+      "searchToMatchMs": {
+        "samples": 1000,
+        "p50": 30.874791999998706,
+        "p95": 113.96350000000166,
+        "p99": 130.973833
+      },
+      "skipRequeueMs": {
+        "samples": 499,
+        "p50": 109.16687499999898,
+        "p95": 130.8110830000005,
+        "p99": 131.10462499999994
+      },
+      "redisMs": {
+        "samples": 18,
+        "p50": 0.4422500000000582,
+        "p95": 1.247416999998677,
+        "p99": 1.247416999998677
+      },
+      "coordinatorCpuPercent": {
+        "samples": 36,
+        "p50": 4.481155945549735,
+        "p95": 19.645579713339856,
+        "p99": 21.581263828190572
+      },
+      "processRssBytes": {
+        "samples": 36,
+        "p50": 112017408,
+        "p95": 192217088,
+        "p99": 193085440
+      },
+      "queueDepth": {
+        "samples": 36,
+        "p50": 0,
+        "p95": 2,
+        "p99": 2
+      },
+      "eventStreamLagMs": {
+        "samples": 694,
+        "p50": 18,
+        "p95": 30,
+        "p99": 34
+      },
+      "postgresMs": null,
+      "dbConnectionCount": null
+    },
+    {
+      "concurrency": 1000,
+      "backend": "fixture-database",
+      "opened": 1000,
+      "authenticated": 1000,
+      "connectionSuccess": 1,
+      "authenticationSuccess": 1,
+      "droppedSockets": 1,
+      "expectedDisconnects": 1,
+      "reconnectSuccess": 1,
+      "matchFailures": 0,
+      "wsMs": {
+        "samples": 1000,
+        "p50": 1.023957999997947,
+        "p95": 1.5350000000034925,
+        "p99": 2.3230840000032913
+      },
+      "authMs": {
+        "samples": 1000,
+        "p50": 26.420500000000175,
+        "p95": 48.65845800000534,
+        "p99": 54.7801249999975
+      },
+      "searchToMatchMs": {
+        "samples": 2000,
+        "p50": 52.42304200000217,
+        "p95": 216.66795800000546,
+        "p99": 217.8000419999953
+      },
+      "skipRequeueMs": {
+        "samples": 999,
+        "p50": 159.09449999999924,
+        "p95": 217.42787499999395,
+        "p99": 217.96608399999968
+      },
+      "redisMs": {
+        "samples": 23,
+        "p50": 0.37108299999817973,
+        "p95": 1.0247090000048047,
+        "p99": 1.5523750000065775
+      },
+      "coordinatorCpuPercent": {
+        "samples": 46,
+        "p50": 6.9130365642166876,
+        "p95": 17.381582547018645,
+        "p99": 20.723531314352257
+      },
+      "processRssBytes": {
+        "samples": 46,
+        "p50": 119930880,
+        "p95": 168935424,
+        "p99": 175702016
+      },
+      "queueDepth": {
+        "samples": 46,
+        "p50": 0,
+        "p95": 2,
+        "p99": 2
+      },
+      "eventStreamLagMs": {
+        "samples": 1508,
+        "p50": 17,
+        "p95": 29,
+        "p99": 32
+      },
+      "postgresMs": null,
+      "dbConnectionCount": null
+    }
+  ]
+}

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "September 18, 2026"
+const LAST_UPDATED = "September 19, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -481,7 +481,7 @@ export default function TermsOfServicePage() {
               storing what you write into a report. This license is limited to what running the service actually
               requires; it doesn&apos;t give Rizzuno any broader right to reuse, license, or commercially exploit
               your content, and it lasts only as long as reasonably necessary for that specific processing — for
-              most of your content, that&apos;s the moment it&apos;s relayed, since it&apos;s never stored on
+              transient in-call content, that&apos;s the moment it&apos;s relayed, since it&apos;s not retained on
               Rizzuno&apos;s servers at all (see Section 9).
             </p>
             <p className="mt-2 text-muted">
@@ -567,7 +567,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">41. Legal-version acceptance history</h2>
             <p className="mt-2 text-muted">
               Rizzuno keeps a record of which version of the age affirmation, these Terms, and the Privacy Policy
-              your account accepted, and when. That record is appended to, never overwritten or deleted — a prior
+              your account accepted, and when. New acceptances are appended without overwriting prior versions, subject to applicable retention and deletion obligations — a prior
               acceptance of an older version stays on file even after you accept a newer one.
             </p>
           </section>

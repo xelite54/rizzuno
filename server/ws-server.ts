@@ -59,6 +59,7 @@ export function realtimeSnapshot() {
   return { ...matchmaker.snapshot(), presence: [...connections.values()].map((s) => ({ displayId: s.displayId, searching: s.seeking, generation: s.searchGeneration, roomId: s.roomId, alive: s.isAlive })) }
 }
 export function resetRealtimeState() {
+  clearTimeout(onlineCountTimer); onlineCountTimer = undefined
   for (const i of friendInvitations.values()) clearTimeout(i.timer)
   friendInvitations.clear()
   for (const id of roomSetups.keys()) clearRoomSetup(id)
@@ -396,11 +397,15 @@ async function notifyFriendsOfProfileChange(userId: string) {
  * would need throttling or a push-on-interval design well before that
  * stopped being true.
  */
+let onlineCountTimer: ReturnType<typeof setTimeout> | undefined
 function broadcastOnlineCount() {
-  const count = connections.size
-  for (const state of connections.values()) {
-    send(state.ws, { type: "online-count", count })
-  }
+  if (onlineCountTimer) return
+  onlineCountTimer = setTimeout(() => {
+    onlineCountTimer = undefined
+    const count = connections.size
+    for (const state of connections.values()) send(state.ws, { type: "online-count", count })
+  }, 1000)
+  onlineCountTimer.unref()
 }
 
 /**
@@ -1315,7 +1320,7 @@ export function createRizzunoWebSocketServer() {
                 type: "chat",
                 roomId: message.roomId,
                 from: "peer",
-                content: { kind: "image", dataUrl: content.dataUrl },
+                content: { kind: "image", dataUrl: moderation.approvedDataUrl ?? content.dataUrl },
                 ts,
               })
               send(state.ws, { type: "chat-sent", roomId: message.roomId, clientMessageId: message.clientMessageId, ts })

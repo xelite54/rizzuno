@@ -1,9 +1,10 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { auth } from "@/auth"
 import { claimAccountGender, getUserStatus } from "@/lib/db"
 import { isValidGender } from "@/lib/signaling/protocol"
 
-export async function PUT(request: Request) {
+async function handlePUT(request: Request) {
   const userId = (await auth())?.user?.id
   if (!userId) return Response.json({ error: "not_authenticated" }, { status: 401 })
   if (await isRateLimited(`gender:${userId}`, 10, 60_000)) return Response.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
@@ -16,3 +17,5 @@ export async function PUT(request: Request) {
     return Response.json({ gender })
   } catch { return Response.json({ error: "save_failed" }, { status: 503 }) }
 }
+
+export const PUT = withHttpMetrics("/app/api/profile/gender", handlePUT)

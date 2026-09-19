@@ -1,4 +1,5 @@
 import type { PoolConfig } from "pg"
+import { X509Certificate } from "node:crypto"
 import { rootCertificates } from "node:tls"
 
 function integer(name: string, fallback: number, max: number): number {
@@ -14,7 +15,9 @@ export function databaseConfig(connectionString: string): PoolConfig {
   // pg connection-string SSL options can override the explicit ssl object.
   for (const key of ["sslmode", "sslcert", "sslkey", "sslrootcert", "uselibpqcompat"]) url.searchParams.delete(key)
   const ca = process.env.DATABASE_SSL_CA?.replace(/\\n/g, "\n")
-  if (ca && !ca.includes("-----BEGIN CERTIFICATE-----")) throw new Error("Invalid DATABASE_SSL_CA")
+  if (ca) {
+    try { new X509Certificate(ca) } catch { throw new Error("Invalid DATABASE_SSL_CA") }
+  }
   return {
     connectionString: url.toString(),
     ssl: local && process.env.NODE_ENV !== "production"

@@ -23,6 +23,7 @@ const app = next({ dev, httpServer })
 const handle = app.getRequestHandler()
 
 httpServer.on("request", (req: IncomingMessage, res: ServerResponse) => {
+  res.once("finish", () => log.info("http.request", { status: res.statusCode, type: req.url === "/ready" ? "readiness" : req.url === "/health" ? "health" : "web" }))
   // Railway (and most PaaS health checks) expect a fast, unauthenticated
   // liveness endpoint. Deliberately shallow — it reports the process is
   // alive and accepting connections, not that Postgres is reachable, so a
@@ -110,7 +111,7 @@ function shutdown(signal: string) {
   }, 10_000)
   forceExit.unref()
 
-  for (const ws of wss.clients) {
+  for (const ws of wss?.clients ?? []) {
     ws.close(1001, "server shutting down")
   }
 

@@ -1,9 +1,10 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { billingMode } from "@/lib/billingMode"
 import { stripeClient, syncSubscription } from "@/lib/billing"
 import type Stripe from "stripe"
 
 export const runtime = "nodejs"
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   if (billingMode() === "free_test") return Response.json({ error: "billing_disabled" }, { status: 503 })
   if (!process.env.STRIPE_WEBHOOK_SECRET || !process.env.STRIPE_RIZZ_PLUS_PRICE_ID) return Response.json({ error: "not_configured" }, { status: 503 })
   const signature = request.headers.get("stripe-signature")
@@ -23,3 +24,5 @@ export async function POST(request: Request) {
     return Response.json({ error: "sync_failed" }, { status: 500 })
   }
 }
+
+export const POST = withHttpMetrics("/app/api/billing/webhook", handlePOST)

@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { billingMode } from "@/lib/billingMode"
 import { csrfGuard } from "@/lib/requestSecurity"
 import { log } from "../../../../lib/observability"
@@ -10,7 +11,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
 // grantFreeRizzPlus in lib/db.ts). Swap the body back to a real
 // stripe.checkout.sessions.create call (still in git history) once billing
 // is ready to charge again.
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   billingMode()
   const rejected = csrfGuard(request)
   if (rejected) return rejected
@@ -33,3 +34,5 @@ export async function POST(request: Request) {
     return Response.json({ error: "billing_unavailable" }, { status: 503 })
   }
 }
+
+export const POST = withHttpMetrics("/app/api/billing/checkout", handlePOST)

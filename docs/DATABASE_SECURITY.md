@@ -1,0 +1,11 @@
+# Database security
+
+0013 revokes public-schema table, sequence and function grants from anon/authenticated and PUBLIC, including creator default grants at global and schema scope. It explicitly preserves the current server/migrator's access and aborts on unexpected inherited/column grants. Current production tables are owned by postgres, the direct pg login role. If web/Railway later use different roles, grant those roles explicitly and verify BOTH before deployment. Audit every newly introduced object creator; defaults are per creating role. This migration intentionally creates no Supabase auth.uid policies.
+
+Disable the Supabase **Data API** in project settings: Rizzuno uses direct server-side pg. This is separate from Storage access. See [Supabase Data API security](https://supabase.com/docs/guides/api/securing-your-api) and [Postgres default privileges](https://www.postgresql.org/docs/current/sql-alterdefaultprivileges.html). Do not disable the Storage service.
+
+0014 validates all eleven constraints added NOT VALID by 0012 and adds a partial reply foreign-key lookup index. A 5-second lock timeout fails safely for retry; no indexes are removed. For very large tables, plan the index build in a separate maintenance operation using CONCURRENTLY outside the transaction; the current small production dataset does not justify replacing the migration runner.
+
+`node --env-file=<protected-env> --import tsx scripts/apply-security-migrations.mts --apply` applies only 0013/0014 using the existing transactional ledger, then verifies. Run `scripts/verify-database-security.sql` through each actual deployment connection. It checks effective access and server grants, not just ACL text. The isolated PostgreSQL test also actually SET ROLEs to anon/authenticated, attempts reads/writes and creates future objects to check defaults.
+
+2026-09-19: 0013 and 0014 applied through the connected Supabase management interface and recorded in the application's ledger. Live verification returned no Data API table/sequence/function privileges, zero unvalidated constraints and retained postgres privileges. Railway /health and /ready returned 200 afterward. The local protected environment lacked the required CA and correctly refused its direct pg connection; TLS verification was not disabled. That local CA must be supplied before direct operator scripts can run.

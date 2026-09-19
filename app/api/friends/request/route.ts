@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -14,7 +15,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * friends, and blocked handling, just reached from a username instead of a
  * displayId/known real id.
  */
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   let session
   try {
     session = await auth()
@@ -64,3 +65,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const POST = withHttpMetrics("/app/api/friends/request", handlePOST)

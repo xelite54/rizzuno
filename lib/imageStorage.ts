@@ -1,0 +1,60 @@
+import { randomUUID, createHash } from "node:crypto"
+import type { ModerationResult } from "./imageModeration/types"
+
+const KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.webp$/
+export function isImageKey(key: string) { return KEY.test(key) }
+export function imageStorageConfig() {
+  const { IMAGE_STORAGE_URL, IMAGE_STORAGE_KEY, IMAGE_STORAGE_BUCKET } = process.env
+  if (!IMAGE_STORAGE_URL || !IMAGE_STORAGE_KEY || !IMAGE_STORAGE_BUCKET) throw new Error("Image storage configuration required")
+  let url: URL
+  try { url = new URL(IMAGE_STORAGE_URL) } catch { throw new Error("Invalid IMAGE_STORAGE_URL") }
+  if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/" || url.search || url.hash) throw new Error("Invalid IMAGE_STORAGE_URL")
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(IMAGE_STORAGE_BUCKET)) throw new Error("Invalid IMAGE_STORAGE_BUCKET")
+  return { origin: url.origin, key: IMAGE_STORAGE_KEY, bucket: IMAGE_STORAGE_BUCKET }
+}
+async function storageRequest(path: string, init: RequestInit = {}) {
+  const config = imageStorageConfig()
+  try {
+    const response = await fetch(`${config.origin}/storage/v1/${path}`, {
+      ...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15_000),
+      headers: { apikey: config.key, Authorization: `Bearer ${config.key}`, ...init.headers },
+    })
+    if (!response.ok) throw new Error("storage_unavailable")
+    return response
+  } catch { throw new Error("storage_unavailable") }
+}
+export async function readStoredImage(key: string): Promise<Buffer> {
+  if (!isImageKey(key)) throw new Error("invalid_image_key")
+  const { bucket } = imageStorageConfig()
+  const response = await storageRequest(`object/authenticated/${bucket}/${key}`)
+  // Read with a hard bound even when a backend omits Content-Length.
+  const reader = response.body!.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.length
+      if (size > 3_000_000) throw new Error("storage_invalid_object")
+      chunks.push(value)
+    }
+  } finally { await reader.cancel() }
+  return Buffer.concat(chunks)
+}
+/** Only normalized, approved bytes enter the private bucket. A reference is
+ * returned only after a full read-back hash check. No client filenames/URLs. */
+export async function storeApprovedImage(result: ModerationResult): Promise<string> {
+  if (result.decision !== "allow" || !result.approvedDataUrl?.startsWith("data:image/webp;base64,")) throw new Error("image_not_approved")
+  const bytes = Buffer.from(result.approvedDataUrl.split(",")[1], "base64")
+  if (!bytes.length || bytes.length > 3_000_000) throw new Error("invalid_image")
+  const { bucket } = imageStorageConfig()
+  // Catch a mistakenly public bucket before sending any bytes.
+  const settings = await (await storageRequest(`bucket/${bucket}`)).json()
+  if (settings.public !== false) throw new Error("private_image_bucket_required")
+  const key = `${randomUUID()}.webp`
+  await storageRequest(`object/${bucket}/${key}`, { method: "POST", headers: { "Content-Type": "image/webp", "x-upsert": "false" }, body: new Uint8Array(bytes) })
+  const stored = await readStoredImage(key)
+  if (createHash("sha256").update(stored).digest("hex") !== createHash("sha256").update(bytes).digest("hex")) throw new Error("storage_verification_failed")
+  return `/api/media/${key}`
+}

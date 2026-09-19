@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation"
 import { auth } from "@/auth"
+import { isRateLimited } from "@/lib/apiRateLimit"
 import { isAdminEmail } from "@/lib/admin"
 import { listReports } from "@/lib/db"
 import { resolveReportAction } from "./actions"
@@ -21,6 +22,8 @@ export default async function AdminPage() {
   if (!isAdminEmail(session?.user?.email)) {
     notFound()
   }
+
+  if (!session?.user?.id || await isRateLimited(`admin-read:${session.user.id}`, 60, 60_000)) notFound()
 
   const pending = await listReports("pending")
   const reviewed = (await listReports("reviewed")).slice(0, 20)
@@ -62,9 +65,12 @@ export default async function AdminPage() {
               <input
                 type="text"
                 name="reason"
-                placeholder="reason (optional)"
+                placeholder="reason (required for ban/suspension)"
                 className="min-w-[10rem] flex-1 rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[13px]"
               />
+              <label className="text-[12px]">
+                <input type="checkbox" name="confirmEnforcement" value="yes" /> Confirm suspension / permanent ban
+              </label>
               <button type="submit" className="rounded-lg bg-foreground px-3 py-1.5 text-[13px] font-semibold text-background">
                 Apply
               </button>

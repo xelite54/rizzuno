@@ -1,3 +1,4 @@
+import { normalizeImage } from "../lib/imageModeration/normalize.ts"
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestServer, connectAndHello } from "./helpers/wsHarness.mts"
@@ -71,7 +72,7 @@ test("chat image: an allowed image is forwarded to the matched partner", async (
     a.send({ type: "chat", roomId: matched.roomId, clientMessageId: crypto.randomUUID(), content: { kind: "image", dataUrl } })
     const received = await b.waitForType("chat")
     assert.equal(received.content.kind, "image")
-    if (received.content.kind === "image") assert.equal(received.content.dataUrl, dataUrl)
+    if (received.content.kind === "image") assert.equal(received.content.dataUrl, `data:image/webp;base64,${(await normalizeImage(dataUrl)).toString("base64")}`)
 
     a.close()
     b.close()

@@ -1,9 +1,10 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { billingMode } from "@/lib/billingMode"
 import { csrfGuard } from "@/lib/requestSecurity"
 import { auth } from "@/auth"
 import { isRateLimited } from "@/lib/apiRateLimit"
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   billingMode()
   const rejected = csrfGuard(request)
   if (rejected) return rejected
@@ -12,3 +13,5 @@ export async function POST(request: Request) {
   if (await isRateLimited(`portal:${userId}`, 10, 60_000)) return Response.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": "60" } })
   return Response.json({ error: "free_membership_has_no_billing_portal" }, { status: 409 })
 }
+
+export const POST = withHttpMetrics("/app/api/billing/portal", handlePOST)

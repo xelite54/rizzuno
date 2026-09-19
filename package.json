@@ -8,7 +8,10 @@
     "start": "NODE_ENV=production tsx server.ts",
     "lint": "eslint",
     "test": "tsx --test --experimental-test-module-mocks tests/**/*.test.mts",
-    "test:webrtc:browser": "tsx --experimental-test-module-mocks tests/browser/runMedia.mts"
+    "test:webrtc:browser": "tsx --experimental-test-module-mocks tests/browser/runMedia.mts",
+    "test:cluster": "node --import tsx --experimental-test-module-mocks --test tests/integration/cluster.mts",
+    "images:migrate": "tsx scripts/migrate-legacy-images.mts",
+    "test:load": "node --import tsx --experimental-test-module-mocks tests/load/realtime.mts"
   },
   "dependencies": {
     "image-size": "2.0.4",
@@ -19,10 +22,12 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "redis": "5.12.1",
+    "sharp": "0.35.4",
     "stripe": "^22.6.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.23.1",

@@ -10,6 +10,7 @@ import { MIGRATIONS } from "./migrations"
 /** Shared persistent account, profile, social, moderation, billing and legal store. */
 const connectionString = process.env.DATABASE_URL
 const pool = connectionString ? new Pool(databaseConfig(connectionString)) : null
+pool?.on("error", () => log.error("database.connection_error"))
 
 function requirePool(): Pool {
   if (!pool) {
@@ -205,7 +206,10 @@ async function q<T extends Record<string, unknown> = Record<string, unknown>>(
   params: unknown[] = []
 ) {
   await ensureMigrated()
-  return requirePool().query<T>(text, params)
+  const started = performance.now()
+  try { return await requirePool().query<T>(text, params) }
+  catch (error) { log.error("database.query_failed", describeDbError(error)); throw error }
+  finally { log.info("database.query", { durationMs: performance.now()-started, count: pool?.totalCount ?? 0, queueSize: pool?.waitingCount ?? 0 }) }
 }
 
 /** Closes the pool — called from server.ts's graceful-shutdown handler so a SIGTERM doesn't leave open Postgres connections behind. No-op if DATABASE_URL was never configured. */
@@ -676,6 +680,7 @@ export async function fileReport(input: ReportInput): Promise<string> {
       `INSERT INTO reports(id,reporter_id,reported_id,category,details,match_id,status,created_at,priority) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8)`,
       [id,input.reporterId,input.reportedId,input.category,input.details ?? null,input.matchId ?? null,now(),input.category === "underage_concern" ? "urgent" : "normal"])
     await client.query("COMMIT")
+    if (!existing.rows.length && input.category === "underage_concern") log.warn("moderation.urgent_report", { count: 1 })
     return id
   } catch (err) { await client.query("ROLLBACK").catch(() => {}); throw err }
   finally { client.release() }
@@ -719,6 +724,7 @@ export async function resolveReport(
 ) {
   if (!isWireId(reportId) || !["no_action", "warning", "suspend", "ban"].includes(action)) throw new Error("invalid_action")
   if (action === "suspend" && (!Number.isSafeInteger(suspendUntilMs) || suspendUntilMs! <= now() || suspendUntilMs! > now() + 366 * 86_400_000)) throw new Error("invalid_suspension")
+  if (["suspend", "ban"].includes(action) && (!reason?.trim() || reason.length > 500)) throw new Error("reason_required")
   await ensureMigrated()
   const client = await requirePool().connect()
   try {
@@ -729,6 +735,7 @@ export async function resolveReport(
       | { id: string; reported_id: string; status: string }
       | undefined
     if (!report) throw new Error("report not found")
+    if (report.status !== "pending") throw new Error("report_already_reviewed")
 
     const previous = await client.query('SELECT banned_at,ban_reason,suspended_until,suspend_reason FROM users WHERE id=$1 FOR UPDATE', [report.reported_id])
     if (action === "ban") {
@@ -1401,6 +1408,9 @@ export async function cleanupEphemeralRecords(): Promise<void> {
   await q('DELETE FROM api_rate_limits WHERE expires_at < $1', [cutoff])
   await q('DELETE FROM image_moderation_rate_limits WHERE window_start < $1', [cutoff - RETENTION.imageRateWindowMs])
   await q('DELETE FROM turn_credential_rate_limits WHERE window_start < $1', [cutoff - RETENTION.turnRateWindowMs])
+  const backlog = await q<{ count: string; urgent: string }>("SELECT count(*) AS count, count(*) FILTER (WHERE priority='urgent') AS urgent FROM reports WHERE status='pending'")
+  log.info("moderation.backlog", { count: Number(backlog.rows[0].count) })
+  log.info("moderation.urgent_backlog", { count: Number(backlog.rows[0].urgent) })
 }
 
 /** Restricted caller must verify the requester's identity and record a case reference. */
@@ -1445,4 +1455,15 @@ export async function eraseUserData(userId: string, actorId: string, caseReferen
     await client.query('COMMIT')
   } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err }
   finally { client.release() }
+}
+
+/** References remain readable during the legacy data-URL migration. Removed or
+ * erased profile/post objects immediately stop being served by the media route. */
+export async function isStoredImageReferenced(reference: string): Promise<boolean> {
+  const { rows } = await q<{ present: boolean }>(`SELECT EXISTS (
+    SELECT 1 FROM users WHERE profile_photo=$1 AND deleted_at IS NULL AND banned_at IS NULL
+    UNION ALL SELECT 1 FROM user_posts p JOIN users u ON u.id=p.user_id
+      WHERE p.data_url=$1 AND u.deleted_at IS NULL AND u.banned_at IS NULL
+  ) AS present`, [reference])
+  return rows[0].present
 }

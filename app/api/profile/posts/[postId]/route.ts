@@ -1,10 +1,11 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { removePost, describeDbError } from "@/lib/db"
 
 /** Deletes one of the caller's own posts — removePost() itself scopes the DELETE to `WHERE id = $1 AND user_id = $2`, so this can never remove a post belonging to someone else even if a client somehow guessed another account's post id. */
-export async function DELETE(_request: Request, { params }: { params: Promise<{ postId: string }> }) {
+async function handleDELETE(_request: Request, { params }: { params: Promise<{ postId: string }> }) {
   let session
   try {
     session = await auth()
@@ -32,3 +33,5 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const DELETE = withHttpMetrics("/app/api/profile/posts/[postId]", handleDELETE)

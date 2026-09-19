@@ -166,6 +166,6 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // §7 adds it as a purpose of processing; §12 adds its retention entry.
   // Material change to how content is handled before publication, so
   // every account with a prior acceptance record is asked again.
-  { document: "terms", version: "2026-09-18" },
-  { document: "privacy", version: "2026-09-18" },
+  { document: "terms", version: "2026-09-19" },
+  { document: "privacy", version: "2026-09-19" },
 ]

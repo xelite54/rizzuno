@@ -1,7 +1,7 @@
 type Level = "debug" | "info" | "warn" | "error"
 type Event = { time: string; level: Level; event: string; fields: Record<string, string | number | boolean> }
 // Explicit allowlist: never forward arbitrary errors, request bodies or tokens.
-const allowed = new Set(["displayId", "roomId", "requestId", "code", "type", "surface", "decision", "context", "count", "queueSize", "durationMs", "status", "reasonCode", "source", "friendCount", "missingUsernames", "ok", "updated", "duplicate"])
+const allowed = new Set(["generation", "pendingOutputs", "coordinator", "memoryBytes", "displayId", "roomId", "requestId", "code", "type", "surface", "decision", "context", "count", "queueSize", "durationMs", "status", "reasonCode", "source", "friendCount", "missingUsernames", "ok", "updated", "duplicate"])
 let sink: ((event: Event) => void) | undefined
 export function configureObservability(next: (event: Event) => void) { sink = next }
 function emit(level: Level, event: string, args: unknown[]) {

@@ -109,6 +109,8 @@ export function validateAndDecodeImage(dataUrl: unknown): ImageValidationResult 
 
   const format = detectFormatFromMagicBytes(bytes)
   if (!format) return { ok: false, reason: "unsupported_format" }
+  const claimed = dataUrl.slice(11, dataUrl.indexOf(";")).toLowerCase().replace("jpg", "jpeg")
+  if (claimed !== format) return { ok: false, reason: "malformed_image" }
 
   let dimensions: { width?: number; height?: number; type?: string }
   try {

@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -23,7 +24,7 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * party to it — a friendship that doesn't exist and one that isn't this
  * account's own both come back identically as 404.
  */
-export async function GET(_request: Request, { params }: { params: Promise<{ friendshipId: string }> }) {
+async function handleGET(_request: Request, { params }: { params: Promise<{ friendshipId: string }> }) {
   let session
   try {
     session = await auth()
@@ -67,3 +68,5 @@ export async function GET(_request: Request, { params }: { params: Promise<{ fri
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const GET = withHttpMetrics("/app/api/friends/messages/[friendshipId]", handleGET)

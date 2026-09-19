@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
@@ -33,7 +34,7 @@ const TURN_CREDENTIAL_RATE_WINDOW_MS = 60_000
  * to still be configured, exactly like an unconfigured TURN always has in
  * this codebase.
  */
-export async function GET() {
+async function handleGET() {
   const session = await auth()
   const userId = session?.user?.id
   if (!userId) {
@@ -70,3 +71,5 @@ export async function GET() {
   // the Next.js app, not the realtime server.
   return NextResponse.json({ configured: true, ...minted }, { headers: { "Cache-Control": "no-store" } })
 }
+
+export const GET = withHttpMetrics("/app/api/realtime/turn", handleGET)

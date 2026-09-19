@@ -358,4 +358,73 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE billing_subscriptions ADD CONSTRAINT subscription_owner FOREIGN KEY(user_id) REFERENCES users(id) NOT VALID;
     `,
   },
+  {
+    id: "0013_database_security_hardening",
+    sql: `
+      SET LOCAL lock_timeout = '5s';
+      DO $hardening$
+      DECLARE role_name text; creator text; object_kind text;
+      BEGIN
+        IF current_user IN ('anon', 'authenticated', 'authenticator') THEN
+          RAISE EXCEPTION 'Migrations require the server database owner role';
+        END IF;
+        -- The existing migrator is the direct pg identity, not a Data API role.
+        -- Preserve its access explicitly before removing inherited PUBLIC grants.
+        EXECUTE format('GRANT ALL ON ALL TABLES IN SCHEMA public TO %I', current_user);
+        EXECUTE format('GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO %I', current_user);
+        EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I', current_user);
+        REVOKE ALL ON ALL TABLES IN SCHEMA public FROM PUBLIC;
+        REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
+        REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+        FOR role_name IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated') LOOP
+          EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM %I', role_name);
+          EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM %I', role_name);
+          EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM %I', role_name);
+        END LOOP;
+        -- Defaults belong to the creating role. Cover existing public table owners
+        -- and the migrator; refuse/roll back if we cannot secure an owner.
+        FOR creator IN SELECT DISTINCT tableowner FROM pg_tables WHERE schemaname='public'
+                       UNION SELECT current_user LOOP
+          FOREACH object_kind IN ARRAY ARRAY['TABLES','SEQUENCES','FUNCTIONS'] LOOP
+            -- Global defaults are additive with schema defaults, so revoke both.
+            EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I REVOKE ALL ON %s FROM PUBLIC', creator, object_kind);
+            EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON %s FROM PUBLIC', creator, object_kind);
+            FOR role_name IN SELECT rolname FROM pg_roles WHERE rolname IN ('anon','authenticated') LOOP
+              EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I REVOKE ALL ON %s FROM %I', creator, object_kind, role_name);
+              EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE ALL ON %s FROM %I', creator, object_kind, role_name);
+            END LOOP;
+          END LOOP;
+        END LOOP;
+        -- Catch inherited role grants as well as explicit grants. Never silently
+        -- commit a partially secured schema or revoke unrelated role membership.
+        IF EXISTS (
+          SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          CROSS JOIN pg_roles r
+          WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
+          AND r.rolname IN ('anon','authenticated')
+          AND (has_table_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            OR has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES'))
+        ) THEN RAISE EXCEPTION 'Inherited or column Data API grants remain; owner review required'; END IF;
+      END $hardening$;
+    `,
+  },
+  {
+    id: "0014_validate_production_constraints",
+    sql: `
+      SET LOCAL lock_timeout = '5s';
+      CREATE INDEX IF NOT EXISTS friend_message_reply_lookup
+        ON friend_messages(friendship_id, reply_to_id) WHERE reply_to_id IS NOT NULL;
+      ALTER TABLE blocks VALIDATE CONSTRAINT blocks_no_self;
+      ALTER TABLE friendships VALIDATE CONSTRAINT friendships_ordered;
+      ALTER TABLE friend_requests VALIDATE CONSTRAINT requests_no_self;
+      ALTER TABLE friend_requests VALIDATE CONSTRAINT requests_status;
+      ALTER TABLE reports VALIDATE CONSTRAINT reports_category;
+      ALTER TABLE reports VALIDATE CONSTRAINT reports_status;
+      ALTER TABLE friend_messages VALIDATE CONSTRAINT messages_no_self;
+      ALTER TABLE friend_messages VALIDATE CONSTRAINT replies_same_friendship;
+      ALTER TABLE user_posts VALIDATE CONSTRAINT posts_owner;
+      ALTER TABLE billing_customers VALIDATE CONSTRAINT billing_owner;
+      ALTER TABLE billing_subscriptions VALIDATE CONSTRAINT subscription_owner;
+    `,
+  },
 ]

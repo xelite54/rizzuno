@@ -257,6 +257,7 @@ export class Matchmaker {
       this.rooms.set(room.id, room)
       this.roomByGuest.set(room.a, room.id)
       this.roomByGuest.set(room.b, room.id)
+      log.info("matchmaking.queue_latency", { durationMs: Date.now() - candidate.enqueuedAt })
       log.log("matchmaker: pair reserved", { roomId: room.id, debugId: client.debugId, candidateDebugId: candidate.debugId })
       // Deliberately NOT calling remember() here — that's commitMatch()'s
       // job, once the caller has actually confirmed and dispatched a real

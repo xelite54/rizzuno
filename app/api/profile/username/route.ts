@@ -1,3 +1,4 @@
+import { withHttpMetrics } from "@/lib/httpMetrics"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -31,7 +32,7 @@ import { normalizeUsername, containsBlockedUsername } from "@/lib/username"
  * one permanently doesn't get shown ChooseUsername again as if it were
  * brand new. Read-only; never mints/changes anything.
  */
-export async function GET() {
+async function handleGET() {
   let session
   try {
     session = await auth()
@@ -55,7 +56,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const databaseUrlConfigured = Boolean(process.env.DATABASE_URL)
 
   // Not pre-declared with an explicit type: `auth` is an overloaded
@@ -122,3 +123,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "database_error", code: details.code ?? null }, { status: 500 })
   }
 }
+
+export const GET = withHttpMetrics("/app/api/profile/username", handleGET)
+
+export const POST = withHttpMetrics("/app/api/profile/username", handlePOST)

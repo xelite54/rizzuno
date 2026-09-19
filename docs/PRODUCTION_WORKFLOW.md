@@ -1,0 +1,11 @@
+# Release controls
+
+Required checks for `main`: `quality`, `security`, `realtime-integration`, `browser-webrtc` from `.github/workflows/ci.yml`. Quality runs npm ci, lint, root TypeScript, tests, and npm run build through an isolated compile-only environment. Browser tests use synthetic devices and no Google accounts; live credential tests are separate manual acceptance. Review failing audits rather than blindly running `npm audit fix --force`.
+
+Enable a GitHub ruleset requiring pull requests, successful required checks, review, up-to-date branches (or merge queue), no force pushes, no branch deletion, and restricted bypass. Require checks for administrators too where practical. Enable secret scanning and push protection if available for the repository/plan. Gitleaks scans history in CI; organization repositories may need the action's license. Review/rotate any true-positive historical credential before rewriting history. These settings are documented, not claimed enabled.
+
+Enable Railway's wait-for-CI/check suites setting (currently observed false) and equivalent protected Vercel deployment workflow. Direct main pushes must not auto-deploy unverified code. Do not run live credential acceptance on untrusted pull requests. Store deployment credentials only in protected environments with limited access.
+
+Before deploy: provision IMAGE_STORAGE_URL/KEY/BUCKET (private), confirm TURN and web configuration, run all checks, check backups, review legal decisions, stage migrations, then deploy web/realtime compatibly. Next validates web config on Vercel build and runtime registration. Railway's built-in RAILWAY_SERVICE_ID selects realtime validation so OAuth/storage secrets are not required on a realtime-only service. Percent-encoded DB passwords remain encoded through URL parsing; TLS verification is always enabled remotely. Set DATABASE_SSL_CA_REQUIRED=true for endpoints requiring the supplied CA.
+
+Do not deploy CI's `.next` output: it contains placeholder public endpoints. Always rebuild in the target environment with real production configuration. The checked-in workflow builds only to prove compilation.

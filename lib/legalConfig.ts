@@ -7,7 +7,7 @@ export const LEGAL_CONFIG = {
   operatorAddress: process.env.LEGAL_OPERATOR_ADDRESS || null,
 
   /** General/privacy contact address shown in both Terms and Privacy. Google's OAuth consent screen also asks for a support email separately in Cloud Console — that's a different, required field this constant does not fill in. */
-  contactEmail: "sunghokimjkh@gmail.com" as string | null,
+  contactEmail: process.env.PRIVACY_CONTACT_EMAIL || "sunghokimjkh@gmail.com" as string | null,
 
   /** Separate legal-notices address (e.g. for takedown/legal process), if different from contactEmail. Not currently referenced by either page; add a render site if/when the operator wants it surfaced separately. */
   legalEmail: process.env.LEGAL_NOTICE_EMAIL || null,
