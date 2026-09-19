@@ -1,4 +1,5 @@
 import type { PoolConfig } from "pg"
+import { rootCertificates } from "node:tls"
 
 function integer(name: string, fallback: number, max: number): number {
   const n = Number(process.env[name] ?? fallback)
@@ -16,7 +17,12 @@ export function databaseConfig(connectionString: string): PoolConfig {
   if (ca && !ca.includes("-----BEGIN CERTIFICATE-----")) throw new Error("Invalid DATABASE_SSL_CA")
   return {
     connectionString: url.toString(),
-    ssl: local && process.env.NODE_ENV !== "production" ? false : { rejectUnauthorized: true, ...(ca ? { ca } : {}) },
+    ssl: local && process.env.NODE_ENV !== "production"
+      ? false
+      : {
+          rejectUnauthorized: true,
+          ...(ca ? { ca: [ca, ...rootCertificates] } : {}),
+        },
     max: integer("DATABASE_POOL_MAX", process.env.VERCEL ? 2 : 10, 50),
     idleTimeoutMillis: integer("DATABASE_IDLE_TIMEOUT_MS", 10_000, 300_000),
     connectionTimeoutMillis: integer("DATABASE_CONNECT_TIMEOUT_MS", 5_000, 30_000),
