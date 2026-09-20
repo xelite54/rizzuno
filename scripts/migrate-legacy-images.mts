@@ -2,7 +2,7 @@ import { Pool } from "pg"
 import { databaseConfig } from "../lib/dbConfig"
 import { moderateImage } from "../lib/imageModeration"
 import { storeApprovedImage } from "../lib/imageStorage"
-import { closeDb } from "../lib/db"
+import { closeDb, cleanupUnreferencedStoredImage } from "../lib/db"
 
 /** Explicit operator invocation only; never runs at startup. Bounded, resumable
  * keyset scan, compare-and-swap update. A rejection/failure leaves the old value. */
@@ -20,13 +20,15 @@ try {
       if (!rows.length) break
       const row = rows[0]; cursor = row.id; detected++
       if (!apply) continue
+      let reference: string | undefined
       try {
         const result = await moderateImage({ userId: row.user_id, dataUrl: row.image, surface })
-        const reference = await storeApprovedImage(result)
+        reference = await storeApprovedImage(result)
         // Full upload + read-back verification completed before old bytes replaced.
         const update = await pool.query(`UPDATE ${table} SET ${column}=$1 WHERE id=$2 AND ${column}=$3`, [reference,row.id,row.image])
         migrated += update.rowCount ?? 0
       } catch { failed++ }
+      finally { await cleanupUnreferencedStoredImage(reference) }
     }
   }
   console.log(JSON.stringify({ apply, detected, migrated, failed }))

@@ -1,4 +1,5 @@
 import { withHttpMetrics } from "@/lib/httpMetrics"
+import type { ModerationResult } from "@/lib/imageModeration"
 import { storeApprovedImage } from "@/lib/imageStorage"
 import { log } from "../../../../lib/observability"
 import { NextResponse } from "next/server"
@@ -86,6 +87,7 @@ async function handlePUT(request: Request) {
   }
 
   const updates: { profilePhoto?: string | null; bio?: string } = {}
+  let approvedPhoto: ModerationResult | undefined
 
   if ("profilePhoto" in body) {
     try {
@@ -107,8 +109,7 @@ async function handlePUT(request: Request) {
           { status: moderation.unavailable ? 503 : 422 }
         )
       }
-      try { updates.profilePhoto = await storeApprovedImage(moderation) }
-      catch { return NextResponse.json({ error: "image_storage_unavailable" }, { status: 503 }) }
+      approvedPhoto = moderation
     } else {
       return NextResponse.json({ error: "invalid_photo" }, { status: 400 })
     }
@@ -129,7 +130,7 @@ async function handlePUT(request: Request) {
     }
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (Object.keys(updates).length === 0 && !approvedPhoto) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 })
   }
 
@@ -137,6 +138,10 @@ async function handlePUT(request: Request) {
     const status = await getUserStatus(userId)
     if (status.banned || status.deleted) {
       return NextResponse.json({ error: "account_unavailable" }, { status: 403 })
+    }
+    if (approvedPhoto) {
+      try { updates.profilePhoto = await storeApprovedImage(approvedPhoto) }
+      catch { return NextResponse.json({ error: "image_storage_unavailable" }, { status: 503 }) }
     }
     await updateOwnProfile(userId, updates)
     return NextResponse.json({ ok: true })

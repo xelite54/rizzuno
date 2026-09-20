@@ -1,3 +1,4 @@
+import { deleteStoredImage, storedImageKey } from "./imageStorage"
 import { log } from "./observability"
 import { Pool } from "pg"
 import { databaseConfig } from "./dbConfig"
@@ -825,14 +826,46 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile> {
  * send one this time"); `bio` has no null case — an empty string already
  * means "no bio", matching what MyProfileSheet.tsx's editor already sends.
  */
+/** Cleanup must never turn a committed mutation into an apparent DB failure.
+ * Recheck ALL references (including tombstones) so an ambiguous COMMIT response
+ * or a shared reference cannot cause deletion of an image still in use. */
+export async function cleanupUnreferencedStoredImage(reference: unknown): Promise<void> {
+  if (!storedImageKey(reference)) return
+  try {
+    const { rows } = await q<{ present: boolean }>(`SELECT EXISTS (
+      SELECT 1 FROM users WHERE profile_photo=$1
+      UNION ALL SELECT 1 FROM user_posts WHERE data_url=$1
+    ) AS present`, [reference])
+    if (!rows[0].present) await deleteStoredImage(reference)
+  } catch { log.error("image.storage_cleanup_failed") }
+}
+
+async function cleanupStoredImages(references: unknown[]) {
+  for (const reference of new Set(references)) await cleanupUnreferencedStoredImage(reference)
+}
+
 export async function updateOwnProfile(userId: string, updates: { profilePhoto?: string | null; bio?: string }): Promise<void> {
-  await ensureUser(userId)
-  if (updates.profilePhoto !== undefined) {
-    await q(`UPDATE users SET profile_photo = $1 WHERE id = $2`, [updates.profilePhoto, userId])
+  let previous: string | null = null
+  try {
+    await ensureUser(userId)
+    const client = await requirePool().connect()
+    try {
+      await client.query("BEGIN")
+      const account = await client.query<{ profile_photo: string | null; deleted_at: string | null }>("SELECT profile_photo,deleted_at FROM users WHERE id=$1 FOR UPDATE", [userId])
+      if (!account.rows.length || account.rows[0].deleted_at !== null) throw new Error("account_unavailable")
+      if (updates.profilePhoto !== undefined) {
+        previous = account.rows[0].profile_photo
+        await client.query("UPDATE users SET profile_photo=$1 WHERE id=$2", [updates.profilePhoto, userId])
+      }
+      if (updates.bio !== undefined) await client.query("UPDATE users SET bio=$1 WHERE id=$2", [updates.bio.slice(0, MAX_BIO_LENGTH), userId])
+      await client.query("COMMIT")
+    } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error }
+    finally { client.release() }
+  } catch (error) {
+    await cleanupUnreferencedStoredImage(updates.profilePhoto)
+    throw error
   }
-  if (updates.bio !== undefined) {
-    await q(`UPDATE users SET bio = $1 WHERE id = $2`, [updates.bio.slice(0, MAX_BIO_LENGTH), userId])
-  }
+  if (previous !== updates.profilePhoto) await cleanupUnreferencedStoredImage(previous)
 }
 
 export async function listPosts(userId: string): Promise<Post[]> {
@@ -845,21 +878,38 @@ export async function listPosts(userId: string): Promise<Post[]> {
 
 /** Adds one post, then trims back down to MAX_POSTS_PER_USER (oldest first) — mirrors MyProfileSheet.tsx's own client-side `.slice(0, MAX_POSTS)`, re-enforced here rather than trusted, so the cap holds even against a client that skips it. */
 export async function addPost(userId: string, dataUrl: string): Promise<Post> {
-  await ensureUser(userId)
   const id = randomUUID()
-  await q(`INSERT INTO user_posts (id, user_id, data_url, created_at) VALUES ($1, $2, $3, $4)`, [id, userId, dataUrl, now()])
-  await q(
-    `DELETE FROM user_posts WHERE user_id = $1 AND id NOT IN (
-       SELECT id FROM user_posts WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
-     )`,
-    [userId, MAX_POSTS_PER_USER]
-  )
+  let removed: { data_url: string }[] = []
+  try {
+    await ensureUser(userId)
+    const client = await requirePool().connect()
+    try {
+      await client.query("BEGIN")
+      // Serialize uploads with other uploads and account erasure. Insert + trim
+      // must commit together before any of the returned objects are deleted.
+      const account = await client.query("SELECT deleted_at FROM users WHERE id=$1 FOR UPDATE", [userId])
+      if (!account.rows.length || account.rows[0].deleted_at !== null) throw new Error("account_unavailable")
+      await client.query("INSERT INTO user_posts (id,user_id,data_url,created_at) VALUES ($1,$2,$3,$4)", [id,userId,dataUrl,now()])
+      const trimmed = await client.query<{ data_url: string }>(`DELETE FROM user_posts WHERE user_id=$1 AND id NOT IN (
+        SELECT id FROM user_posts WHERE user_id=$1 ORDER BY created_at DESC, (id=$3) DESC, id DESC LIMIT $2
+      ) RETURNING data_url`, [userId, MAX_POSTS_PER_USER, id])
+      removed = trimmed.rows
+      await client.query("COMMIT")
+    } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error }
+    finally { client.release() }
+  } catch (error) {
+    await cleanupUnreferencedStoredImage(dataUrl)
+    throw error
+  }
+  await cleanupStoredImages(removed.map(row => row.data_url))
   return { id, dataUrl }
 }
 
-/** Deletes a post — only the row's own owner can remove it (enforced in the WHERE clause itself, not trusted from the client). Returns whether a row actually existed to remove. */
+/** The autocommit DELETE must finish before object cleanup. Ownership is checked
+ * in SQL, and only actually removed rows can supply cleanup references. */
 export async function removePost(userId: string, postId: string): Promise<boolean> {
-  const { rows } = await q(`DELETE FROM user_posts WHERE id = $1 AND user_id = $2 RETURNING id`, [postId, userId])
+  const { rows } = await q<{ data_url: string }>("DELETE FROM user_posts WHERE id=$1 AND user_id=$2 RETURNING data_url", [postId,userId])
+  await cleanupStoredImages(rows.map(row => row.data_url))
   return rows.length > 0
 }
 
@@ -1436,9 +1486,10 @@ export async function exportUserData(userId: string, actorId: string, caseRefere
 export async function eraseUserData(userId: string, actorId: string, caseReference: string): Promise<void> {
   await ensureMigrated()
   const client = await requirePool().connect()
+  const removedImages: unknown[] = []
   try {
     await client.query('BEGIN')
-    const account = await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [userId])
+    const account = await client.query('SELECT id,profile_photo FROM users WHERE id=$1 FOR UPDATE', [userId])
     if (!account.rowCount) throw new Error('not_found')
     // Paid accounts require separate verified cancellation/finance handling.
     const paid = await client.query("SELECT 1 FROM billing_customers WHERE user_id=$1", [userId])
@@ -1446,7 +1497,8 @@ export async function eraseUserData(userId: string, actorId: string, caseReferen
     await client.query('DELETE FROM friend_messages WHERE sender_id=$1 OR recipient_id=$1', [userId])
     await client.query('DELETE FROM friendships WHERE user_a_id=$1 OR user_b_id=$1', [userId])
     await client.query('DELETE FROM friend_requests WHERE sender_id=$1 OR recipient_id=$1', [userId])
-    await client.query('DELETE FROM user_posts WHERE user_id=$1', [userId])
+    const posts = await client.query('DELETE FROM user_posts WHERE user_id=$1 RETURNING data_url', [userId])
+    removedImages.push(account.rows[0].profile_photo, ...posts.rows.map(row => row.data_url))
     await client.query('DELETE FROM billing_subscriptions WHERE user_id=$1', [userId])
     await client.query('DELETE FROM image_moderation_rate_limits WHERE user_id=$1', [userId])
     await client.query('DELETE FROM turn_credential_rate_limits WHERE user_id=$1', [userId])
@@ -1455,6 +1507,7 @@ export async function eraseUserData(userId: string, actorId: string, caseReferen
     await client.query('COMMIT')
   } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err }
   finally { client.release() }
+  await cleanupStoredImages(removedImages)
 }
 
 /** References remain readable during the legacy data-URL migration. Removed or
