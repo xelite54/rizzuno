@@ -1044,7 +1044,7 @@ export function createRizzunoWebSocketServer() {
         }
 
         if (!await hasAcceptedCurrent(userId)) {
-          send(ws, { type: "rejected", reason: "invalid_ticket" }); ws.close(1008, "acceptance required"); return
+          send(ws, { type: "rejected", reason: "acceptance_required" }); ws.close(1008, "acceptance required"); return
         }
         const handle = sanitizeText(message.handle, MAX_HANDLE_LENGTH) || "Someone"
         // Realtime uses the same strict validation as username claims.

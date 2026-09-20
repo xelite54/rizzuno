@@ -939,3 +939,33 @@ test("a find superseded before its own processing chain turn starts cannot borro
     dbMockState.blockCheckDelayMs = 0
   }
 })
+
+test("valid tickets require current legal acceptance and reconnect after acceptance", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  const userId = uid("legal")
+  const { mintTicket } = await import("../lib/realtimeTicket")
+  dbMockState.acceptanceRequiredUserIds.add(userId)
+  try {
+    const client = new TestClient(server.url)
+    await client.waitForOpen()
+    const closed = new Promise<number>(resolve => client.ws.once("close", code => resolve(code)))
+    client.send({ type: "hello", ticket: mintTicket(userId), handle: "legal" })
+    assert.deepEqual(await client.waitForType("rejected"), { type: "rejected", reason: "acceptance_required" })
+    assert.equal(await closed, 1008)
+    await assert.rejects(() => client.waitForType("ready", 100), /timed out/)
+
+    dbMockState.acceptanceRequiredUserIds.delete(userId)
+    const accepted = await connectAndHello(server.url, userId)
+    accepted.close()
+
+    const invalid = new TestClient(server.url)
+    await invalid.waitForOpen()
+    invalid.send({ type: "hello", ticket: "invalid", handle: "legal" })
+    assert.equal((await invalid.waitForType("rejected")).reason, "invalid_ticket")
+    invalid.close()
+  } finally {
+    dbMockState.acceptanceRequiredUserIds.delete(userId)
+    await server.close()
+  }
+})

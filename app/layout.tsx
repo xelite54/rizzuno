@@ -1,5 +1,6 @@
 import { StaleServiceWorkerCleanup } from "@/components/StaleServiceWorkerCleanup";
 import { connection } from "next/server";
+import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
@@ -44,7 +45,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default async function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
   await connection(); // Request-specific CSP nonces require dynamic rendering.
   return (
     <html

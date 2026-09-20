@@ -48,13 +48,23 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
   // (returned for the "error" state's UI to call) actually retries anything.
   const [attempt, setAttempt] = useState(0)
 
+  const checkGeneration = useRef(0)
+  const requireAcceptance = useCallback(() => {
+    // A realtime rejection supersedes any in-flight web status response.
+    checkGeneration.current++
+    setErrorCode(null)
+    setStatus("required")
+  }, [])
+
   useEffect(() => {
+    const generation = ++checkGeneration.current
     if (!signedIn) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- signed out: nothing to check yet
       setStatus("checking")
       return
     }
     let cancelled = false
+    const isCurrent = () => !cancelled && generation === checkGeneration.current
     setStatus("checking")
     setErrorCode(null)
 
@@ -63,27 +73,27 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
       try {
         res = await fetch("/api/legal/status")
       } catch {
-        if (!cancelled) {
+        if (isCurrent()) {
           setStatus("error")
           setErrorCode("network_error")
           console.error("legal/status: request failed (network_error)")
         }
         return
       }
-      if (cancelled) return
+      if (!isCurrent()) return
 
       if (res.status === 401 && !alreadyRevalidated) {
         // signedIn is true (checked above) but the server says otherwise —
         // revalidate once before treating this as a real failure.
         await revalidateRef.current()
-        if (!cancelled) await check(true)
+        if (isCurrent()) await check(true)
         return
       }
 
       if (!res.ok) {
         const body: { error?: string } = await res.json().catch(() => ({}))
         const code = body.error ?? `http_${res.status}`
-        if (!cancelled) {
+        if (isCurrent()) {
           setStatus("error")
           setErrorCode(code)
         }
@@ -92,7 +102,7 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
       }
 
       const data: { accepted: boolean } = await res.json()
-      if (!cancelled) setStatus(data.accepted ? "accepted" : "required")
+      if (isCurrent()) setStatus(data.accepted ? "accepted" : "required")
     }
 
     check(false)
@@ -118,5 +128,5 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
 
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
 
-  return { status, errorCode, accept, retry }
+  return { status, errorCode, accept, retry, requireAcceptance }
 }

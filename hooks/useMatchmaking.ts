@@ -132,7 +132,8 @@ export function useMatchmaking(
   myGender?: Gender,
   /** This user's own chosen profile photo, if any — sent to the server so a real match sees it too, not just an initial letter. */
   myProfilePhoto?: string | null,
-  accountId?: string
+  accountId?: string,
+  onAcceptanceRequired?: () => void
 ) {
 
   const [roomId, updateRoomId] = useState<string | null>(null)
@@ -1019,7 +1020,10 @@ export function useMatchmaking(
         if (body.error === "banned") setRestriction({ reason: "banned", detail: body.reason })
         else if (body.error === "suspended") setRestriction({ reason: "suspended", until: body.until })
         else if (body.error === "account_deleted") setRestriction({ reason: "account_deleted" })
-        else if (body.error === "acceptance_required") setRestriction({ reason: "acceptance_required" })
+        else if (body.error === "acceptance_required") {
+          setRestriction({ reason: "acceptance_required" })
+          onAcceptanceRequired?.()
+        }
         else if (body.error === "rate_limited") {
           // Previously fell through to the bare `return` below with nothing
           // scheduled to ever retry it — the socket's own reconnect only
@@ -1058,7 +1062,7 @@ export function useMatchmaking(
       // The readiness watchdog retries even if the socket stays open.
       console.warn("matchmaking: ticket fetch failed — readiness watchdog will retry")
     }
-  }, [myHandle, send])
+  }, [myHandle, send, onAcceptanceRequired])
 
   useEffect(() => {
     announceRef.current = announce
@@ -1423,7 +1427,12 @@ export function useMatchmaking(
         }
         case "rejected":
           console.warn("matchmaking: hello rejected", { reason: message.reason })
-          if (message.reason === "invalid_ticket") {
+          if (message.reason === "acceptance_required") {
+            invalidTicketStreakRef.current = 0
+            setRealtimeReady(false)
+            setRestriction({ reason: "acceptance_required" })
+            onAcceptanceRequired?.()
+          } else if (message.reason === "invalid_ticket") {
             invalidTicketStreakRef.current += 1
             const streak = invalidTicketStreakRef.current
             if (streak < CONSECUTIVE_INVALID_TICKET_LIMIT) {
@@ -1551,7 +1560,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId])
+  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId, onAcceptanceRequired])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.

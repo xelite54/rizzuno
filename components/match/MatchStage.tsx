@@ -241,7 +241,8 @@ export function MatchStage() {
     myProfile.username,
     myProfile.gender ?? undefined,
     myProfile.profilePhoto,
-    realtimeAccount
+    realtimeAccount,
+    legal.requireAcceptance
   )
 
   // Auth.js lands a failed/cancelled Google sign-in back on this page with

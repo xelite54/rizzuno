@@ -24,11 +24,24 @@ const output = await build({ entryPoints: ["tests/browser/mediaHarness.tsx"], bu
 const styles = await postcss([tailwind()]).process(await readFile("app/globals.css", "utf8"), { from: "app/globals.css" })
 const css = styles.css + (output.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? "")
 const html = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/harness.css"></head><body><div id="root"></div><script src="/harness.js"></script></body></html>'
+const ticketAcceptanceRequired = new Set<string>()
 const server = createServer((req, res) => {
   const url = new URL(req.url!, "http://localhost")
   if (url.pathname === "/harness.js") { res.setHeader("Content-Type", "application/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
   else if (url.pathname === "/harness.css") { res.setHeader("Content-Type", "text/css"); res.end(css) }
-  else if (url.pathname === "/api/realtime/ticket") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ ticket: mintTicket(url.searchParams.get("account") ?? "browser-a") })) }
+  else if (url.pathname === "/api/legal/status") { res.setHeader("Content-Type", "application/json"); res.end('{"accepted":true}') } // Simulate a stale accepted web status.
+  else if (url.pathname === "/api/legal/accept" && req.method === "POST") {
+    const account = url.searchParams.get("account")!
+    dbMockState.acceptanceRequiredUserIds.delete(account)
+    ticketAcceptanceRequired.delete(account)
+    res.setHeader("Content-Type", "application/json"); res.end('{"ok":true}')
+  }
+  else if (url.pathname === "/api/realtime/ticket") {
+    const account = url.searchParams.get("account") ?? "browser-a"
+    res.setHeader("Content-Type", "application/json")
+    if (ticketAcceptanceRequired.has(account)) { res.statusCode = 403; res.end('{"error":"acceptance_required"}') }
+    else res.end(JSON.stringify({ ticket: mintTicket(account) }))
+  }
   else if (url.pathname === "/api/realtime/turn") { res.setHeader("Content-Type", "application/json"); res.end('{"configured":false}') }
   else if (url.pathname === "/blank") res.end("<!doctype html><html><body>WebRTC regression fixture</body></html>")
   else { res.setHeader("Content-Type", "text/html"); res.end(html) }
@@ -254,6 +267,19 @@ try {
   snapshots = await until("decoder alone cannot activate", s => s[0].state === "connecting" && s[0].incomingFrames > 0)
   results.playbackGate = { state: snapshots[0].state, incomingFrames: snapshots[0].incomingFrames }
   await until("blank video has bounded room termination", s => s.every(x => !x.roomId), 30_000)
+  for (const source of ["ws", "ticket"]) {
+    const account = `browser-legal-${source}`
+    if (source === "ws") dbMockState.acceptanceRequiredUserIds.add(account)
+    else ticketAcceptanceRequired.add(account)
+    await browsers[0].evaluate(`window.harness.changeAccount(${JSON.stringify(account)})`)
+    await until(`${source} rejection opens legal gate and closes realtime`, s => s[0].legalStatus === "required" && s[0].ageGateVisible && s[0].openSockets === 0)
+    assert.notEqual((await browsers[0].snapshot()).restriction, "connection_failed")
+    await browsers[0].evaluate("document.querySelector('input[type=checkbox]').click()")
+    await browsers[0].evaluate("Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Continue').click()")
+    await until(`${source} acceptance reconnects to ready`, s => s[0].legalStatus === "accepted" && !s[0].ageGateVisible && s[0].ready)
+  }
+  results.legalAcceptance = { websocket: true, ticket: true, reconnectedAfterAcceptance: true }
+  console.log("BROWSER: WebSocket and HTTP legal rejection, acceptance gate, reconnect passed")
   await browsers[0].evaluate("window.harness.signOut()")
   await until("sign out closes signaling", s => s[0].openSockets === 0)
   assert.ok(browsers.every(b => b.errors.length === 0), JSON.stringify(browsers.map(b => b.errors)))

@@ -52,3 +52,33 @@ test("background session callback changes do not disable an accepted account", a
   await new Promise((resolve) => setImmediate(resolve))
   assert.equal(requests, 2, "a real account change must still re-check legal acceptance")
 })
+
+test("realtime acceptance requirement overrides a cached or in-flight accepted status", async () => {
+  slots.length = 0
+  let resolveStatus!: (response: Response) => void
+  let acceptSucceeds = false
+  mock.method(globalThis, "fetch", async (input: string) => {
+    if (input === "/api/legal/status") return new Promise<Response>(resolve => { resolveStatus = resolve })
+    assert.equal(input, "/api/legal/accept")
+    return Response.json({}, { status: acceptSucceeds ? 200 : 503 })
+  })
+  function render() {
+    cursor = 0; effects = []
+    // eslint-disable-next-line react-hooks/rules-of-hooks -- test hook dispatcher
+    const result = useLegalAcceptance(true, async () => {}, "legal-account")
+    effects.forEach(effect => effect())
+    return result
+  }
+  render().requireAcceptance()
+  assert.equal(render().status, "required")
+  resolveStatus(Response.json({ accepted: true }))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(render().status, "required", "stale web response cannot undo realtime rejection")
+  assert.equal(await render().accept(), false)
+  assert.equal(render().status, "required", "failed acceptance must keep the gate closed")
+  acceptSucceeds = true
+  assert.equal(await render().accept(), true)
+  assert.equal(render().status, "accepted")
+  render().requireAcceptance()
+  assert.equal(render().status, "required", "cached acceptance must also be invalidated")
+})

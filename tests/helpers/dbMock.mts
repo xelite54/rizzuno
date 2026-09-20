@@ -18,6 +18,7 @@ export const dbMockState = {
   genders: new Map<string, "male" | "female">(),
   plusEnabled: true,
   bannedUserIds: new Set<string>(),
+  acceptanceRequiredUserIds: new Set<string>(),
   suspendedUntil: new Map<string, number>(),
   blockedPairs: new Set<string>(), // "a|b" — checked both directions
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature must match the real areFriends(a, b) so a test can reassign this to something that actually inspects the pair
@@ -64,6 +65,7 @@ export function resetDbMockState() {
   dbMockState.genders.clear()
   dbMockState.plusEnabled = true
   dbMockState.bannedUserIds.clear()
+  dbMockState.acceptanceRequiredUserIds.clear()
   dbMockState.suspendedUntil.clear()
   dbMockState.blockedPairs.clear()
   dbMockState.areFriendsImpl = async () => false
@@ -80,7 +82,7 @@ export function resetDbMockState() {
 mock.module("../../lib/db.ts", {
   exports: {
     checkAndIncrementApiRateLimit: async () => false,
-    hasAcceptedCurrent: async () => true,
+    hasAcceptedCurrent: async (userId: string) => !dbMockState.acceptanceRequiredUserIds.has(userId),
     canTargetUser: async (a: string, b: string) => [...dbMockState.friendships.values()].some((pair) => pair.includes(a) && pair.includes(b)) || dbMockState.incomingRequests.some((r) => r.senderId === b),
     getPublicProfile: async (userId: string) => ({ username: dbMockState.usernames.get(userId) ?? null, profilePhoto: null, bio: "", posts: [] }),
     hasRizzPlus: async () => dbMockState.plusEnabled,

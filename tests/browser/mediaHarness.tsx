@@ -2,6 +2,8 @@ import { installSyntheticCapture } from "./syntheticCapture"
 import { StrictMode, useEffect, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { useLocalMedia } from "../../hooks/useLocalMedia"
+import { useLegalAcceptance } from "../../hooks/useLegalAcceptance"
+import { AgeGate } from "../../components/match/AgeGate"
 import { useMatchmaking } from "../../hooks/useMatchmaking"
 import { retainRealtime } from "../../lib/realtimeLifecycle"
 import { SelfPanel } from "../../components/match/SelfPanel"
@@ -50,6 +52,7 @@ let ticketAccount = account
 const nativeFetch = window.fetch.bind(window)
 window.fetch = (input, init) => {
   if (input === "/api/realtime/ticket") return nativeFetch(`/api/realtime/ticket?account=${ticketAccount}`, init)
+  if (input === "/api/legal/accept") return nativeFetch(`/api/legal/accept?account=${ticketAccount}`, init)
   return nativeFetch(input, init)
 }
 let blockAudio = false
@@ -74,8 +77,9 @@ function App() {
   const [hydration, setHydration] = useState(true)
   const [signedIn, setSignedIn] = useState(true)
   const [renderCount, setRenderCount] = useState(0)
-  const enabled = retainRealtime(activeAccount, signedIn ? activeAccount : undefined, hydration ? "accepted" : "checking", hydration, hydration)
-  const match = useMatchmaking(enabled, local.videoTrack, local.audioTrack, local.micEnabled, activeAccount, activeAccount, activeAccount === "browser-a" ? "male" : "female", null, signedIn ? activeAccount : undefined)
+  const legal = useLegalAcceptance(signedIn, async () => {}, activeAccount)
+  const enabled = retainRealtime(activeAccount, signedIn ? activeAccount : undefined, hydration ? legal.status : "checking", hydration, hydration)
+  const match = useMatchmaking(enabled, local.videoTrack, local.audioTrack, local.micEnabled, activeAccount, activeAccount, activeAccount === "browser-a" ? "male" : "female", null, signedIn ? activeAccount : undefined, legal.requireAcceptance)
   useEffect(() => {
     const interval = setInterval(() => setRenderCount(n => n + 1), 250)
     return () => clearInterval(interval)
@@ -111,7 +115,7 @@ function App() {
         const stats = pc ? await pc.getStats() : null
         let incomingFrames = 0; let outgoingFrames = 0
         stats?.forEach(s => { if (s.kind === "video" && s.type === "inbound-rtp") incomingFrames += s.framesDecoded ?? 0; if (s.kind === "video" && s.type === "outbound-rtp") outgoingFrames += s.framesSent ?? 0 })
-        return { state: match.state, messages: match.messages, canChat: match.canMatchChat, roomId: match.roomId, ready: match.realtimeReady, status: local.status, renderCount, micEnabled: local.micEnabled,
+        return { legalStatus: legal.status, restriction: match.restriction?.reason, ageGateVisible: document.body.textContent?.includes("Before you continue"), state: match.state, messages: match.messages, canChat: match.canMatchChat, roomId: match.roomId, ready: match.realtimeReady, status: local.status, renderCount, micEnabled: local.micEnabled,
           invitations: match.matchInvitations.map(i => ({ direction: i.direction })), inviteError: match.matchInviteError,
           pcCount: peers.length, openPeers: peers.filter(p => p.connectionState !== "closed").length,
           socketCount: sockets.length, openSockets: sockets.filter(s => s.readyState === WebSocket.OPEN).length,
@@ -126,6 +130,7 @@ function App() {
     } })
   })
   return <main data-render-count={renderCount}>
+    {legal.status === "required" && <AgeGate onAccept={legal.accept} />}
     <div style={{ width: 320, height: 240, position: "relative" }}><SelfPanel localStream={local.localStream} status={local.status} /></div>
     <div style={{ width: 320, height: 240, position: "relative" }}><SwipeStage matchState={match.state} peer={match.peer} friendState="none" onAddFriend={() => {}} onViewProfile={() => setProfileOpen(true)} remoteStream={match.remoteStream} roomId={match.roomId} onRemoteVideoPlaying={match.reportRemoteVideoPlaying} onSwipeComplete={match.skip} /></div>
     <CompactChat disabled={!match.canMatchChat} onOpenChat={() => setChatOpen(true)} />
