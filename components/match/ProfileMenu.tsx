@@ -1,6 +1,7 @@
 "use client"
 
 type ProfileMenuProps = {
+  disabled?: boolean
   /** Cosmetic fallback display name — see lib/guest.ts. */
   handle: string
   /** The user's own chosen username, if set — takes precedence over the random handle, matching My Profile. */
@@ -11,15 +12,16 @@ type ProfileMenuProps = {
 }
 
 /** No dropdown — tapping the avatar goes straight to the full My Profile screen. */
-export function ProfileMenu({ handle, username, profilePhoto, onOpenProfile }: ProfileMenuProps) {
+export function ProfileMenu({ disabled = false, handle, username, profilePhoto, onOpenProfile }: ProfileMenuProps) {
   const initial = username ? username.charAt(0).toUpperCase() : handle ? handle.charAt(0) : "?"
 
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onOpenProfile}
       aria-label="My profile"
-      className="relative pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      className="disabled:opacity-40 relative pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {profilePhoto ? (
         // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset

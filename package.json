@@ -11,7 +11,8 @@
     "test:webrtc:browser": "tsx --experimental-test-module-mocks tests/browser/runMedia.mts",
     "test:cluster": "node --import tsx --experimental-test-module-mocks --test tests/integration/cluster.mts",
     "images:migrate": "tsx scripts/migrate-legacy-images.mts",
-    "test:load": "node --import tsx --experimental-test-module-mocks tests/load/realtime.mts"
+    "test:load": "node --import tsx --experimental-test-module-mocks tests/load/realtime.mts",
+    "test:homepage:browser": "node --import tsx tests/browser/runHomepage.mts"
   },
   "dependencies": {
     "image-size": "2.0.4",

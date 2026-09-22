@@ -3,20 +3,22 @@
 import { MicIcon, MicOffIcon } from "@/components/icons"
 
 type ControlBarProps = {
+  disabled?: boolean
   micEnabled: boolean
   onToggleMic: () => void
 }
 
 /** Microphone control; chat is adjacent in the self-video overlay. */
-export function ControlBar({ micEnabled, onToggleMic }: ControlBarProps) {
+export function ControlBar({ disabled = false, micEnabled, onToggleMic }: ControlBarProps) {
   return (
     <div className="flex items-center gap-1">
       <button
         type="button"
+        disabled={disabled}
         onClick={onToggleMic}
         aria-pressed={!micEnabled}
         aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"}
-        className={`flex h-9 w-9 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
+        className={`disabled:opacity-40 flex h-9 w-9 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 ${
           micEnabled
             ? "text-foreground hover:bg-white/15 active:bg-white/15"
             : "bg-danger text-accent-foreground hover:brightness-110"
