@@ -384,17 +384,8 @@ export function MatchStage() {
   // returning guest now begins at 42/58 instead of rendering one 50/50 frame
   // while those other values settle. Only an actual matching state is
   // allowed to animate the shell from 42/58 to 50/50.
-  const useHomeSplit =
-    (authLoading || signedIn) &&
-    (swipeMatchState === "idle" || swipeMatchState === "paused")
-  const animateIntoMatching =
-    signedIn &&
-    !useHomeSplit &&
-    (swipeMatchState === "queue-pending" ||
-      swipeMatchState === "searching" ||
-      swipeMatchState === "connecting" ||
-      swipeMatchState === "active" ||
-      swipeMatchState === "peer-left")
+  const useHomeSplit = swipeMatchState === "idle" || swipeMatchState === "paused"
+  const layout = useHomeSplit ? "home" : "call"
 
   // Friends + friend requests — real data now (see useMatchmaking.ts, which
   // owns the one WebSocket connection this all rides on, and
@@ -523,11 +514,10 @@ export function MatchStage() {
 
   // Availability can change; the controls' place in the React tree cannot.
   const accountControlsEnabled = signedIn && legalAccepted && onboarded && !restriction
-  const useCallLayout = signedIn && legalAccepted && onboarded && !restriction && !useHomeSplit
 
   return (
     <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-home-glow" : "bg-background"}`}>
-      <main className={`relative z-10 min-h-0 flex-1 ${useHomeSplit ? "flex flex-row gap-0 p-0" : useCallLayout ? styles.callLayout : "flex flex-row gap-1 p-0 md:p-2"}`}>
+      <main data-layout={layout} className={`relative z-10 min-h-0 flex-1 ${styles.stageLayout}`}>
         {/* CSS reorders the same video panels on phones and tablets, so
             resizing or rotating never remounts the live call. */}
         <motion.div
@@ -539,72 +529,19 @@ export function MatchStage() {
             // home to start matching. Entering home (initial hydration,
             // returning from another screen, or pausing) is immediate so the
             // landing composition never replays the transition by itself.
-            layout: reduceMotion || !animateIntoMatching
+            layout: reduceMotion || useHomeSplit
               ? { duration: 0 }
               : { duration: 0.52, ease: EASE_OUT },
           }}
-          className={
-            useHomeSplit
-              ? "absolute left-4 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-20 aspect-[3/4] w-[62vw] max-w-60 overflow-hidden rounded-2xl border border-white/15 shadow-xl shadow-black/50 sm:left-6 sm:top-24 sm:w-52 sm:max-w-none md:relative md:left-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-[42%] md:max-w-none md:flex-none md:rounded-none md:border-0 md:shadow-none"
-              : useCallLayout ? styles.selfPanel : "absolute right-3 top-3 z-20 aspect-[3/4] w-28 overflow-hidden rounded-2xl border border-border sm:w-28 md:relative md:right-auto md:top-auto md:z-auto md:aspect-auto md:h-full md:w-auto md:min-h-0 md:min-w-0 md:flex-1"
-          }
+          className={`${styles.selfFrame} ${styles.selfPanel}`}
         >
           <SelfPanel
             localStream={localStream}
             status={status}
             flushDesktop={useHomeSplit}
           />
-          {/* Personal controls stay anchored inside your video on every device. */}
-          {/* Deliberately faint until touched — this is your own utility
-              corner, not the point of the screen, so it should recede
-              rather than compete with the person you're talking to. */}
-          <div className={`${styles.personalToolsAppearance} absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${useHomeSplit ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : styles.personalTools}`}>
-            <button
-              disabled={!FRIENDS_ENABLED || !accountControlsEnabled}
-              type="button"
-              onClick={() => setFriendsOpen(true)}
-              aria-label={friendsNotifications > 0 ? `Friends — ${friendsNotifications} new` : "Friends"}
-              className="relative flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40"
-            >
-              <UsersIcon className="h-[18px] w-[18px]" />
-              {friendsNotifications > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-accent-foreground">
-                  {friendsNotifications}
-                </span>
-              )}
-            </button>
-            <ProfileMenu
-              disabled={!signedIn || !myProfile.profileHydrated || Boolean(restriction)}
-              handle={myProfile.handle}
-              username={myProfile.username}
-              profilePhoto={myProfile.profilePhoto}
-              onOpenProfile={() => setMyProfileOpen(true)}
-            />
-          </div>
-          <div className={useHomeSplit ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : styles.mediaControls}>
-            <div className={`flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${useHomeSplit ? "opacity-85" : "opacity-100"}`}>
-              <ControlBar
-                disabled={!audioTrack || status !== "granted"}
-                micEnabled={micEnabled}
-                onToggleMic={toggleMic}
-              />
-              <div className="h-5 w-px shrink-0 bg-white/20" />
-              <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} unreadCount={chatUnreadCount} />
-            </div>
-          </div>
-          <MatchChatPanel
-            key={roomId ?? "no-room"}
-            open={chatOpen}
-            onClose={() => setChatOpen(false)}
-            peer={displayedPeer}
-            messages={messages}
-            disabled={!canChat}
-            peerTyping={peerTyping}
-            onSend={sendChat}
-            onNotifyTyping={notifyTyping}
-          />
         </motion.div>
-        <div className={useHomeSplit ? "relative h-full min-h-0 min-w-0 flex-1 md:rounded-none md:border-0" : useCallLayout ? styles.peerPanel : "relative h-full min-h-0 min-w-0 flex-1 md:rounded-2xl md:border md:border-border"}>
+        <div className={styles.peerPanel}>
           {authLoading ? null : !signedIn ? (
             <SignInLanding onSignIn={handleGoogleSignIn} errorMessage={authError} />
           ) : restriction && restriction.reason !== "acceptance_required" ? (
@@ -665,6 +602,60 @@ export function MatchStage() {
           )}
         </div>
       </main>
+      {/* A sibling grid shares final layout geometry, never camera transforms or clipping. */}
+      <div data-layout={layout} data-homepage-controls className={`${styles.stageLayout} ${styles.controlsLayer}`}>
+        <div className={styles.selfFrame}>
+          {/* Personal controls stay anchored inside your video on every device. */}
+          {/* Deliberately faint until touched — this is your own utility
+              corner, not the point of the screen, so it should recede
+              rather than compete with the person you're talking to. */}
+          <div className={`${styles.personalToolsAppearance} pointer-events-auto absolute z-30 flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${useHomeSplit ? "right-[max(0.75rem,env(safe-area-inset-right))] top-[max(0.75rem,env(safe-area-inset-top))] opacity-75" : styles.personalTools}`}>
+            <button
+              disabled={!FRIENDS_ENABLED || !accountControlsEnabled}
+              type="button"
+              onClick={() => setFriendsOpen(true)}
+              aria-label={friendsNotifications > 0 ? `Friends — ${friendsNotifications} new` : "Friends"}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2 disabled:opacity-40"
+            >
+              <UsersIcon className="h-[18px] w-[18px]" />
+              {friendsNotifications > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-accent-foreground">
+                  {friendsNotifications}
+                </span>
+              )}
+            </button>
+            <ProfileMenu
+              disabled={!signedIn || !myProfile.profileHydrated || Boolean(restriction)}
+              handle={myProfile.handle}
+              username={myProfile.username}
+              profilePhoto={myProfile.profilePhoto}
+              onOpenProfile={() => setMyProfileOpen(true)}
+            />
+          </div>
+          <div className={useHomeSplit ? "absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center justify-end" : styles.mediaControls}>
+            <div className={`pointer-events-auto flex items-center gap-1 rounded-full bg-black/35 p-1 backdrop-blur-sm transition-opacity duration-200 hover:opacity-100 focus-within:opacity-100 ${useHomeSplit ? "opacity-85" : "opacity-100"}`}>
+              <ControlBar
+                disabled={!audioTrack || status !== "granted"}
+                micEnabled={micEnabled}
+                onToggleMic={toggleMic}
+              />
+              <div className="h-5 w-px shrink-0 bg-white/20" />
+              <CompactChat disabled={!canChat} onOpenChat={() => setChatOpen(true)} unreadCount={chatUnreadCount} />
+            </div>
+          </div>
+          <MatchChatPanel
+            key={roomId ?? "no-room"}
+            open={chatOpen}
+            onClose={() => setChatOpen(false)}
+            peer={displayedPeer}
+            messages={messages}
+            disabled={!canChat}
+            peerTyping={peerTyping}
+            onSend={sendChat}
+            onNotifyTyping={notifyTyping}
+          />
+        </div>
+      </div>
 
 
       {FRIENDS_ENABLED && (

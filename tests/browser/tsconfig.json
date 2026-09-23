@@ -9,7 +9,8 @@
     "syntheticCapture.ts",
     "../../next-env.d.ts",
     "homepageHarness.tsx",
-    "homepageFixtures.ts"
+    "homepageFixtures.ts",
+    "homepageRuntime.tsx"
   ],
   "exclude": []
 }

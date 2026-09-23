@@ -987,10 +987,28 @@ export function useMatchmaking(
   const announceRef = useRef<() => void>(() => {})
   const announceGenerationRef = useRef(0)
   const announceContextRef = useRef({ enabled, connected, accountId })
+  const helloReadyRef = useRef(false)
+  const ticketInFlightRef = useRef(false)
+  const helloRetryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const cancelHelloRetry = useCallback(() => {
+    clearTimeout(helloRetryRef.current)
+    helloRetryRef.current = undefined
+  }, [])
+  const scheduleHelloRetry = useCallback((delay: number) => {
+    if (helloReadyRef.current) return
+    cancelHelloRetry()
+    const generation = announceGenerationRef.current
+    helloRetryRef.current = setTimeout(() => {
+      helloRetryRef.current = undefined
+      if (generation === announceGenerationRef.current && !helloReadyRef.current) announceRef.current()
+    }, delay)
+  }, [cancelHelloRetry])
   useLayoutEffect(() => {
     announceContextRef.current = { enabled, connected, accountId }
-    return () => { announceGenerationRef.current += 1 }
-  }, [enabled, connected, accountId])
+    helloReadyRef.current = false
+    ticketInFlightRef.current = false
+    return () => { announceGenerationRef.current += 1; cancelHelloRetry() }
+  }, [enabled, connected, accountId, cancelHelloRetry])
 
   // Mints a fresh, short-lived realtime ticket from the authenticated
   // session (see app/api/realtime/ticket) and announces this connection to
@@ -1002,7 +1020,9 @@ export function useMatchmaking(
   // reconnect's re-hello, it isn't treated as abandoning it).
   const announce = useCallback(async () => {
     const context = announceContextRef.current
-    if (!myHandle || !context.enabled || !context.connected || roomRef.current) return
+    if (!myHandle || !context.enabled || !context.connected || roomRef.current || helloReadyRef.current || ticketInFlightRef.current) return
+    cancelHelloRetry()
+    ticketInFlightRef.current = true
     const generation = ++announceGenerationRef.current
     const isCurrent = () => generation === announceGenerationRef.current && announceContextRef.current.enabled && announceContextRef.current.connected && context.accountId === announceContextRef.current.accountId
     // Every fresh "hello" attempt invalidates whatever "ready" we had —
@@ -1037,13 +1057,13 @@ export function useMatchmaking(
           // wrong) fixes that without needing a restriction screen for
           // what's normally a non-issue.
           console.warn("matchmaking: ticket endpoint rate-limited — retrying shortly")
-          setTimeout(() => announceRef.current(), 5000)
+          scheduleHelloRetry(5000)
         }
         return
       }
       const { ticket } = (await res.json()) as { ticket: string }
       if (!isCurrent()) return
-      setRestriction(null)
+      // A ticket is not proof of WebSocket admission. Only ready clears restrictions.
       const username = latestUsernameRef.current
       const gender = latestGenderRef.current
       const profilePhoto = latestProfilePhotoRef.current
@@ -1062,7 +1082,10 @@ export function useMatchmaking(
       // The readiness watchdog retries even if the socket stays open.
       console.warn("matchmaking: ticket fetch failed — readiness watchdog will retry")
     }
-  }, [myHandle, send, onAcceptanceRequired])
+    finally {
+      if (generation === announceGenerationRef.current) ticketInFlightRef.current = false
+    }
+  }, [myHandle, send, onAcceptanceRequired, cancelHelloRetry, scheduleHelloRetry])
 
   useEffect(() => {
     announceRef.current = announce
@@ -1111,6 +1134,11 @@ export function useMatchmaking(
     return subscribe((message: ServerMessage) => {
       switch (message.type) {
         case "ready":
+          helloReadyRef.current = true
+          announceGenerationRef.current++
+          ticketInFlightRef.current = false
+          cancelHelloRetry()
+          setRestriction(null)
           // The server has finished processing our "hello" and actually has
           // a ConnectionState registered for this socket — only now is it
           // safe to send "find" and expect anything other than silence.
@@ -1453,10 +1481,7 @@ export function useMatchmaking(
                 consecutiveRejections: streak,
               })
               setRestriction({ reason: "connection_failed" })
-              setTimeout(() => {
-                invalidTicketStreakRef.current = 0
-                announce()
-              }, CONNECTION_FAILED_RETRY_MS)
+              scheduleHelloRetry(CONNECTION_FAILED_RETRY_MS)
             }
           } else {
             setRestriction({ reason: message.reason })
@@ -1503,10 +1528,9 @@ export function useMatchmaking(
             // (see server/ws-server.ts's catch around handleParsedMessage)
             // — nothing else is ever coming for this attempt. Re-announce
             // (fresh ticket + a fresh hello) after a short delay rather than
-            // leaving the guest waiting on a "ready" that's never arriving;
-            // announce() itself resets realtimeReady first, so this can't
-            // race a "ready" that unexpectedly still shows up right after.
-            setTimeout(() => announce(), 2000)
+            // leaving the guest waiting on a "ready" that's never arriving.
+            // A later ready or connection teardown cancels this retry.
+            scheduleHelloRetry(2000)
           }
           break
         case "match-invitations":
@@ -1560,7 +1584,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId, onAcceptanceRequired])
+  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId, onAcceptanceRequired, cancelHelloRetry, scheduleHelloRetry])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.
