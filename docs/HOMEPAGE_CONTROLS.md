@@ -8,6 +8,8 @@ There were two additional source-level conflicts. Controls inherited the camera'
 
 ## Implementation
 
+After correcting the URLs, the next production build failed with `Permanent public TURN credentials are forbidden in production`. Removed the production environment targets for `NEXT_PUBLIC_TURN_USERNAME` and `NEXT_PUBLIC_TURN_CREDENTIAL`; retained the TURN endpoint and server-side shared secret. Production already obtains short-lived credentials from `/api/realtime/turn`. The subsequent cloud build reached Ready. This verifies deployment configuration, not relay allocation or a physical-device TURN call.
+
 - A persistent sibling overlay shares the video's final layout geometry through `stageLayout` and `selfFrame` CSS. It does not inherit camera transforms or overflow. Existing control icons, positions relative to the self frame, and callbacks are retained.
 - Only matchmaking state selects home versus call layout. Auth, profile, legal checks, presence, and camera readiness control action availability, not layout or control lifetime.
 - A single cancellable hello retry is scoped to the current connection/account, with one ticket request in flight. `ready` cancels retries and clears restrictions; a ticket response alone does neither. Teardown invalidates pending responses/timers.

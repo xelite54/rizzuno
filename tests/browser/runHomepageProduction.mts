@@ -80,7 +80,8 @@ try {
     await delay(100)
   }
   const probe = await transform(PROBE, { loader: "ts" })
-  await browser.evaluate(probe.code)
+  // The probe installs state on window; do not serialize the Window object over CDP.
+  await browser.evaluate(`${probe.code}\nvoid 0`)
   const started = Date.now()
   while (Date.now() - started < Number(process.env.HOMEPAGE_HOLD_MS ?? 180_000)) {
     const mobile = Math.floor((Date.now() - started) / 30_000) % 2 === 1
