@@ -64,6 +64,7 @@ export type PeerProfile = PublicPeerIdentity
 export type AccountRestriction =
   | { reason: "banned"; detail?: string | null }
   | { reason: "suspended"; until?: number }
+  | { reason: "restricted"; until?: number }
   | { reason: "account_deleted" }
   | { reason: "acceptance_required" }
   /**
@@ -1038,6 +1039,7 @@ export function useMatchmaking(
         if (!isCurrent()) return
         console.warn("matchmaking: ticket request failed — not sending hello", { status: res.status, error: body.error })
         if (body.error === "banned") setRestriction({ reason: "banned", detail: body.reason })
+        else if (body.error === "restricted") setRestriction({ reason: "restricted", until: body.until })
         else if (body.error === "suspended") setRestriction({ reason: "suspended", until: body.until })
         else if (body.error === "account_deleted") setRestriction({ reason: "account_deleted" })
         else if (body.error === "acceptance_required") {

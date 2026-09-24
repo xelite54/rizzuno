@@ -8,14 +8,18 @@ Each category requires `{ "mode": "automatic" | "review" | "external", "days": <
 | --- | --- |
 | friendMessages | Automatic creation-age expiry or reviewed disposition; referenced reply parents survive until dependent replies expire. |
 | friendRequests | Automatic creation-age expiry or reviewed disposition, including pending requests. |
-| reports | Report, bounded text/history evidence and safety decision retention. Pending reports and open investigations do not expire automatically. Linked actions must expire first. |
-| moderationActions | Separate action expiry or reviewed disposition. Active account enforcement is not cleared by log expiry. |
+| recentMatches | Minimal server-side session ledger used only for safety reporting. Automatic purge waits until the report window ends and no report references the session. |
+| reports | Report and safety decision retention. Pending reports and open investigations do not expire automatically. Linked actions and evidence must expire first. |
+| reportEvidence | Bounded text/history evidence and disabled/captured/deleted capture metadata. Open investigations do not expire. Captured-object deletion requires an approved evidence-storage adapter before capture can be enabled. |
+| moderationActions | Separate action expiry or reviewed disposition. Active account enforcement is not cleared by log expiry; linked appeals expire first. |
+| appeals | Appeal request, user reference, status, reviewer, user-facing resolution and timestamps. Open appeals never expire automatically. |
 | imageChecks | Hashes, scores and model/provider/check metadata, no extra image copy. |
 | legalAcceptance | Version changes always append/preserve history. Automatic expiry only for erased accounts; active-account history requires review. |
 | privacyOperations | Export/erasure audit and recorded retained categories/reasons. |
 | accountTombstones | `review` only. Deleted identity remains denied; automatic deletion would allow reentry. Review minimized denial records and legal basis separately. |
 | storedImages | `automatic` required for unreferenced object age. Referenced product images follow product lifecycle; holds prevent physical deletion. |
 | heldRecords | Restricted pre-change copies preserved during a legal hold; automatic expiry only after all holds are released, or reviewed disposition. |
+| securityLogs | `external` required: configure actual expiry/access for application-controlled security and abuse logs. |
 | infrastructureLogs | `external` required: configure actual application/host log expiry, access and collection limits. |
 | backups | `external` required: configure actual provider expiry and restore protocol separately from primary rows. |
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { REQUIRED_DOCUMENTS } from "@/lib/legalVersions"
 import { LEGAL_CONFIG } from "@/lib/legalConfig"
+import { LegalNav } from "@/components/LegalNav"
 
 export const metadata: Metadata = {
   title: "Terms of Service — Rizzuno",
@@ -38,7 +39,7 @@ const SECTIONS = [
   { id: "blocks", label: "23. Blocks" },
   { id: "friends", label: "24. Friends & friend requests" },
   { id: "moderation", label: "25. Moderation" },
-  { id: "enforcement", label: "26. Warnings, suspensions & bans" },
+  { id: "enforcement", label: "26. Warnings, restrictions, suspensions & bans" },
   { id: "enforcement-limits", label: "27. Enforcement limitations" },
   { id: "deletion", label: "28. Stopping use and privacy requests" },
   { id: "availability", label: "29. Service availability" },
@@ -115,7 +116,7 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               Rizzuno currently relies on this representation as an age-eligibility self-attestation, recorded
               against your account together with the version of these Terms and the date you accepted them (see
-              Section 40). Google Sign-In authenticates the Google account used to access Rizzuno; it does not
+              Section 41). Google Sign-In authenticates the Google account used to access Rizzuno; it does not
               constitute age verification by Google or by Rizzuno. Rizzuno does not currently perform government-ID,
               biometric, facial-age-estimation, or other independent identity-level age verification, and does not
               guarantee that another user&apos;s stated age is accurate.
@@ -159,6 +160,7 @@ export default function TermsOfServicePage() {
           <section id="stranger-interaction">
             <h2 className="text-[16px] font-semibold">6. Random stranger interaction</h2>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Random matching pairs available opposite-selected genders. You may encounter someone you have met before, subject to a recent-partner cooldown and blocks. A separate mutually accepted friend invitation connects two friends regardless of gender; it is not random stranger matching.</p>
+            <p className="mt-2 text-muted">People you meet may misstate their age, identity, intentions, location, or circumstances. Do not disclose highly sensitive information, send money, or rely on another person&apos;s claims without independent judgment. Use report and block controls when needed. Conduct that is illegal, exploitative, threatening, sexual, discriminatory, fraudulent, or abusive is prohibited whether it begins on Rizzuno or attempts to move you elsewhere. Rizzuno can act on conduct and accounts connected to its service, but does not control another platform or an in-person interaction.</p>
 
           </section>
 
@@ -239,9 +241,9 @@ export default function TermsOfServicePage() {
             </p>
             <p className="mt-2 text-muted">
               If Rizzuno reasonably believes an account does not meet the eligibility requirement in Section 2,
-              Rizzuno may suspend or terminate that account. Rizzuno does not automatically detect this — if you
+              Rizzuno may place an urgent safety flag, temporarily restrict access where appropriate, use trained safety review, and permanently remove a confirmed underage account. A person incorrectly flagged can appeal through the Appeals page. Rizzuno does not automatically detect this — if you
               suspect another user doesn&apos;t meet Rizzuno&apos;s age requirement, report it using the
-              &ldquo;Underage concern&rdquo; category in the in-call safety menu (see Section 22).
+              &ldquo;Underage concern&rdquo; category in the in-call safety menu or recent-match reporting page (see Section 22).
             </p>
           </section>
 
@@ -328,14 +330,15 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="reports">
-            <p className="mt-2 text-muted">Reports may preserve up to 20 recent in-call text messages from the preceding two minutes, the report time and room ID, and a bounded summary of prior reports and moderation actions. This evidence is restricted to authorized safety reviewers. Automatic screenshots and call recording are not enabled.</p>
+            <p className="mt-2 text-muted">Reports may preserve up to 20 recent in-call text messages from the preceding two minutes when available, the report time and room ID, and a bounded summary of prior reports and moderation actions. This evidence is restricted to authorized safety reviewers. Automatic screenshots and call recording are not enabled.</p>
             <h2 className="text-[16px] font-semibold">22. Reports</h2>
             <p className="mt-2 text-muted">
-              You can report a current match from the in-call safety menu, and use supported friend/request or username-result reporting controls, in one of a few categories,
+              You can report a current match from the in-call safety menu, report a still-eligible recent session from the private recent-match reporting page, and use supported friend/request or username-result reporting controls, in one of a few categories,
               with optional details. A report is recorded (its category, any details you add, and which call it
               relates to) and queued for a human moderator&apos;s review. It is never shown to the person you
               reported.
             </p>
+            <p className="mt-2 text-muted">For post-match safety reporting, Rizzuno stores a minimal server-side session ledger containing the room ID, both internal account references, call source, start/end time and operator-configured report deadline. The user-facing list does not expose the counterpart&apos;s internal ID. A browser-local history of public profile snapshots is separate and is not trusted to authorize a report.</p>
           </section>
 
           <section id="blocks">
@@ -375,10 +378,10 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="enforcement">
-            <h2 className="text-[16px] font-semibold">26. Warnings, suspensions &amp; bans</h2>
+            <h2 className="text-[16px] font-semibold">26. Warnings, restrictions, suspensions &amp; bans</h2>
             <p className="mt-2 text-muted">
               A reviewed report can result in no action, an internal warning on the account&apos;s moderation
-              record, a temporary suspension, or a permanent ban, at Rizzuno&apos;s discretion. Rizzuno may also
+              record, a temporary restriction while review remains pending, a temporary suspension, or a permanent ban, at Rizzuno&apos;s discretion. Rizzuno may also
               take any of these actions, or otherwise discontinue your access, for any other reason at its
               discretion, including suspected abuse, fraud, or risk to other users — with or without a prior report.
               A ban or suspension record tied to an account is retained regardless of the account&apos;s status, and
@@ -390,6 +393,7 @@ export default function TermsOfServicePage() {
               account suspension — at Rizzuno&apos;s discretion. A single uncertain automated result does not by
               itself result in a ban; more severe categories can escalate faster than others.
             </p>
+            <p className="mt-2 text-muted">Serious recorded enforcement can be appealed from the <Link href="/appeals" className="underline">appeals page</Link> while signed in with the affected Google account. An appeal does not automatically pause enforcement. Authorized reviewers record an outcome and user-facing resolution without disclosing reporter identities, restricted evidence, or internal notes. An overturn restores prior account state only when a later enforcement or intervening state change does not require separate review.</p>
           </section>
 
           <section id="enforcement-limits">
@@ -484,6 +488,7 @@ export default function TermsOfServicePage() {
               your content, and it lasts only as long as reasonably necessary for that specific processing — for
               transient in-call content, this ordinarily ends after relay and the bounded recent-text window described in Section 22. Report evidence and lawful preservation are covered by the narrow retained-record exception below.
             </p>
+            <p className="mt-2 text-muted">You must own or have the necessary permission to share content you upload, display, send, or post. You may not submit illegal or prohibited content. Rizzuno may reject, restrict, preserve where lawfully required, or remove content and may apply account enforcement under these Terms. Copyright notices, counter-notices, restoration handling where applicable, and the repeat-infringer policy are described in the <Link href="/copyright" className="underline">Copyright Policy</Link>.</p>
             <p className="mt-2 text-muted">
               Where something you sent has legitimately become part of a report, moderation action, or other record
               Rizzuno retains under the Privacy Policy, Rizzuno may keep processing that retained material — but
@@ -657,6 +662,7 @@ export default function TermsOfServicePage() {
               </p>
             )}
           </section>
+          <LegalNav className="border-t border-border pt-5"/>
         </div>
       </div>
     </main>

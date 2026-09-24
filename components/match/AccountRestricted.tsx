@@ -1,6 +1,7 @@
 "use client"
 
 import type { AccountRestriction } from "@/hooks/useMatchmaking"
+import Link from "next/link"
 
 type AccountRestrictedProps = {
   restriction: AccountRestriction
@@ -23,10 +24,17 @@ function describe(restriction: AccountRestriction): { title: string; body: strin
           ? `This account is suspended until ${new Date(restriction.until).toLocaleString()}.`
           : "This account is temporarily suspended.",
       }
+    case "restricted":
+      return {
+        title: "Account temporarily restricted",
+        body: restriction.until
+          ? `This account is restricted while a safety review is pending, currently until ${new Date(restriction.until).toLocaleString()}.`
+          : "This account is temporarily restricted while a safety review is pending.",
+      }
     case "account_deleted":
       return {
         title: "Account deleted",
-        body: "This account was deleted. Sign in again to create a new one.",
+        body: "This account was deleted and cannot be recreated with the same identity. Contact the privacy team if you believe this is incorrect.",
       }
     case "acceptance_required":
       return {
@@ -49,6 +57,7 @@ export function AccountRestricted({ restriction, onSignOut }: AccountRestrictedP
       <div className="w-full max-w-xs">
         <h1 className="text-[18px] font-semibold text-foreground">{title}</h1>
         <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{body}</p>
+        {(restriction.reason === "banned" || restriction.reason === "restricted" || restriction.reason === "suspended") && <Link href="/appeals" className="mt-4 inline-block text-[13px] underline">Appeal this decision</Link>}
         <button
           type="button"
           onClick={onSignOut}

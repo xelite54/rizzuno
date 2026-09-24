@@ -560,5 +560,79 @@ export const MIGRATIONS: Migration[] = [
       CREATE TRIGGER guard_profile BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION guard_erased_profile();
     `,
   },
+  {
+    // Safety reporting after a room ends and accountable moderation appeals.
+    // These tables are application-server only: normal clients never receive
+    // counterpart account ids or confidential moderation notes.
+    id: "0016_recent_matches_appeals",
+    sql: `
+      CREATE TABLE match_sessions (
+        id TEXT PRIMARY KEY,
+        user_a_id TEXT NOT NULL,
+        user_b_id TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('random','friend')),
+        started_at BIGINT NOT NULL,
+        ended_at BIGINT,
+        report_eligible_until BIGINT NOT NULL,
+        CHECK (user_a_id < user_b_id),
+        CHECK (ended_at IS NULL OR ended_at >= started_at),
+        CHECK (report_eligible_until >= started_at)
+      );
+      CREATE INDEX match_sessions_user_a_recent ON match_sessions(user_a_id, started_at DESC);
+      CREATE INDEX match_sessions_user_b_recent ON match_sessions(user_b_id, started_at DESC);
+      CREATE INDEX match_sessions_retention ON match_sessions(started_at);
+      CREATE INDEX reports_match_reporter ON reports(match_id, reporter_id) WHERE match_id IS NOT NULL;
+
+      ALTER TABLE moderation_actions ADD CONSTRAINT moderation_action_valid
+        CHECK (action IN ('no_action','warning','restrict','suspend','ban')) NOT VALID;
+      ALTER TABLE moderation_actions VALIDATE CONSTRAINT moderation_action_valid;
+
+      CREATE TABLE appeals (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        enforcement_id TEXT NOT NULL REFERENCES moderation_actions(id),
+        reason TEXT NOT NULL,
+        evidence_reference TEXT,
+        submitted_at BIGINT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'submitted'
+          CHECK (status IN ('submitted','under_review','upheld','overturned','dismissed')),
+        reviewing_admin_id TEXT,
+        resolution TEXT,
+        resolved_at BIGINT,
+        CHECK (length(reason) BETWEEN 1 AND 2000),
+        CHECK (evidence_reference IS NULL OR length(evidence_reference) <= 500),
+        CHECK (resolution IS NULL OR length(resolution) <= 2000),
+        CHECK (
+          (status IN ('submitted','under_review') AND resolved_at IS NULL)
+          OR (status IN ('upheld','overturned','dismissed') AND resolved_at IS NOT NULL AND reviewing_admin_id IS NOT NULL AND resolution IS NOT NULL)
+        )
+      );
+      CREATE UNIQUE INDEX one_open_appeal_per_enforcement
+        ON appeals(enforcement_id) WHERE status IN ('submitted','under_review');
+      CREATE INDEX appeals_user_recent ON appeals(user_id, submitted_at DESC);
+      CREATE INDEX appeals_enforcement ON appeals(enforcement_id);
+      CREATE INDEX appeals_queue ON appeals(status, submitted_at);
+      CREATE INDEX appeals_retention ON appeals(submitted_at);
+
+      ALTER TABLE report_evidence DROP CONSTRAINT IF EXISTS report_evidence_screenshot_state_check;
+      ALTER TABLE report_evidence
+        ADD COLUMN evidence_key TEXT,
+        ADD COLUMN evidence_sha256 TEXT,
+        ADD COLUMN evidence_deleted_at BIGINT,
+        ADD CONSTRAINT report_evidence_capture_state CHECK (
+          (screenshot_state = 'not_captured' AND evidence_key IS NULL AND evidence_sha256 IS NULL)
+          OR (screenshot_state = 'captured' AND evidence_key IS NOT NULL AND evidence_sha256 ~ '^[0-9a-f]{64}$' AND evidence_deleted_at IS NULL)
+          OR (screenshot_state = 'deleted' AND evidence_key IS NULL AND evidence_sha256 IS NOT NULL AND evidence_deleted_at IS NOT NULL)
+        );
+
+      CREATE TRIGGER preserve_match_sessions BEFORE UPDATE OR DELETE ON match_sessions
+        FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_appeals BEFORE UPDATE OR DELETE ON appeals
+        FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      ALTER TABLE match_sessions ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE appeals ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON match_sessions, appeals FROM PUBLIC;
+    `,
+  },
 
 ]

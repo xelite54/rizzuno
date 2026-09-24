@@ -7,7 +7,7 @@ import { csrfGuard } from "./lib/requestSecurity"
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
   // Public legal/contact pages remain reachable; product and sign-in fail closed.
-  const publicLegal = ["/terms", "/privacy", "/community-guidelines", "/safety", "/copyright"]
+  const publicLegal = ["/terms", "/privacy", "/community-guidelines", "/safety", "/copyright", "/appeals", "/reports/recent"]
   if (!publicLegal.includes(path) && path !== "/api/billing/webhook" && !path.startsWith("/_next/") && !countryAllowed(requestCountry(request))) {
     return new NextResponse("Rizzuno is not available in your region.", { status: 451, headers: { "Cache-Control": "no-store" } })
   }

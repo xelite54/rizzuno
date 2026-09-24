@@ -1,5 +1,6 @@
 import { normalizeCountry } from "./country"
 import { retentionPolicy } from "./retention"
+import { recentMatchReportWindowMs } from "./recentMatches"
 
 export function supportedCountries(env: Record<string, string | undefined> = process.env): string[] {
   const values = (env.SUPPORTED_COUNTRIES ?? "").split(",").map(value => value.trim()).filter(Boolean)
@@ -18,6 +19,7 @@ export function validateLaunchReadiness(env: Record<string, string | undefined> 
   for (const key of ["PRIVACY_CONTACT_EMAIL", "LEGAL_NOTICE_EMAIL"]) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env[key] ?? "")) throw new Error(`Invalid configuration: ${key}`)
   }
+  if (env.COPYRIGHT_NOTICE_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.COPYRIGHT_NOTICE_EMAIL)) throw new Error("Invalid configuration: COPYRIGHT_NOTICE_EMAIL")
   if (env.LEGAL_REVIEW_APPROVED !== "true" || env.SAFETY_WORKFLOW_APPROVED !== "true" || env.RETENTION_SCHEDULER_CONFIRMED !== "true") throw new Error("Operator legal, safety and retention scheduler approvals required")
   if ((env.LEGAL_GOVERNING_LAW || env.LEGAL_DISPUTE_RESOLUTION) && env.LEGAL_TERMS_REVIEWED !== "true") throw new Error("Optional dispute terms require legal review")
   const countries = supportedCountries(env)
@@ -26,5 +28,6 @@ export function validateLaunchReadiness(env: Record<string, string | undefined> 
     for (const key of ["DMCA_AGENT_NAME", "DMCA_AGENT_ADDRESS", "DMCA_AGENT_PHONE", "DMCA_REGISTRATION_REFERENCE"]) if (!env[key]?.trim()) throw new Error(`Missing launch configuration: ${key}`)
   }
   if (env.LAUNCH_GEO_SOURCE !== "vercel") throw new Error("Configure reviewed trusted geolocation: LAUNCH_GEO_SOURCE=vercel")
+  recentMatchReportWindowMs(env)
   retentionPolicy(env)
 }

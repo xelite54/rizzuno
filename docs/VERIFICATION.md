@@ -1,6 +1,6 @@
 # Launch-hardening verification — 2026-09-24
 
-Repository: Rizzuno (`xelite54/rizzuno`), local working tree based on `75fc5eb22e100db4e23099b6f6aee994392377a2`. These changes have not been pushed or deployed. Local verification is not evidence of production capacity or jurisdictional compliance.
+Repository: Rizzuno (`xelite54/rizzuno`), local working tree based on `1c639cadca126c35efbb11157417e31d0838b0fa`. These changes have not been pushed or deployed. Local verification is not evidence of production capacity or jurisdictional compliance.
 
 ## Final local checks
 
@@ -8,13 +8,13 @@ Repository: Rizzuno (`xelite54/rizzuno`), local working tree based on `75fc5eb22
 | --- | --- |
 | `npm run lint` | Passed |
 | `npm run typecheck` | Passed: application, tests and browser harness |
-| `npm test` | 286 passed; zero failed, cancelled or skipped |
+| `npm test` | 288 passed; zero failed, cancelled or skipped. This includes moderation/report, appeal, legal acceptance/version, privacy export/erasure, migration, retention and authorization coverage. |
 | `npm run security:check` | Zero reported dependency vulnerabilities |
-| Gitleaks | No detected leaks in 183 reachable commits or publishable tracked/new source; ignored local secrets and generated build files are excluded from the source scan |
-| `npm run test:cluster` | Passed with real Redis 7.2.7 and multiple realtime processes |
-| `npm run test:webrtc:browser` | Passed all original assertions, including a 120267 ms sustained media call, skip/rematch, friend call, transport/media recovery, playback termination and sign-out |
-| `npm run test:homepage:runtime` | Passed 181000 ms of real hooks, HTTP, WebSocket and WebRTC, including reconnect, restrictions, legal reacceptance and camera recovery |
-| `npm run test:homepage:browser` | Passed 30216 ms of structural/frame checks |
+| Gitleaks | Not rerun locally because the binary is not installed. The required CI `security` job runs `gitleaks/gitleaks-action`; that remote check must pass on this exact revision. |
+| `npm run test:cluster` | Passed with a real Redis 7.2.7 process and multiple realtime processes, including coordinator death/fencing/replacement and Redis reconnect. Redis was built under `/tmp` for this test and did not change repository or deployment configuration. |
+| `npm run test:webrtc:browser` | Passed all original assertions, including a 120278 ms sustained media call, skip/rematch, friend call, transport/media recovery, playback termination and sign-out. |
+| `npm run test:homepage:runtime` | Passed 181081 ms of real hooks, HTTP, WebSocket and WebRTC, including reconnect, restrictions, legal reacceptance and camera recovery. |
+| `npm run test:homepage:browser` | Passed 181271 ms and 8,835 structural/frame samples with stable control nodes. |
 | `node scripts/ci-build.mjs` | Production compilation passed using explicitly synthetic, isolated CI configuration; artifact is not deployable production evidence |
 | Actual `npm run build` with local deployment configuration | Correctly refused: `Missing launch configuration: LEGAL_OPERATOR_NAME`; production readiness remains blocked |
 | `git diff --check` and final diff review | Passed; no conflict markers or unintended architecture replacement |
@@ -23,9 +23,9 @@ Browser startup now uses a pinned Chrome for Testing in CI, isolated profiles, a
 
 ## Implemented safeguards and limits
 
-Terms and Privacy versions are `2026-09-24`; historical acceptance records remain and current acceptance is enforced at ticket issuance and realtime admission, with ongoing eligibility checks. Guidelines, Safety and Copyright text were reviewed together. Launch configuration requires real operator/contact/provider disclosures, approved retention decisions and explicitly supported countries. Missing data is a release blocker, not a fabricated value.
+Terms and Privacy versions are `2026-09-24b`; historical acceptance records remain and current acceptance is enforced at ticket issuance and realtime admission, with ongoing eligibility checks. Guidelines, Safety, Appeals and Copyright text were reviewed together. Launch configuration requires real operator/contact/provider disclosures, an approved recent-match report window, approved retention decisions and explicitly supported countries. Missing data is a release blocker, not a fabricated value.
 
-Migration `0015_launch_evidence_retention` was exercised with the full migration chain in isolated PGlite tests. It has not been applied to an external database in this session. Report evidence stores server-authoritative identifiers, timestamps, bounded approved chat and restricted history. Automatic screenshots are not implemented; the reserved interface and `not_captured` state make that limitation explicit. Calls are not continuously recorded. Specialized severe-content detection remains unavailable without a real provider; generic nudity scores are not CSAM determinations.
+Migrations `0015_launch_evidence_retention` and `0016_recent_matches_appeals` were exercised with the full migration chain in isolated PGlite tests. They have not been applied to an external database in this session. Recent-match reports derive the counterpart from the private server ledger, and appeal views exclude confidential moderation material. Report evidence stores server-authoritative identifiers, timestamps, bounded approved chat and restricted history. Automatic screenshots are not implemented; the reserved interface and `not_captured` state make that limitation explicit. Calls are not continuously recorded. Specialized severe-content detection remains unavailable without a real provider; generic nudity scores are not CSAM determinations.
 
 Retention tests cover bounded purges, holds, preservation snapshots, referential integrity and durable image-deletion retries. Storage tests use HTTP stubs, not the deployed Supabase bucket. Privacy actions require authenticated admin review, identity verification, retention review and a case reference; erasure records justified retained categories and pending object cleanup. Safety evidence is restricted and audited, with conflicted reviewers excluded.
 

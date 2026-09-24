@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { LegalNav } from "@/components/LegalNav"
 import { useEffect, useState } from "react"
 import { signIn, useSession } from "next-auth/react"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
@@ -116,7 +117,7 @@ export default function RizzPlusPage() {
           {returned && !active && <button onClick={() => void refresh()} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Refresh membership status</button>}
           <p className="mt-3 text-[11px] leading-relaxed text-white/60">Temporary test access. No card required and no automatic charge from this activation.</p>
           <p className="mt-2 text-[11px] text-white/30">Rizzuno currently has no ads for any users. Membership does not bypass content moderation.</p>
-          <div className="mt-3 flex gap-4 text-[11px] text-white/45"><Link href="/terms">Terms</Link><Link href="/privacy">Privacy</Link></div>
+          <LegalNav className="mt-3 text-[11px] text-white/45"/>
         </section>
       </div>
       </div>

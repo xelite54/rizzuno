@@ -284,8 +284,8 @@ export type ServerMessage =
   | { type: "blocked"; ok: boolean }
   /** Ack for "unblock" — `ok` mirrors lib/db.ts's removeBlock() return value (whether a block row actually existed and was removed). */
   | { type: "unblocked"; ok: boolean; targetUserId: string }
-  /** "hello" was rejected — an expired/invalid ticket, or an account status (banned/suspended) that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket), reopen legal acceptance (acceptance_required), or stop trying (banned/suspended). */
-  | { type: "rejected"; reason: "invalid_ticket" | "acceptance_required" | "banned" | "suspended" }
+  /** "hello" was rejected — an expired/invalid ticket, or an account status that changed after the ticket was minted. The client should re-fetch a ticket (invalid_ticket), reopen legal acceptance (acceptance_required), or stop trying (banned/restricted/suspended). */
+  | { type: "rejected"; reason: "invalid_ticket" | "acceptance_required" | "banned" | "restricted" | "suspended" }
   /**
    * This connection lost a race for the same account against another,
    * already-healthy connection (a second tab/device, or a reconnect that

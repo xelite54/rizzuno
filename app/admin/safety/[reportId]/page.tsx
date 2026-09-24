@@ -34,12 +34,12 @@ export default async function SafetyCase({ params }: { params: Promise<{ reportI
       <button className="rounded border p-2">Record decision</button>
     </form>
     {report.status === "pending" && <form action={resolveReportAction} className="grid gap-3">
-      <h2 className="font-semibold">Temporary suspension during investigation</h2>
-      <input type="hidden" name="reportId" value={reportId} /><input type="hidden" name="action" value="suspend" />
+      <h2 className="font-semibold">Temporary restriction during investigation</h2>
+      <input type="hidden" name="reportId" value={reportId} /><input type="hidden" name="action" value="restrict" />
       <label>Days <input name="suspendDays" type="number" min={1} max={365} required className="border" /></label>
       <label>Reason <textarea name="reason" required maxLength={500} className="border" /></label>
-      <label><input type="checkbox" name="confirmEnforcement" value="yes" required /> Confirm temporary suspension</label>
-      <button className="rounded border p-2">Suspend; keep investigation open</button>
+      <label><input type="checkbox" name="confirmEnforcement" value="yes" required /> Confirm temporary restriction</label>
+      <button className="rounded border p-2">Temporarily restrict; keep investigation open</button>
     </form>}
     <form action={hold} className="grid gap-3">
       <h2 className="font-semibold">Preservation hold</h2>

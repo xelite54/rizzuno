@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { LegalNav } from "@/components/LegalNav"
 import { GoogleIcon } from "@/components/icons"
 import { BrandMark } from "./BrandMark"
 
@@ -57,21 +58,7 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
         .
       </p>
 
-      <nav aria-label="Legal" className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted">
-        <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
-          Terms
-        </Link>
-        <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">
-          Privacy
-        </Link>
-        <Link href="/community-guidelines" className="underline underline-offset-2 hover:text-foreground">
-          Community Guidelines
-        </Link>
-        <Link href="/safety" className="underline underline-offset-2 hover:text-foreground">
-          Safety
-        </Link>
-        <Link href="/copyright" className="underline underline-offset-2 hover:text-foreground">Copyright</Link>
-      </nav>
+      <LegalNav className="mt-3 text-[12px]" />
     </div>
   )
 }

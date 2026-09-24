@@ -31,8 +31,28 @@ test("report snapshots are deduplicated, server-linked and urgent investigations
   assert.equal(await db.getReportEvidence(id,"target"),null,"even a moderator cannot view evidence about their own reported account")
   await db.resolveReport(id,"reviewer","suspend","Credible age concern",Date.now()+86_400_000)
   assert.ok((await db.listReports("pending")).some(row=>row.id===id))
+  const enforcement=(await pg.query<{id:string}>("SELECT id FROM moderation_actions WHERE report_id=$1",[id])).rows[0].id
+  const appealId=await db.submitAppeal({userId:"target",enforcementId:enforcement,reason:"I meet the eligibility requirement",evidenceReference:"case-user-1"})
+  assert.equal((await db.listUserAppeals("target"))[0].id,appealId)
+  await assert.rejects(db.submitAppeal({userId:"reporter",enforcementId:enforcement,reason:"not mine"}),/appealable/)
+  await db.resolveAppeal({appealId,actorAdminId:"appeal-reviewer",outcome:"overturned",resolution:"The enforcement was reversed after review."})
+  assert.equal((await db.getUserStatus("target")).suspendedUntil,null)
+  assert.equal((await db.listUserAppeals("target"))[0].status,"overturned")
   await db.recordSafetyDecision({reportId:id,actorId:"reviewer",decision:"investigation_closed",caseReference:"case-123",rationale:"Reviewed"})
   assert.ok(!(await db.listReports("pending")).some(row=>row.id===id))
+})
+test("recent-match reports derive the target from the private server ledger",async()=>{
+  await pg.exec("INSERT INTO users(id,created_at,username) VALUES('recent-a',0,'recenta'),('recent-b',0,'recentb'),('recent-c',0,'recentc')")
+  await db.recordMatchStart({matchId:"recent-room",userAId:"recent-a",userBId:"recent-b",source:"random",startedAt:Date.now()-1000})
+  await db.recordMatchEnd("recent-room")
+  const recent=await db.listRecentMatchesForReporting("recent-a")
+  assert.equal(recent[0].username,"recentb")
+  assert.equal("userId" in recent[0],false)
+  await assert.rejects(db.fileRecentMatchReport({reporterId:"recent-c",matchId:"recent-room",category:"harassment"}),/not_reportable/)
+  const reportId=await db.fileRecentMatchReport({reporterId:"recent-a",matchId:"recent-room",category:"harassment",details:"Threats"})
+  const report=await db.getReport(reportId)
+  assert.equal(report?.reported_id,"recent-b")
+  assert.equal((await db.listRecentMatchesForReporting("recent-a"))[0].reported,true)
 })
 test("holds block purges/erasure and preserve user changes without breaking block controls",async()=>{
   await pg.exec("INSERT INTO users(id,created_at,bio) VALUES('held',0,'original')")
@@ -68,6 +88,8 @@ test("standard export includes accessible received messages but excludes peer ID
   assert.equal(result.messages[0].text,"received")
   assert.equal('sender_id' in result.messages[0],false)
   assert.equal('reports' in result,false)
+  assert.ok(Array.isArray(result.recentMatches))
+  assert.ok(Array.isArray(result.appeals))
 })
 
 test("live eligibility requires current legal versions and keeps prior acceptance records",async()=>{

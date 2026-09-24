@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { LegalNav } from "@/components/LegalNav"
+import { RELATED_LEGAL_VERSIONS } from "@/lib/legalVersions"
 
 export const metadata: Metadata = {
   title: "Safety — Rizzuno",
@@ -12,8 +14,8 @@ export default function SafetyPage() {
   return (
     <main className="h-dvh w-full overflow-y-auto overscroll-y-contain bg-background text-foreground">
       <div className="mx-auto w-full max-w-2xl px-6 py-16">
-      <h1 className="text-[28px] font-bold tracking-tight">Safety</h1>
-      <p className="mt-2 text-[13px] text-muted">Last updated {LAST_UPDATED}</p>
+      <h1 className="text-[28px] font-bold tracking-tight">Safety Center</h1>
+      <p className="mt-2 text-[13px] text-muted">Version {RELATED_LEGAL_VERSIONS.safety} · Last updated {LAST_UPDATED}</p>
       <p className="mt-4 text-[14px] leading-relaxed text-muted">
         This page is practical guidance, not a legal document. Read it before your first call.
       </p>
@@ -80,6 +82,43 @@ export default function SafetyPage() {
             Settings → Blocked users. Unblocking does not restore friendships or pending requests.
 
           </p>
+          <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
+            <li><strong className="text-foreground">During a match:</strong> open the ••• safety menu on the other person&apos;s video, choose Report, select a category, and add details if useful.</li>
+            <li><strong className="text-foreground">Immediately afterward:</strong> open <Link href="/reports/recent" className="underline">Report a recent match</Link>. The private list contains only your still-reportable sessions and does not reveal internal account IDs.</li>
+            <li><strong className="text-foreground">Friends or profiles:</strong> use the Report control on the supported friend, request, or username-result view.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-[16px] font-semibold">What happens after a report</h2>
+          <p className="mt-2 text-muted">The report is queued for authorized review. It can include the category, your optional details, exact time, server-authoritative account and session references, a bounded summary of relevant prior reports/actions, and up to 20 approved text messages from the preceding two minutes when the report is made during the live room. Post-match reports normally have no chat snapshot because that memory is cleared when the room ends. The reported person does not receive the report or evidence.</p>
+          <p className="mt-2 text-muted">A reviewer can record no action, an internal warning, a temporary restriction pending review, a temporary suspension, or a permanent ban. Underage concerns enter the urgent safety queue. Rizzuno does not promise instant review or continuous staffing.</p>
+        </section>
+
+        <section>
+          <h2 className="text-[16px] font-semibold">Underage concerns</h2>
+          <p className="mt-2 text-muted">Rizzuno is only for people who are at least 18, or the higher age of majority where they live. The age gate is self-attestation; Google Sign-In does not verify age. Report a suspected underage user immediately and leave the interaction.</p>
+          <p className="mt-2 text-muted">The documented operator flow is: urgent flag → temporary restriction when credible and appropriate → trained safety review with minimal evidence and a case reference → permanent removal if confirmed → an <Link href="/appeals" className="underline">appeal</Link> for an incorrectly flagged user. Legal holds and external-reporting decisions are recorded where applicable. Generic nudity scores are never treated as CSAM detection.</p>
+        </section>
+
+        <section>
+          <h2 className="text-[16px] font-semibold">Sexual content, harassment and threats</h2>
+          <p className="mt-2 text-muted">End the call and report nudity, sexual conduct, non-consensual sexual material, coercion, stalking, harassment, discriminatory abuse, threats, encouragement of self-harm, or violence. If content appears to involve a minor, choose Underage concern and do not download, resend, or investigate it yourself.</p>
+        </section>
+
+        <section>
+          <h2 className="text-[16px] font-semibold">Scams, extortion and impersonation</h2>
+          <p className="mt-2 text-muted">Do not send money, credentials, intimate material, identity documents, or verification codes. Treat threats to publish images, demands for payment, fake staff claims, investment pitches, and requests to move quickly off-platform as warning signs. Preserve only what you safely already have, stop responding, and report the account.</p>
+        </section>
+
+        <section>
+          <h2 className="text-[16px] font-semibold">Dangerous or off-platform behavior</h2>
+          <p className="mt-2 text-muted">Rizzuno&apos;s controls apply to its accounts and service. We cannot control a person&apos;s conduct on another app or in person. Block and report the Rizzuno account, use the other service&apos;s safety tools, and contact local authorities when appropriate. Do not meet someone solely because of a random match.</p>
+        </section>
+
+        <section>
+          <h2 className="text-[16px] font-semibold">Appeals</h2>
+          <p className="mt-2 text-muted">A person affected by an underage decision, temporary restriction or suspension, permanent ban, or another serious recorded enforcement can use the <Link href="/appeals" className="underline">appeals page</Link> while signed in with the affected Google account. Appeal records include the enforcement reference, the person&apos;s reason and optional reference, status, reviewer, resolution, and timestamps. Internal notes, reporter identities, and restricted evidence are not shown.</p>
         </section>
 
         <section>
@@ -113,21 +152,7 @@ export default function SafetyPage() {
 
         <section>
           <h2 className="text-[16px] font-semibold">More</h2>
-          <p className="mt-2 text-muted">
-            See our{" "}
-            <Link href="/community-guidelines" className="underline underline-offset-2 hover:text-accent">
-              Community Guidelines
-            </Link>
-            ,{" "}
-            <Link href="/terms" className="underline underline-offset-2 hover:text-accent">
-              Terms of Service
-            </Link>
-            , and{" "}
-            <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
-              Privacy Policy
-            </Link>
-            .
-          </p>
+          <LegalNav className="mt-3"/>
         </section>
       </div>
       </div>

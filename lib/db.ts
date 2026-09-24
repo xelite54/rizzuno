@@ -8,6 +8,7 @@ import { isWireId } from "./signaling/validation"
 import { randomUUID } from "node:crypto"
 import { REQUIRED_DOCUMENTS } from "./legalVersions"
 import { MIGRATIONS } from "./migrations"
+import { recentMatchReportWindowMs } from "./recentMatches"
 
 /** Shared persistent account, profile, social, moderation, billing and legal store. */
 const connectionString = process.env.DATABASE_URL
@@ -224,6 +225,7 @@ export type UserStatus = {
   banned: boolean
   banReason: string | null
   suspendedUntil: number | null
+  temporaryAction: "restrict" | "suspend" | null
   deleted: boolean
 }
 
@@ -242,11 +244,14 @@ export async function getUserStatus(userId: string): Promise<UserStatus> {
     banned_at: string | null
     ban_reason: string | null
     suspended_until: string | null
+    temporary_action: "restrict" | "suspend" | null
     deleted_at: string | null
-  }>(`SELECT banned_at, ban_reason, suspended_until, deleted_at FROM users WHERE id = $1`, [userId])
+  }>(`SELECT banned_at, ban_reason, suspended_until, deleted_at,
+      (SELECT action FROM moderation_actions m WHERE m.target_user_id=users.id AND m.action IN ('restrict','suspend') AND m.suspend_until=users.suspended_until ORDER BY m.created_at DESC LIMIT 1) AS temporary_action
+      FROM users WHERE id = $1`, [userId])
 
   const row = rows[0]
-  if (!row) return { id: userId, banned: false, banReason: null, suspendedUntil: null, deleted: false }
+  if (!row) return { id: userId, banned: false, banReason: null, suspendedUntil: null, temporaryAction: null, deleted: false }
 
   const suspendedUntilMs = row.suspended_until ? Number(row.suspended_until) : null
   const suspendedUntil = suspendedUntilMs && suspendedUntilMs > now() ? suspendedUntilMs : null
@@ -255,6 +260,7 @@ export async function getUserStatus(userId: string): Promise<UserStatus> {
     banned: row.banned_at !== null,
     banReason: row.ban_reason,
     suspendedUntil,
+    temporaryAction: suspendedUntil ? row.temporary_action : null,
     deleted: row.deleted_at !== null,
   }
 }
@@ -663,6 +669,58 @@ export type ReportInput = {
   chatContext?: ReportChatEntry[]
 }
 
+export async function recordMatchStart(input: { matchId: string; userAId: string; userBId: string; source: "random" | "friend"; startedAt?: number }) {
+  if (!isWireId(input.matchId) || !isWireId(input.userAId) || !isWireId(input.userBId) || input.userAId === input.userBId) throw new Error("invalid_match")
+  const [userAId, userBId] = [input.userAId, input.userBId].sort()
+  const startedAt = input.startedAt ?? now()
+  if (!Number.isSafeInteger(startedAt) || startedAt > now() + 60_000) throw new Error("invalid_match")
+  await q(`INSERT INTO match_sessions(id,user_a_id,user_b_id,source,started_at,report_eligible_until)
+    VALUES($1,$2,$3,$4,$5,$6)`, [input.matchId,userAId,userBId,input.source,startedAt,startedAt + recentMatchReportWindowMs()])
+}
+
+export async function recordMatchEnd(matchId: string, endedAt = now()) {
+  if (!isWireId(matchId) || !Number.isSafeInteger(endedAt)) throw new Error("invalid_match")
+  await q(`UPDATE match_sessions SET ended_at=GREATEST(started_at,$2) WHERE id=$1 AND ended_at IS NULL`, [matchId,endedAt])
+}
+
+export type RecentMatchForReport = {
+  matchId: string
+  username: string | null
+  startedAt: number
+  endedAt: number | null
+  reportEligibleUntil: number
+  reported: boolean
+}
+
+/** Returns only the signed-in account's still-reportable sessions. Stable
+ * counterpart ids remain server-side; current public username is enough to
+ * identify the interaction in this private safety view. */
+export async function listRecentMatchesForReporting(userId: string): Promise<RecentMatchForReport[]> {
+  const { rows } = await q<{
+    id: string; username: string | null; started_at: string; ended_at: string | null;
+    report_eligible_until: string; reported: boolean
+  }>(`SELECT m.id,u.username,m.started_at,m.ended_at,m.report_eligible_until,
+      EXISTS(SELECT 1 FROM reports r WHERE r.match_id=m.id AND r.reporter_id=$1) AS reported
+    FROM match_sessions m
+    JOIN users u ON u.id=CASE WHEN m.user_a_id=$1 THEN m.user_b_id ELSE m.user_a_id END
+    WHERE (m.user_a_id=$1 OR m.user_b_id=$1) AND m.report_eligible_until>$2
+    ORDER BY m.started_at DESC LIMIT 20`, [userId,now()])
+  return rows.map(row => ({ matchId: row.id, username: row.username, startedAt: Number(row.started_at),
+    endedAt: row.ended_at === null ? null : Number(row.ended_at), reportEligibleUntil: Number(row.report_eligible_until), reported: row.reported }))
+}
+
+/** Authorizes the target solely from the server-created room ledger. */
+export async function fileRecentMatchReport(input: { reporterId: string; matchId: string; category: string; details?: string }) {
+  if (!isWireId(input.matchId)) throw new Error("invalid_match")
+  const { rows } = await q<{ user_a_id: string; user_b_id: string }>(
+    `SELECT user_a_id,user_b_id FROM match_sessions
+     WHERE id=$1 AND report_eligible_until>$2 AND (user_a_id=$3 OR user_b_id=$3)`, [input.matchId,now(),input.reporterId])
+  const match = rows[0]
+  if (!match) throw new Error("match_not_reportable")
+  const reportedId = match.user_a_id === input.reporterId ? match.user_b_id : match.user_a_id
+  return fileReport({ reporterId: input.reporterId, reportedId, category: input.category, details: input.details, matchId: input.matchId })
+}
+
 export async function fileReport(input: ReportInput): Promise<string> {
   if (!isValidReportCategory(input.category) || input.reporterId === input.reportedId || !await lookupExistingTarget(input.reportedId)) throw new Error("invalid_target")
   if (input.details && input.details.length > 500) throw new Error("invalid_report")
@@ -721,7 +779,7 @@ export async function getReport(id: string): Promise<ReportRow | undefined> {
   return row ? ({ ...row, created_at: Number(row.created_at) } as ReportRow) : undefined
 }
 
-export type ModerationAction = "no_action" | "warning" | "suspend" | "ban"
+export type ModerationAction = "no_action" | "warning" | "restrict" | "suspend" | "ban"
 
 /** The only place enforcement actually gets applied — always through here, always attributed to a real admin id, always logged. Runs as one transaction: a report shouldn't end up marked reviewed if the enforcement action it implies failed to apply, or vice versa. */
 export async function resolveReport(
@@ -731,9 +789,9 @@ export async function resolveReport(
   reason: string | null,
   suspendUntilMs: number | null
 ) {
-  if (!isWireId(reportId) || !["no_action", "warning", "suspend", "ban"].includes(action)) throw new Error("invalid_action")
-  if (action === "suspend" && (!Number.isSafeInteger(suspendUntilMs) || suspendUntilMs! <= now() || suspendUntilMs! > now() + 366 * 86_400_000)) throw new Error("invalid_suspension")
-  if (["suspend", "ban"].includes(action) && (!reason?.trim() || reason.length > 500)) throw new Error("reason_required")
+  if (!isWireId(reportId) || !["no_action", "warning", "restrict", "suspend", "ban"].includes(action)) throw new Error("invalid_action")
+  if (["restrict", "suspend"].includes(action) && (!Number.isSafeInteger(suspendUntilMs) || suspendUntilMs! <= now() || suspendUntilMs! > now() + 366 * 86_400_000)) throw new Error("invalid_suspension")
+  if (["restrict", "suspend", "ban"].includes(action) && (!reason?.trim() || reason.length > 500)) throw new Error("reason_required")
   await ensureMigrated()
   const client = await requirePool().connect()
   try {
@@ -758,7 +816,7 @@ export async function resolveReport(
         reason,
         report.reported_id,
       ])
-    } else if (action === "suspend" && suspendUntilMs) {
+    } else if ((action === "restrict" || action === "suspend") && suspendUntilMs) {
       await client.query(`INSERT INTO users (id, created_at) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`, [
         report.reported_id,
         now(),
@@ -785,6 +843,113 @@ export async function resolveReport(
   } finally {
     client.release()
   }
+}
+
+export type UserAppeal = {
+  id: string
+  enforcementId: string
+  action: ModerationAction
+  category: string | null
+  enforcementAt: number
+  expiresAt: number | null
+  reason: string
+  evidenceReference: string | null
+  submittedAt: number
+  status: "submitted" | "under_review" | "upheld" | "overturned" | "dismissed"
+  resolution: string | null
+  resolvedAt: number | null
+}
+
+/** User-facing appeal history deliberately excludes moderator identity,
+ * internal enforcement reasons, prior-state snapshots and report evidence. */
+export async function listUserAppeals(userId: string): Promise<UserAppeal[]> {
+  const { rows } = await q<Record<string, unknown>>(`SELECT a.id,a.enforcement_id,m.action,r.category,m.created_at AS enforcement_at,
+      m.suspend_until,a.reason,a.evidence_reference,a.submitted_at,a.status,a.resolution,a.resolved_at
+    FROM appeals a JOIN moderation_actions m ON m.id=a.enforcement_id
+    LEFT JOIN reports r ON r.id=m.report_id WHERE a.user_id=$1 ORDER BY a.submitted_at DESC`, [userId])
+  return rows.map(row => ({ id:String(row.id),enforcementId:String(row.enforcement_id),action:row.action as ModerationAction,
+    category:row.category === null ? null : String(row.category),enforcementAt:Number(row.enforcement_at),
+    expiresAt:row.suspend_until === null ? null : Number(row.suspend_until),reason:String(row.reason),
+    evidenceReference:row.evidence_reference === null ? null : String(row.evidence_reference),submittedAt:Number(row.submitted_at),
+    status:row.status as UserAppeal["status"],resolution:row.resolution === null ? null : String(row.resolution),
+    resolvedAt:row.resolved_at === null ? null : Number(row.resolved_at) }))
+}
+
+export async function listAppealableEnforcements(userId: string) {
+  const { rows } = await q<{ id:string; action:ModerationAction; category:string|null; created_at:string; suspend_until:string|null; has_open_appeal:boolean }>(
+    `SELECT m.id,m.action,r.category,m.created_at,m.suspend_until,
+      EXISTS(SELECT 1 FROM appeals a WHERE a.enforcement_id=m.id AND a.status IN ('submitted','under_review')) AS has_open_appeal
+     FROM moderation_actions m LEFT JOIN reports r ON r.id=m.report_id
+     WHERE m.target_user_id=$1 AND m.action IN ('restrict','suspend','ban')
+     ORDER BY m.created_at DESC LIMIT 50`, [userId])
+  return rows.map(row => ({ enforcementId:row.id,action:row.action,category:row.category,
+    createdAt:Number(row.created_at),expiresAt:row.suspend_until === null ? null : Number(row.suspend_until),hasOpenAppeal:row.has_open_appeal }))
+}
+
+export async function submitAppeal(input: { userId:string; enforcementId:string; reason:string; evidenceReference?:string }) {
+  const reason=input.reason.trim(); const evidence=input.evidenceReference?.trim() || null
+  if (!isWireId(input.enforcementId) || !reason || reason.length>2000 || (evidence?.length ?? 0)>500) throw new Error("invalid_appeal")
+  const id=randomUUID()
+  const result=await q(`INSERT INTO appeals(id,user_id,enforcement_id,reason,evidence_reference,submitted_at)
+    SELECT $1,$2,m.id,$3,$4,$5 FROM moderation_actions m
+    WHERE m.id=$6 AND m.target_user_id=$2 AND m.action IN ('restrict','suspend','ban')
+    RETURNING id`, [id,input.userId,reason,evidence,now(),input.enforcementId])
+  if (!result.rowCount) throw new Error("enforcement_not_appealable")
+  return id
+}
+
+export type AdminAppeal = UserAppeal & { userId:string; reviewingAdminId:string|null }
+export async function listAppeals(status: "submitted" | "under_review" | "resolved" = "submitted"): Promise<AdminAppeal[]> {
+  const condition=status==="resolved" ? "a.status IN ('upheld','overturned','dismissed')" : "a.status=$1"
+  const params=status==="resolved" ? [] : [status]
+  const { rows }=await q<Record<string,unknown>>(`SELECT a.*,m.action,m.created_at AS enforcement_at,m.suspend_until,r.category
+    FROM appeals a JOIN moderation_actions m ON m.id=a.enforcement_id LEFT JOIN reports r ON r.id=m.report_id
+    WHERE ${condition} ORDER BY a.submitted_at ASC LIMIT 500`,params)
+  return rows.map(row => ({ id:String(row.id),userId:String(row.user_id),enforcementId:String(row.enforcement_id),
+    action:row.action as ModerationAction,category:row.category===null?null:String(row.category),enforcementAt:Number(row.enforcement_at),
+    expiresAt:row.suspend_until===null?null:Number(row.suspend_until),reason:String(row.reason),
+    evidenceReference:row.evidence_reference===null?null:String(row.evidence_reference),submittedAt:Number(row.submitted_at),
+    status:row.status as UserAppeal["status"],reviewingAdminId:row.reviewing_admin_id===null?null:String(row.reviewing_admin_id),
+    resolution:row.resolution===null?null:String(row.resolution),resolvedAt:row.resolved_at===null?null:Number(row.resolved_at) }))
+}
+
+export async function getAppealForAdmin(id:string): Promise<AdminAppeal|null> {
+  if (!isWireId(id)) return null
+  const all=await q<Record<string,unknown>>(`SELECT a.*,m.action,m.created_at AS enforcement_at,m.suspend_until,r.category
+    FROM appeals a JOIN moderation_actions m ON m.id=a.enforcement_id LEFT JOIN reports r ON r.id=m.report_id WHERE a.id=$1`,[id])
+  const row=all.rows[0]; if(!row)return null
+  return { id:String(row.id),userId:String(row.user_id),enforcementId:String(row.enforcement_id),action:row.action as ModerationAction,
+    category:row.category===null?null:String(row.category),enforcementAt:Number(row.enforcement_at),expiresAt:row.suspend_until===null?null:Number(row.suspend_until),
+    reason:String(row.reason),evidenceReference:row.evidence_reference===null?null:String(row.evidence_reference),submittedAt:Number(row.submitted_at),
+    status:row.status as UserAppeal["status"],reviewingAdminId:row.reviewing_admin_id===null?null:String(row.reviewing_admin_id),
+    resolution:row.resolution===null?null:String(row.resolution),resolvedAt:row.resolved_at===null?null:Number(row.resolved_at) }
+}
+
+export async function resolveAppeal(input:{appealId:string;actorAdminId:string;outcome:"upheld"|"overturned"|"dismissed";resolution:string}) {
+  if(!isWireId(input.appealId)||!["upheld","overturned","dismissed"].includes(input.outcome)||!input.resolution.trim()||input.resolution.length>2000)throw new Error("invalid_appeal_resolution")
+  await ensureMigrated(); const client=await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    const result=await client.query(`SELECT a.*,m.target_user_id,m.action,m.suspend_until,m.created_at,m.previous_state
+      FROM appeals a JOIN moderation_actions m ON m.id=a.enforcement_id WHERE a.id=$1 FOR UPDATE OF a`,[input.appealId])
+    const appeal=result.rows[0]
+    if(!appeal||!["submitted","under_review"].includes(appeal.status))throw new Error("appeal_not_open")
+    if(appeal.user_id===input.actorAdminId)throw new Error("conflicted_reviewer")
+    if(input.outcome==="overturned"){
+      const later=await client.query(`SELECT 1 FROM moderation_actions WHERE target_user_id=$1 AND created_at>$2 AND action IN ('restrict','suspend','ban') LIMIT 1`,[appeal.user_id,appeal.created_at])
+      if(later.rowCount)throw new Error("later_enforcement_requires_review")
+      const current=await client.query(`SELECT banned_at,suspended_until FROM users WHERE id=$1 FOR UPDATE`,[appeal.user_id])
+      const state=current.rows[0]; if(!state)throw new Error("account_not_found")
+      if(appeal.action==="ban"&&state.banned_at===null)throw new Error("enforcement_state_changed")
+      if(["restrict","suspend"].includes(appeal.action)&&Number(state.suspended_until)!==Number(appeal.suspend_until))throw new Error("enforcement_state_changed")
+      const previous=appeal.previous_state ?? {}
+      await client.query(`UPDATE users SET banned_at=$2,ban_reason=$3,suspended_until=$4,suspend_reason=$5 WHERE id=$1`,
+        [appeal.user_id,previous.banned_at??null,previous.ban_reason??null,previous.suspended_until??null,previous.suspend_reason??null])
+    }
+    await client.query(`UPDATE appeals SET status=$2,reviewing_admin_id=$3,resolution=$4,resolved_at=$5 WHERE id=$1`,
+      [input.appealId,input.outcome,input.actorAdminId,input.resolution.trim(),now()])
+    await client.query("COMMIT")
+  } catch(error){await client.query("ROLLBACK").catch(()=>{});throw error} finally{client.release()}
 }
 
 /** Username alone (see migration 0003 and claimUsername()) — kept separate from getUserStatus() so that hot enforcement path's query/shape stays exactly what it's always been for its many other callers (ticket minting, WS "hello", legal/accept). Profile photo/bio/posts also live server-side now (migration 0005) — see getPublicProfile() below for the combined shape. */
@@ -1484,10 +1649,18 @@ export async function exportUserData(userId: string, actorId: string, caseRefere
     q('SELECT u.username,b.created_at FROM blocks b JOIN users u ON u.id=b.blocked_id WHERE blocker_id=$1', [userId]),
     q('SELECT document,version,accepted_at FROM legal_acceptance WHERE user_id=$1 ORDER BY accepted_at', [userId]),
     q('SELECT status,paid_until FROM billing_subscriptions WHERE user_id=$1', [userId]),
+    q(`SELECT m.id,m.source,m.started_at,m.ended_at,m.report_eligible_until,u.username AS counterpart_username,
+      EXISTS(SELECT 1 FROM reports r WHERE r.match_id=m.id AND r.reporter_id=$1) AS reported_by_you
+      FROM match_sessions m JOIN users u ON u.id=CASE WHEN m.user_a_id=$1 THEN m.user_b_id ELSE m.user_a_id END
+      WHERE m.user_a_id=$1 OR m.user_b_id=$1 ORDER BY m.started_at`, [userId]),
+    q(`SELECT a.id,a.enforcement_id,m.action,r.category,a.reason,a.evidence_reference,a.submitted_at,a.status,a.resolution,a.resolved_at
+      FROM appeals a JOIN moderation_actions m ON m.id=a.enforcement_id LEFT JOIN reports r ON r.id=m.report_id
+      WHERE a.user_id=$1 ORDER BY a.submitted_at`, [userId]),
   ])
   await q('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at) VALUES($1,$2,$3,$4,$5,$6)', [randomUUID(),userId,actorId,'export',caseReference,now()])
   return { exportedAt: now(), profile: results[0].rows[0], posts: results[1].rows, friendships: results[2].rows,
-    requests: results[3].rows, messages: results[4].rows, blocks: results[5].rows, legalAcceptances: results[6].rows, subscriptions: results[7].rows }
+    requests: results[3].rows, messages: results[4].rows, blocks: results[5].rows, legalAcceptances: results[6].rows, subscriptions: results[7].rows,
+    recentMatches: results[8].rows, appeals: results[9].rows }
 }
 
 /** Erases product data; keeps an inaccessible identity tombstone and safety/legal audit records.
@@ -1518,7 +1691,7 @@ export async function eraseUserData(userId: string, actorId: string, caseReferen
     await client.query('DELETE FROM turn_credential_rate_limits WHERE user_id=$1', [userId])
     await client.query('UPDATE users SET username=NULL,gender=NULL,profile_photo=NULL,bio=NULL,deleted_at=$2 WHERE id=$1', [userId,now()])
     for (const reference of new Set(removedImages)) if (storedImageKey(reference)) await client.query('INSERT INTO image_deletion_queue(reference,created_at) VALUES($1,$2) ON CONFLICT DO NOTHING', [reference,now()])
-    await client.query('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at,retained) VALUES($1,$2,$3,$4,$5,$6,$7)', [randomUUID(),userId,actorId,'erase',caseReference,now(),JSON.stringify({ imageReferences: [...new Set(removedImages.filter(reference=>storedImageKey(reference)))], heldRecords: "Previously held pre-change records follow separately approved preservation retention; referenced objects remain restricted", identity: "Deleted identity prevents reentry", reports: "Restricted safety investigation, subject to approved reports retention", moderation: "Restricted enforcement and image-check history, subject to approved retention", legalAcceptance: "Acceptance evidence, subject to approved retention", privacyOperations: "Accountability for this request, subject to approved retention", imageDeletion: "Durable deletion queue; Storage completion separately checked" })])
+    await client.query('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at,retained) VALUES($1,$2,$3,$4,$5,$6,$7)', [randomUUID(),userId,actorId,'erase',caseReference,now(),JSON.stringify({ imageReferences: [...new Set(removedImages.filter(reference=>storedImageKey(reference)))], heldRecords: "Previously held pre-change records follow separately approved preservation retention; referenced objects remain restricted", identity: "Deleted identity prevents reentry", recentMatches: "Minimal safety-reporting ledger, subject to approved recent-match retention", reports: "Restricted safety investigation and evidence, subject to approved retention", moderation: "Restricted enforcement, appeal and image-check history, subject to approved retention", legalAcceptance: "Acceptance evidence, subject to approved retention", privacyOperations: "Accountability for this request, subject to approved retention", imageDeletion: "Durable deletion queue; Storage completion separately checked" })])
     await client.query('COMMIT')
   } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err }
   finally { client.release() }
@@ -1581,8 +1754,11 @@ export async function purgeRetentionBatch(batchSize = 100) {
     const specs = [
       ['friendMessages','friend_messages','created_at', "NOT EXISTS(SELECT 1 FROM friend_messages reply WHERE reply.reply_to_id=t.id)"],
       ['friendRequests','friend_requests','created_at','true'],
-      ['moderationActions','moderation_actions','created_at','true'],
-      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id)"],
+      ['appeals','appeals','submitted_at', "status IN ('upheld','overturned','dismissed')"],
+      ['moderationActions','moderation_actions','created_at','NOT EXISTS(SELECT 1 FROM appeals a WHERE a.enforcement_id=t.id)'],
+      ['reportEvidence','report_evidence','captured_at', "evidence_key IS NULL AND EXISTS(SELECT 1 FROM reports r WHERE r.id=t.report_id AND r.status='reviewed' AND r.safety_state<>'open')"],
+      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM report_evidence e WHERE e.report_id=t.id)"],
+      ['recentMatches','match_sessions','started_at', "report_eligible_until<extract(epoch from clock_timestamp())*1000 AND NOT EXISTS(SELECT 1 FROM reports r WHERE r.match_id=t.id)"],
       ['imageChecks','moderation_events','created_at','true'],
       ['legalAcceptance','legal_acceptance','accepted_at', "EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.deleted_at IS NOT NULL)"],
       ['privacyOperations','privacy_operations','created_at','true'],
@@ -1596,7 +1772,8 @@ export async function purgeRetentionBatch(batchSize = 100) {
         // Decisions share the report policy, but unresolved investigations stay.
         await client.query("DELETE FROM safety_decisions WHERE id IN (SELECT d.id FROM safety_decisions d JOIN reports r ON r.id=d.report_id WHERE r.status='reviewed' AND r.safety_state<>'open' AND d.created_at<$1 AND r.created_at<$1 ORDER BY d.created_at LIMIT $2)", [cutoff,batchSize])
       }
-      const result = await client.query(`DELETE FROM ${table} WHERE id IN (SELECT t.id FROM ${table} t WHERE t.${timestamp}<$1 AND ${condition} ORDER BY t.${timestamp} LIMIT $2 FOR UPDATE SKIP LOCKED)`, [cutoff,batchSize])
+      const key = category === 'reportEvidence' ? 'report_id' : 'id'
+      const result = await client.query(`DELETE FROM ${table} WHERE ${key} IN (SELECT t.${key} FROM ${table} t WHERE t.${timestamp}<$1 AND ${condition} ORDER BY t.${timestamp} LIMIT $2 FOR UPDATE SKIP LOCKED)`, [cutoff,batchSize])
       counts[category] = result.rowCount ?? 0
     }
     await client.query('COMMIT')
@@ -1655,13 +1832,14 @@ export async function discoverOrphanedImages(offset = 0, batchSize = 100) {
 }
 
 /** One round trip for current account and legal eligibility, including live sockets. */
-export async function realtimeAccess(userIds: string[]): Promise<Map<string, "allowed" | "banned" | "suspended" | "acceptance_required">> {
+export async function realtimeAccess(userIds: string[]): Promise<Map<string, "allowed" | "banned" | "restricted" | "suspended" | "acceptance_required">> {
   if (userIds.length > 500) throw new Error('eligibility_batch_too_large')
-  const result = await q<{id:string; banned:boolean; suspended:boolean; accepted:boolean}>(`SELECT u.id,
+  const result = await q<{id:string; banned:boolean; suspended:boolean; restricted:boolean; accepted:boolean}>(`SELECT u.id,
     (u.deleted_at IS NOT NULL OR u.banned_at IS NOT NULL) AS banned,
     COALESCE(u.suspended_until>$3,false) AS suspended,
+    COALESCE(u.suspended_until>$3 AND EXISTS(SELECT 1 FROM moderation_actions m WHERE m.target_user_id=u.id AND m.action='restrict' AND m.suspend_until=u.suspended_until),false) AS restricted,
     NOT EXISTS(SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS required(document text,version text)
       WHERE NOT EXISTS(SELECT 1 FROM legal_acceptance a WHERE a.user_id=u.id AND a.document=required.document AND a.version=required.version)) AS accepted
     FROM users u WHERE u.id=ANY($1::text[])`,[userIds,JSON.stringify(REQUIRED_DOCUMENTS),now()])
-  return new Map(result.rows.map(row=>[row.id,row.banned?'banned':row.suspended?'suspended':!row.accepted?'acceptance_required':'allowed']))
+  return new Map(result.rows.map(row=>[row.id,row.banned?'banned':row.restricted?'restricted':row.suspended?'suspended':!row.accepted?'acceptance_required':'allowed']))
 }

@@ -6,7 +6,7 @@ export const RETENTION = {
   cleanupIntervalMs: 60 * 60 * 1000,
 } as const
 
-export const RETENTION_CATEGORIES = ["friendMessages", "friendRequests", "reports", "moderationActions", "imageChecks", "legalAcceptance", "privacyOperations", "accountTombstones", "storedImages", "heldRecords", "infrastructureLogs", "backups"] as const
+export const RETENTION_CATEGORIES = ["friendMessages", "friendRequests", "recentMatches", "reports", "reportEvidence", "moderationActions", "appeals", "imageChecks", "legalAcceptance", "privacyOperations", "accountTombstones", "storedImages", "heldRecords", "securityLogs", "infrastructureLogs", "backups"] as const
 export type RetentionCategory = typeof RETENTION_CATEGORIES[number]
 export type RetentionRule = { mode: "automatic" | "external" | "review"; days?: number; reason: string }
 export type RetentionPolicy = { approvedBy: string; caseReference: string; reviewBy: string; categories: Record<RetentionCategory, RetentionRule> }
@@ -20,8 +20,8 @@ export function retentionPolicy(env: Record<string, string | undefined> = proces
     if (!rule || !["automatic", "external", "review"].includes(rule.mode) || !rule.reason?.trim()) throw new Error(`Retention policy required: ${category}`)
     if (rule.mode !== "review" && (!Number.isSafeInteger(rule.days) || rule.days! <= 0 || rule.days! > 36500)) throw new Error(`Retention duration required: ${category}`)
     if (["accountTombstones"].includes(category) && rule.mode !== "review") throw new Error("Account tombstones require reviewed denial-of-reentry policy")
-    if (["infrastructureLogs", "backups"].includes(category) && rule.mode !== "external") throw new Error(`Provider expiry required: ${category}`)
-    if (!["infrastructureLogs", "backups"].includes(category) && rule.mode === "external") throw new Error(`Application retention cannot be delegated: ${category}`)
+    if (["securityLogs", "infrastructureLogs", "backups"].includes(category) && rule.mode !== "external") throw new Error(`Provider expiry required: ${category}`)
+    if (!["securityLogs", "infrastructureLogs", "backups"].includes(category) && rule.mode === "external") throw new Error(`Application retention cannot be delegated: ${category}`)
     if (category === "storedImages" && rule.mode !== "automatic") throw new Error("Orphaned images require automatic expiry")
   }
   return policy

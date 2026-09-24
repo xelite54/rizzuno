@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { LegalNav } from "@/components/LegalNav"
+import { RELATED_LEGAL_VERSIONS } from "@/lib/legalVersions"
 
 export const metadata: Metadata = {
   title: "Community Guidelines — Rizzuno",
@@ -13,7 +15,7 @@ export default function CommunityGuidelinesPage() {
     <main className="h-dvh w-full overflow-y-auto overscroll-y-contain bg-background text-foreground">
       <div className="mx-auto w-full max-w-2xl px-6 py-16">
       <h1 className="text-[28px] font-bold tracking-tight">Community Guidelines</h1>
-      <p className="mt-2 text-[13px] text-muted">Last updated {LAST_UPDATED}</p>
+      <p className="mt-2 text-[13px] text-muted">Version {RELATED_LEGAL_VERSIONS.guidelines} · Last updated {LAST_UPDATED}</p>
 
       <p className="mt-4 text-sm text-muted">Underage concerns receive urgent priority for trained safety review. Generic nudity screening does not identify child sexual abuse material. Reports can preserve bounded recent text context; automatic screenshots and call recording are disabled. For copyright notices see our <Link href="/copyright" className="underline">Copyright Policy</Link>.</p>
       <div className="mt-8 space-y-6 text-[14px] leading-relaxed text-foreground">
@@ -30,7 +32,7 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="text-[16px] font-semibold">Not allowed, ever</h2>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
-            <li>Not meeting Rizzuno&apos;s eligibility age (18, or the age of majority where you live if higher), or knowingly helping someone who doesn&apos;t use Rizzuno.</li>
+            <li>Using Rizzuno without meeting its eligibility age (18, or the age of majority where you live if higher), or knowingly helping an ineligible person gain access.</li>
             <li>Misrepresenting your own eligibility to use Rizzuno.</li>
             <li>Nudity or sexual activity involving anyone who hasn&apos;t consented.</li>
             <li>
@@ -68,6 +70,7 @@ export default function CommunityGuidelinesPage() {
             category, any details you add, and which call it happened in — is queued for a human moderator to
             review. It is never shown to the person you reported, or publicly. Authorized moderators and lawful disclosures may involve restricted access.
           </p>
+          <p className="mt-2 text-muted">If the call has just ended, use <Link href="/reports/recent" className="underline">Report a recent match</Link> within the configured eligibility window. That private server-authorized list does not reveal counterpart account IDs. A later report normally cannot include transient in-call chat because room memory is cleared when the call ends.</p>
         </section>
 
         <section>
@@ -84,12 +87,13 @@ export default function CommunityGuidelinesPage() {
           <h2 className="text-[16px] font-semibold">What happens when you report someone</h2>
           <p className="mt-2 text-muted">
             A human moderator reviews the report against an account&apos;s history and decides on one of: no action,
-            an internal warning noted on the account, a temporary suspension, or a permanent ban. Enforcement is
+            an internal warning noted on the account, a temporary restriction while review is pending, a temporary suspension, or a permanent ban. Enforcement is
             applied to the Rizzuno/Google account itself — not just the one call — and is designed to persist across
             sign-outs, devices, and new sessions on that same account. Rizzuno enforces against the Google account it
             can identify; it cannot identify or stop the same physical person if they sign in with a completely
             different Google account, and we don&apos;t claim otherwise.
           </p>
+          <p className="mt-2 text-muted">Serious recorded decisions can be appealed from the <Link href="/appeals" className="underline">Appeals page</Link>. The user sees the appeal status and user-facing resolution, not reporter identities, restricted evidence, or internal moderation notes.</p>
         </section>
 
         <section>
@@ -124,21 +128,7 @@ export default function CommunityGuidelinesPage() {
 
         <section>
           <h2 className="text-[16px] font-semibold">More</h2>
-          <p className="mt-2 text-muted">
-            See our{" "}
-            <Link href="/terms" className="underline underline-offset-2 hover:text-accent">
-              Terms of Service
-            </Link>
-            ,{" "}
-            <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
-              Privacy Policy
-            </Link>
-            , and{" "}
-            <Link href="/safety" className="underline underline-offset-2 hover:text-accent">
-              Safety
-            </Link>{" "}
-            page.
-          </p>
+          <LegalNav className="mt-3"/>
         </section>
       </div>
       </div>

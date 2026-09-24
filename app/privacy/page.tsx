@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { REQUIRED_DOCUMENTS } from "@/lib/legalVersions"
 import { LEGAL_CONFIG } from "@/lib/legalConfig"
+import { LegalNav } from "@/components/LegalNav"
 
 export const metadata: Metadata = {
   title: "Privacy Policy — Rizzuno",
@@ -104,11 +105,23 @@ export default function PrivacyPolicyPage() {
               claiming Google, Auth.js, or your browser never handle these fields; we are describing specifically
               what Rizzuno&apos;s own database stores.
             </p>
+            <p className="mt-2 text-muted">Rizzuno requires Google to indicate that the email address is verified before sign-in succeeds. That verification result is evaluated during sign-in; it is not a Rizzuno age or identity-verification service. Rizzuno never receives your Google password. Your Google stable ID, email, name, and Google profile image are not disclosed to random matches; the separate Rizzuno profile fields described below are used there.</p>
           </section>
 
           <section id="database-info">
             <h2 className="text-[16px] font-semibold">3. What Rizzuno&apos;s database stores</h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Hosted Postgres stores your Google account identifier; account creation, deletion and enforcement state; username, gender, profile photo, bio and posts; friend requests and friendships; friend messages; directional blocks; reports and moderation actions; legal acceptances; membership entitlement records; and abuse-prevention counters. Legal acceptances record the document, version and time and are appended without replacing prior versions.</p>
+            <h3 className="mt-3 font-semibold">Account</h3>
+            <p className="mt-1 text-muted">Hosted Postgres stores your Google stable account identifier as the Rizzuno account key, account creation/deletion and enforcement state, legal-acceptance history, membership entitlement records, and abuse-prevention counters. Auth.js session tokens process the Google email, name, and image described in Section 2. Legal acceptances record the document, version and time and are appended without replacing prior versions.</p>
+            <h3 className="mt-3 font-semibold">Profile</h3>
+            <p className="mt-1 text-muted">Username, profile-image reference, bio, gender, and posts are stored against the account. Images themselves use the private storage described below.</p>
+            <h3 className="mt-3 font-semibold">Matching</h3>
+            <p className="mt-1 text-muted">Rizzuno processes gender for random-match compatibility, the IP-derived country code described in Section 6, current queue/room state, recent-partner cooldowns, and block relationships. A minimal recent-session ledger stores the opaque room ID, both internal account references, random/friend source, start/end times, and operator-configured report deadline. Whether you reported a session is derived from the report record instead of duplicated in the ledger.</p>
+            <h3 className="mt-3 font-semibold">Social</h3>
+            <p className="mt-1 text-muted">Friend requests, friendships, persisted friend messages and posts are stored. Friend messages include sender/recipient references, friendship and retry-deduplication IDs, creation time, optional read time, and an optional reply reference.</p>
+            <h3 className="mt-3 font-semibold">Safety and moderation</h3>
+            <p className="mt-1 text-muted">Reports, restricted report evidence, safety decision logs, legal holds and held snapshots, moderation actions, image-check metadata, and appeals are stored. An appeal contains its ID, affected account, enforcement reference, the user&apos;s reason and optional reference, submission time, status, reviewer, user-facing resolution and resolution time. Reporter identities, internal notes, and report evidence are not exposed through the user appeal view.</p>
+            <h3 className="mt-3 font-semibold">Technical and security</h3>
+            <p className="mt-1 text-muted">Rate-limit keys are hashed before storage. The application processes timestamps, signed realtime tickets, room/signaling state, security events, query/pool metrics, and the network/browser information described in Section 6. Hosting and network providers may process IP addresses and request/device data in their controlled logs.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Friend messages include text, sender and recipient account references, friendship ID, client message ID for retry deduplication, creation time, optional read time, and an optional reference to an earlier message in that friendship. Moderator records include reasons, responsible moderator, relevant report and timestamps. Image checks retain a hash, category scores, provider/reference, policy/model versions and decision metadata, without an additional image copy.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Privacy export/erasure operations record the responsible operator, account, action, time and request case reference. Free test Rizz+ grants store entitlement status and expiry; activation does not create a Stripe customer or charge a card.</p>
 
@@ -124,7 +137,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="communications">
-            <p className="mt-3 text-muted">At report time, we may store a restricted evidence snapshot linked to that report: the reporter and reported account references, room ID, category, details, exact report time, up to 20 text messages from the preceding two minutes, and bounded prior report/action summaries. Recent chat context is held in connection memory until the room ends; text outside that window is not included in new snapshots. This is not continuous call recording. Automatic screenshots are disabled. Evidence is not disclosed to the reported user or included in the standard privacy export.</p>
+            <p className="mt-3 text-muted">At report time, we may store a restricted evidence snapshot linked to that report: the reporter and reported account references, room ID, category, details, exact report time, up to 20 text messages from the preceding two minutes, and bounded prior report/action summaries. Recent chat context is held in connection memory until the room ends; a later post-match report normally has no chat snapshot. This is not continuous call recording. The schema can associate an approved evidence object and hash with a report, but automatic screenshot capture and its browser adapter are disabled. Evidence is not disclosed to the reported user or included in the standard privacy export.</p>
             <h2 className="text-[16px] font-semibold">5. Video, audio, chat &amp; signaling</h2>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Video and audio use WebRTC directly between participants when possible, or through a configured TURN relay when necessary. Rizzuno does not intentionally record or persist calls or automatically review live video/audio. The other participant can capture what they receive despite our rules prohibiting recording without consent.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Signaling offers, answers and network candidates pass through the realtime service to establish calls. P2P negotiation can expose public IP/network information to your match. STUN and TURN infrastructure process connection addresses; TURN relays encrypted WebRTC traffic. Media packets are not sent through the matchmaking database.</p>
@@ -137,14 +150,14 @@ export default function PrivacyPolicyPage() {
           <section id="technical-info">
             <h2 className="text-[16px] font-semibold">6. Technical &amp; infrastructure information</h2>
             <p className="mt-2 text-muted">
-              Rizzuno runs on hosted infrastructure (Vercel for the web app, Railway for the realtime/matching
-              server, a hosted Postgres provider such as Supabase for the database). Like essentially any web
+              Rizzuno&apos;s current architecture uses Vercel for the web app, Railway for the realtime/matching and Redis services,
+              and Supabase for hosted Postgres and private object storage. The required deployment disclosure in Section 8 identifies the actual enabled providers and processing regions for a release. Like essentially any web
               service, these providers may automatically process technical information as a normal part of
               operating that infrastructure — for example, your IP address, request timestamps, and basic
               browser/device information may appear in server or platform logs. Rizzuno&apos;s own application code
-              displays an approximate country flag to your match using the hosting platform’s IP-country lookup.
+              displays an approximate country/region flag to your match and enforces the supported-country allowlist using Vercel&apos;s IP-country lookup.
               Only the country code is included in the short-lived signed connection ticket and match identity;
-              this feature does not save the IP address or country in your profile. VPNs may change the country shown.
+              this feature does not save the IP address or country in your profile. There is no manual country-preference control and Rizzuno does not request GPS or precise location. VPNs may change the country shown.
               Rizzuno does not deliberately log or store your IP address in its database, but we do not claim our
               infrastructure providers never see or process it, and we do not claim Rizzuno never processes an IP
               address anywhere in its stack — that would be inaccurate for any hosted web service handling live
@@ -167,6 +180,8 @@ export default function PrivacyPolicyPage() {
               <li><strong className="text-foreground">Matchmaking</strong> — pairing you with another available, opposite-selected-gender account, and honoring blocks.</li>
               <li><strong className="text-foreground">Friends</strong> — recording who&apos;s sent or accepted a friend request with whom, and delivering a pending request live to the other account if they&apos;re online.</li>
               <li><strong className="text-foreground">Safety &amp; abuse prevention</strong> — reviewing reports and applying warnings/suspensions/bans.</li>
+              <li><strong className="text-foreground">Recent-match safety reporting</strong> — keeping a minimal session ledger long enough for the configured report window.</li>
+              <li><strong className="text-foreground">Appeals</strong> — receiving, reviewing, resolving, and auditing challenges to serious enforcement.</li>
               <li><strong className="text-foreground">Moderation</strong> — giving admins the information needed to review reports and act consistently.</li>
               <li><strong className="text-foreground">Automated image-safety screening</strong> — checking a profile photo, post, or chat image against prohibited-content categories before it&apos;s shown to anyone else or saved, and recognizing repeated violations for enforcement purposes.</li>
               <li><strong className="text-foreground">Legal acceptance</strong> — keeping a factual record of what each account agreed to, and when.</li>
@@ -182,7 +197,7 @@ export default function PrivacyPolicyPage() {
           <section id="third-parties">
             {LEGAL_CONFIG.deploymentDisclosure && <p className="mt-3 text-muted">{LEGAL_CONFIG.deploymentDisclosure}</p>}
             <h2 className="text-[16px] font-semibold">8. Third parties &amp; processors</h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Google supplies authentication and public STUN connectivity. The configured hosting and Postgres services process web requests, realtime connections and application records. Supabase Storage stores approved profile and post images. Sightengine receives submitted images for automated content screening. These providers may process technical data needed to deliver their services.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Google supplies authentication and public STUN connectivity. Vercel serves the web application and supplies the trusted country-code header. Railway runs the realtime service and Redis coordination in the current architecture. Supabase provides Postgres and private Storage for approved profile/post images. Sightengine receives submitted images for general automated content screening when configured. These providers may process technical data needed to deliver their services. The release-specific disclosure above controls if the deployment differs and must identify actual regions.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">When TURN is enabled, the operator-configured TURN provider processes relay credentials, network addresses and encrypted media relay traffic. The deployment disclosure below identifies the actual providers and processing regions. No permanent TURN shared secret is sent to browsers.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Rizz+ is currently free test access: no card is requested, activation does not charge, and paid Stripe checkout/webhook processing is disabled. Stripe integration code remains in the repository but is not active paid checkout in this release. Any transition to paid billing requires a new reviewed release and updated disclosures.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Auth.js, Next.js and database client libraries execute as application software rather than independent data recipients. Rizzuno does not integrate advertising or cross-site tracking services. Deployment-specific monitoring, storage and coordination providers must be disclosed before enabling them.</p>
@@ -226,7 +241,7 @@ export default function PrivacyPolicyPage() {
           <section id="retention">
             <h2 className="text-[16px] font-semibold">12. Data retention</h2>
             <p className="mt-3 text-muted">Profile fields, including gender, remain until changed or erased. Posts remain until removed or displaced by the 20-post limit. Friendships end when removed or blocked. Blocks can be undone by their creator and are removed during approved account erasure.</p>
-            <p className="mt-3 text-muted">Operator-approved retention policies separately cover friend messages, friend requests, reports and their evidence, moderation actions, image-check metadata, legal acceptances, privacy-operation logs and account tombstones. Automatic deletion runs in bounded batches where approved; records needing individual review remain restricted until that review. Dependencies and active investigations can delay deletion. Contact us for the policy applicable to a record.</p>
+            <p className="mt-3 text-muted">Operator-approved retention policies separately cover friend messages, friend requests, recent-session history, reports, report evidence, moderation actions, appeals, image-check metadata, legal acceptances, privacy-operation logs, security/infrastructure logs and account tombstones. Automatic deletion runs in bounded batches where approved; records needing individual review remain restricted until that review. Dependencies, open appeals, report eligibility, and active investigations can delay deletion. Contact us for the policy applicable to a record.</p>
             <p className="mt-3 text-muted">Legal holds pause erasure and retention purges; product edits/removals preserve restricted pre-change records while a hold applies. Prior legal acceptances are preserved across version changes; automatic expiry of acceptance history applies only to erased accounts. A restricted deleted-identity record prevents reentry and requires separate periodic review rather than automatic deletion.</p>
             <p className="mt-3 text-muted">Approved erasure removes product data and queues associated private image objects for deletion with retries. Orphaned images are inventoried separately and expire under the approved Storage policy. Infrastructure logs and backup expiry follow separately approved provider settings; database deletion does not erase backups immediately. Restores must reapply erasures before serving traffic.</p>
           </section>
@@ -234,14 +249,14 @@ export default function PrivacyPolicyPage() {
           <section id="deletion">
             <h2 className="text-[16px] font-semibold">13. Privacy and deletion requests</h2>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Account deletion remains contact-based. Send a privacy request to the contact address below; the operator must verify your identity and review retention/legal holds before using restricted export or erasure tools. Signing out, clearing browser storage or deleting a Google account does not itself delete Rizzuno’s database records.</p>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Approved erasure clears username (releasing it), gender, bio, photo, posts, friendships, requests, friend conversations and free membership. It marks the account deleted so the same account cannot resume realtime access. Reports and evidence, enforcement and image-check records, legal acceptances, privacy-operation logs and an account-identity tombstone remain restricted under the approved retention policy; the erasure log records these categories and their reasons; erasure is not a promise to delete every record. Accounts with a stored payment-customer mapping require separate billing review before erasure.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Approved erasure clears username (releasing it), gender, bio, photo, posts, friendships, requests, friend conversations and free membership. It marks the account deleted so the same identity cannot resume realtime access. Minimal recent-session safety records, reports and evidence, enforcement/appeal/image-check records, legal acceptances, privacy-operation logs and an account-identity tombstone may remain restricted under their approved retention rules; the erasure log records retained categories and reasons. Erasure is not a promise to delete every record. Accounts with a stored payment-customer mapping require separate billing review before erasure.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Rizzuno cannot remotely delete copies another participant captured or browser copies on a disconnected device. Eligible requests and any applicable response deadlines are handled under the law that applies to the request.</p>
 
           </section>
 
           <section id="export">
             <h2 className="text-[16px] font-semibold">14. Data export</h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">There is no self-service export button. Verified contact requests can be fulfilled by an authorized operator using a structured export of profile, posts, relationship/request information, messages you sent and received messages still accessible through an active friendship, blocks you created, legal acceptances and membership information. Another person’s stable account identifiers, confidential reports and internal moderation information are excluded from this standard export. Additional access requests require individual review.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">There is no self-service export button. Verified contact requests can be fulfilled by an authorized operator using a structured export of profile, posts, relationship/request information, messages you sent and received messages still accessible through an active friendship, blocks you created, legal acceptances, membership information, your recent-session records with counterpart usernames rather than stable IDs, and your own appeal submissions/resolutions. Another person’s stable account identifiers, confidential reports, report evidence and internal moderation information are excluded from this standard export. Additional access requests require individual review.</p>
 
           </section>
 
@@ -291,7 +306,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-[16px] font-semibold">18. Your rights &amp; controls</h2>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">You can edit your profile, change an available username, send or respond to friend requests, search usernames, message friends, end friendships, report users and block accounts. Some creation/change features require Rizz+; existing friendship chat remains available under the current rules.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">In My Profile → Settings → Blocked users, you can remove blocks you created. Blocks are directional: unblocking does not remove the other person’s block. If neither account blocks the other, future matching can resume subject to ordinary eligibility and recent-partner cooldown. Unblocking does not recreate old friendships or pending requests.</p>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Contact the published address for privacy/export/deletion requests, complaints or review of an enforcement decision. These requests are reviewed; there is no automatic guarantee of reinstatement or disclosure of another person’s protected information.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Use the <Link href="/appeals" className="underline">appeals page</Link> for a recorded underage decision, temporary restriction or suspension, permanent ban, or other serious enforcement. Contact the published privacy address for access/export, correction, deletion, portability, restriction or objection, withdrawal of optional consent where applicable, privacy complaints, or regulator-contact information. Rights depend on applicable law; there is no automatic guarantee of reinstatement or disclosure of another person’s protected information or confidential moderation material.</p>
 
           </section>
 
@@ -382,6 +397,7 @@ export default function PrivacyPolicyPage() {
               .
             </p>
           </section>
+          <LegalNav className="border-t border-border pt-5"/>
         </div>
       </div>
     </main>

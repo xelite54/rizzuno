@@ -641,6 +641,8 @@ export function MyProfileSheet({
                       {blockedUsers.length > 0 ? blockedUsers.length : "None"}
                     </span>
                   </button>
+                  <Link href="/reports/recent" className="flex min-h-12 w-full items-center rounded-xl px-3 py-3 text-left text-[13px] text-foreground transition hover:bg-surface-2">Report a recent match</Link>
+                  <Link href="/appeals" className="flex min-h-12 w-full items-center rounded-xl px-3 py-3 text-left text-[13px] text-foreground transition hover:bg-surface-2">Moderation appeals</Link>
                 </div>
 
                 <div className="mt-4 border-t border-border pt-4">

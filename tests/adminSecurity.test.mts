@@ -4,7 +4,7 @@ let session: {user:{id:string;email:string}} | null=null
 let rateLimited=false
 const calls: unknown[][]=[]
 mock.module("@/auth",{exports:{auth:async()=>session}})
-mock.module("@/lib/db",{exports:{getReport:async()=>({priority:"normal"}),resolveReport:async(...args:unknown[])=>{calls.push(args)}}})
+mock.module("@/lib/db",{exports:{getReport:async()=>({priority:"normal"}),resolveReport:async(...args:unknown[])=>{calls.push(args)},getAppealForAdmin:async()=>null,resolveAppeal:async()=>{}}})
 mock.module("@/lib/apiRateLimit",{exports:{isRateLimited:async()=>rateLimited}})
 mock.module("next/cache",{exports:{revalidatePath:()=>{}}})
 const {resolveReportAction}=await import("../app/admin/actions.ts")

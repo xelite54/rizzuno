@@ -23,6 +23,8 @@ import {
   addBlock,
   removeBlock,
   fileReport,
+  recordMatchStart,
+  recordMatchEnd,
   areFriends,
   isBlockedEitherWay,
   sendFriendRequest,
@@ -456,10 +458,10 @@ function broadcastOnlineCount() {
  *
  * Two more async boundaries get crossed after that — server/matchmaker.ts's
  * own block check inside `reserveMatch`, and the Friends lookup right
- * after — and EVERY condition in `makeCheckLive` is re-verified, for BOTH
- * accounts, after each one. The recent-partner cooldown is recorded
- * (`commitMatch`) only once "matched" has actually been dispatched to two
- * confirmed-OPEN sockets — never before.
+ * after — and EVERY condition in `makeCheckLive` is re-verified for both
+ * accounts after each one. Delivery then also requires a durable private
+ * recent-match row and another liveness check. The pair cooldown is recorded
+ * at commit immediately before those final delivery gates.
  */
 async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   if (state.roomId) return
@@ -553,16 +555,28 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
     matchmaker.deleteReservation(room.id)
     return
   }
+  try {
+    await recordMatchStart({ matchId: room.id, userAId: room.a, userBId: room.b, source: "random" })
+  } catch (error) {
+    matchmaker.deleteReservation(room.id)
+    const aLive = checkLive(room.a, room.aGeneration).live
+    const bLive = checkLive(room.b, room.bGeneration).live
+    if (aLive) { matchmaker.requeue(toQueuedClient(aState, room.aGeneration)); send(aState.ws, { type: "queued" }) }
+    if (bLive) { matchmaker.requeue(toQueuedClient(bState, room.bGeneration)); send(bState.ws, { type: "queued" }) }
+    log.error("ws-server: match safety ledger unavailable", { roomId: room.id, ...describeErr(error) })
+    return
+  }
+  if (!checkLive(room.a, room.aGeneration).live || !checkLive(room.b, room.bGeneration).live) {
+    matchmaker.deleteReservation(room.id)
+    void recordMatchEnd(room.id).catch(error => log.error("ws-server: match end write failed", { roomId: room.id, ...describeErr(error) }))
+    return
+  }
   aState.seeking = false
   bState.seeking = false
 
   dispatchMatch(aState, bState, room.id, "random", alreadyFriends)
   log.log("ws-server: matched sent to A", { roomId: room.id, displayId: aState.displayId })
   log.log("ws-server: matched sent to B", { roomId: room.id, displayId: bState.displayId })
-
-  // Recorded ONLY now — after both "matched" sends, both to sockets this
-  // function itself just confirmed were OPEN with no async gap in between
-  // (see the class doc comment on why that ordering is the entire point).
 }
 
 type RoomEndReason = "user_skip" | "user_leave" | "blocked" | "socket_closed" | "account_changed" | "socket_replaced" | "setup_timeout"
@@ -635,6 +649,7 @@ function expireMatch(roomId: string, userIds: string[]) {
   if (!roomCallTimers.has(roomId)) return
   clearRoomSetup(roomId)
   matchmaker.destroyRoom(roomId)
+  void recordMatchEnd(roomId).catch(error => log.error("ws-server: match end write failed", { roomId, ...describeErr(error) }))
   for (const userId of userIds) {
     const state = connections.get(userId)
     if (!state || state.roomId !== roomId) continue
@@ -669,6 +684,7 @@ function abortRoomSetup(roomId: string) {
   if (!setup) return
   clearRoomSetup(roomId)
   matchmaker.destroyRoom(roomId)
+  void recordMatchEnd(roomId).catch(error => log.error("ws-server: match end write failed", { roomId, ...describeErr(error) }))
   log.warn("rtc: setup timeout", {
     roomId,
     source: setup.source,
@@ -741,6 +757,7 @@ function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason
   clearRoomSetup(roomId)
   const partner = roomPartner(state)
   matchmaker.leaveRoom(state.userId)
+  void recordMatchEnd(roomId).catch(error => log.error("ws-server: match end write failed", { roomId, ...describeErr(error) }))
   state.recentChat = []
   state.roomId = null
   if (notifyPartner && partner) {
@@ -999,7 +1016,7 @@ export function createRizzunoWebSocketServer() {
         }
         if (status.suspendedUntil) {
           log.warn("ws-server: hello rejected — account suspended", { userId })
-          send(ws, { type: "rejected", reason: "suspended" })
+          send(ws, { type: "rejected", reason: status.temporaryAction === "restrict" ? "restricted" : "suspended" })
           ws.close(1008, "account suspended")
           return
         }
@@ -1602,6 +1619,19 @@ export function createRizzunoWebSocketServer() {
           // of it.
           await matchmaker.commitMatch(room.id)
           if (!availableForInvitation(sender) || !availableForInvitation(state) || sender.searchGeneration !== senderGeneration || state.searchGeneration !== recipientGeneration) { matchmaker.deleteReservation(room.id); break }
+          try {
+            await recordMatchStart({ matchId: room.id, userAId: sender.userId, userBId: state.userId, source: "friend" })
+          } catch (error) {
+            matchmaker.deleteReservation(room.id)
+            log.error("direct-call: match safety ledger unavailable", { roomId: room.id, ...describeErr(error) })
+            send(state.ws, { type: "match-invite-error", message: "The call could not be started safely. Please try again." })
+            break
+          }
+          if (!availableForInvitation(sender) || !availableForInvitation(state) || sender.searchGeneration !== senderGeneration || state.searchGeneration !== recipientGeneration) {
+            matchmaker.deleteReservation(room.id)
+            void recordMatchEnd(room.id).catch(error => log.error("ws-server: match end write failed", { roomId: room.id, ...describeErr(error) }))
+            break
+          }
           dispatchMatch(sender, state, room.id, "friend", true)
           break
         }

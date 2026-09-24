@@ -1,14 +1,15 @@
 import Link from "next/link"
 import { LEGAL_CONFIG } from "@/lib/legalConfig"
 import { RELATED_LEGAL_VERSIONS } from "@/lib/legalVersions"
+import { LegalNav } from "@/components/LegalNav"
 export const metadata = { title: "Copyright — Rizzuno" }
 export default function CopyrightPage() {
   return <main className="h-dvh overflow-y-auto bg-background text-foreground"><article className="mx-auto max-w-3xl space-y-6 px-6 py-16 text-sm leading-relaxed">
     <h1 className="text-3xl font-bold">Copyright complaints</h1>
     <p>Version {RELATED_LEGAL_VERSIONS.copyright}. Respect others’ copyright when uploading profiles, posts or chat content. This policy forms part of our <Link href="/terms" className="underline">Terms</Link>.</p>
     <h2 className="text-lg font-semibold">Where to send a complaint</h2>
-    {LEGAL_CONFIG.legalEmail && <p>Legal-notice contact: <a className="underline" href={`mailto:${LEGAL_CONFIG.legalEmail}`}>{LEGAL_CONFIG.legalEmail}</a>.</p>}
-    {LEGAL_CONFIG.dmcaRegistered ? <p>The operator confirms registration of this designated agent: {LEGAL_CONFIG.dmcaAgentName}, {LEGAL_CONFIG.dmcaAgentAddress}, telephone {LEGAL_CONFIG.dmcaAgentPhone}. Send notices to the legal-notice email above.</p> : <p>This complaint channel does not assert that a DMCA agent has been registered. Registration must be independently confirmed before the operator relies on the U.S. statutory process.</p>}
+    {LEGAL_CONFIG.copyrightEmail && <p>Copyright-notice contact: <a className="underline" href={`mailto:${LEGAL_CONFIG.copyrightEmail}`}>{LEGAL_CONFIG.copyrightEmail}</a>.</p>}
+    {LEGAL_CONFIG.dmcaRegistered ? <p>The operator confirms registration of this designated agent: {LEGAL_CONFIG.dmcaAgentName}, {LEGAL_CONFIG.dmcaAgentAddress}, telephone {LEGAL_CONFIG.dmcaAgentPhone}. Send notices to the copyright-notice email above.</p> : <p>This complaint channel does not assert that a DMCA agent has been registered. Registration must be independently confirmed before the operator relies on the U.S. statutory process.</p>}
     <h2 className="text-lg font-semibold">Infringement notice</h2>
     <p>Send a written notice including:</p>
     <ol className="list-decimal space-y-2 pl-6">
@@ -27,6 +28,6 @@ export default function CopyrightPage() {
     <h2 className="text-lg font-semibold">Repeat infringement and handling information</h2>
     <p>We terminate repeat infringers in appropriate circumstances, considering substantiated incidents, reversals and counter-notices. We may restrict content or accounts while reviewing complaints. We maintain a case record of notices, decisions and communications under approved retention and legal holds. Notices and counter-notices may be shared with the other party as needed for this process; confidential safety-report evidence is handled separately. Knowingly material misrepresentations can create liability.</p>
     <p>See the <a className="underline" href="https://www.copyright.gov/512/">U.S. Copyright Office process guide</a>, <a className="underline" href="https://www.law.cornell.edu/uscode/text/17/512">17 U.S.C. §512</a>, and <a className="underline" href="https://www.copyright.gov/dmca-directory/">designated-agent directory</a>.</p>
-    <Link className="underline" href="/privacy">Privacy Policy</Link>
+    <LegalNav className="pt-4" />
   </article></main>
 }

@@ -78,7 +78,10 @@ const RECENT_PARTNER_TTL_MS = 10 * 60 * 1000
  * presence in a Map, not a snapshot taken before any of this started — and
  * only then calls `commitMatch` (records the cooldown, only now) or
  * `deleteReservation` + `requeue` (whoever's still actually eligible) if
- * that final check fails. See CheckLive's own doc comment for exactly what
+ * that final check fails. The caller still requires a durable safety-ledger
+ * row and one last liveness check before sending `matched`; an uncommon
+ * failure after commit aborts the room but may leave only the short pair
+ * cooldown. See CheckLive's own doc comment for exactly what
  * "eligible" means and why presence alone was never enough — an account can
  * remain present in `connections` while having explicitly paused, turned
  * its camera off, or started a completely different search in the
@@ -269,7 +272,9 @@ export class Matchmaker {
     return null
   }
 
-  /** Phase 2a — confirms a reservation actually turned into a real, delivered match: records the recent-partner cooldown now, not at reservation time (see the class doc comment for why that distinction matters). */
+  /** Phase 2a — approves the fully revalidated reservation and records its
+   * recent-partner cooldown. The caller still gates delivery on its durable
+   * match ledger and final liveness check. */
   async commitMatch(roomId: string) {
     const room = this.rooms.get(roomId)
     if (!room) return

@@ -4,6 +4,7 @@ export const LEGAL_CONFIG = {
   operatorAddress: process.env.LEGAL_OPERATOR_ADDRESS?.trim() || null,
   contactEmail: process.env.PRIVACY_CONTACT_EMAIL?.trim() || null,
   legalEmail: process.env.LEGAL_NOTICE_EMAIL?.trim() || null,
+  copyrightEmail: process.env.COPYRIGHT_NOTICE_EMAIL?.trim() || process.env.LEGAL_NOTICE_EMAIL?.trim() || null,
   deploymentDisclosure: process.env.LEGAL_DEPLOYMENT_DISCLOSURE?.trim() || null,
   governingLaw: process.env.LEGAL_TERMS_REVIEWED === "true" ? process.env.LEGAL_GOVERNING_LAW?.trim() || null : null,
   disputeResolution: process.env.LEGAL_TERMS_REVIEWED === "true" ? process.env.LEGAL_DISPUTE_RESOLUTION?.trim() || null : null,

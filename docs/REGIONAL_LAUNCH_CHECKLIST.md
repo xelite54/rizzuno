@@ -4,10 +4,11 @@ This is an operator decision record, not a certification of GDPR, DSA, UK Online
 
 ## All launches
 
-- Publish actual `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS`, `PRIVACY_CONTACT_EMAIL`, `LEGAL_NOTICE_EMAIL` and `LEGAL_DEPLOYMENT_DISCLOSURE`. The disclosure must identify every actual hosting, database/pooler, object-storage, Redis, moderation, TURN, monitoring/logging and backup provider, processing region, purpose, and relevant international transfer arrangement. Do not substitute examples from architecture docs for actual deployments.
+- Publish actual `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS`, `PRIVACY_CONTACT_EMAIL`, `LEGAL_NOTICE_EMAIL` and `LEGAL_DEPLOYMENT_DISCLOSURE`; set `COPYRIGHT_NOTICE_EMAIL` only when a separate monitored copyright inbox exists. The disclosure must identify every actual hosting, database/pooler, object-storage, Redis, moderation, TURN, monitoring/logging and backup provider, processing region, purpose, and relevant international transfer arrangement. Do not substitute examples from architecture docs for actual deployments.
 - Record counsel/operator signoff in `LAUNCH_REVIEW_REFERENCE`; set `LEGAL_REVIEW_APPROVED=true` only after review. Optional `LEGAL_GOVERNING_LAW` and `LEGAL_DISPUTE_RESOLUTION` require `LEGAL_TERMS_REVIEWED=true`. No law, entity, venue or license is inferred by code.
 - Approve each retention category, scheduler/alerts, provider backup expiry and restore handling: [RETENTION.md](RETENTION.md).
 - Appoint verified administrators and trained safety reviewers; rehearse [SAFETY_ESCALATION.md](SAFETY_ESCALATION.md). Set `SAFETY_WORKFLOW_APPROVED=true` after rehearsal.
+- Approve `RECENT_MATCH_REPORT_WINDOW_HOURS` as a product-safety window, and staff/rehearse the appeal queue including trained review of underage decisions.
 - Complete the provider-backed staging matrix in [STAGING_LOAD_PLAN.md](STAGING_LOAD_PLAN.md); choose a conservative admission limit from measured results.
 - Enforce GitHub rulesets and deployment gates in [PRODUCTION_WORKFLOW.md](PRODUCTION_WORKFLOW.md). Run `npm run launch:check` and the full required CI checks against the actual release revision and real target configuration.
 
@@ -15,7 +16,7 @@ This is an operator decision record, not a certification of GDPR, DSA, UK Online
 
 - Actual operator/contact disclosures and monitored privacy request channel; verified identity, case references, access review, erasure and retention decisions.
 - Register the actual designated DMCA agent externally with the [U.S. Copyright Office](https://www.copyright.gov/dmca-directory/), publish matching name/address/phone/email, calendar renewal and change obligations, and rehearse notice, counter-notice, restoration and repeat-infringer handling. `DMCA_AGENT_REGISTERED=true` is an operator attestation, not registration performed by this repository.
-- Configure `DMCA_AGENT_NAME`, `DMCA_AGENT_ADDRESS`, `DMCA_AGENT_PHONE`, `DMCA_REGISTRATION_REFERENCE`. `LEGAL_NOTICE_EMAIL` must be the monitored designated-agent channel. Do not rely on §512 merely because `/copyright` exists.
+- Configure `DMCA_AGENT_NAME`, `DMCA_AGENT_ADDRESS`, `DMCA_AGENT_PHONE`, `DMCA_REGISTRATION_REFERENCE`. The configured copyright-notice email (or `LEGAL_NOTICE_EMAIL` fallback) must be the monitored designated-agent channel. Do not rely on §512 merely because `/copyright` exists.
 - Counsel review of child-safety obligations, applicable reporting thresholds, designated recipients, emergency handling, state privacy rights and retention. Self-attestation is not verified age and does not establish COPPA or state-law compliance.
 
 ## EU/EEA

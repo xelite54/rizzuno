@@ -43,7 +43,7 @@ async function handleGET(request: Request) {
     return NextResponse.json({ error: "banned", reason: "Your account is restricted under the Community Guidelines." }, { status: 403 })
   }
   if (status.suspendedUntil) {
-    return NextResponse.json({ error: "suspended", until: status.suspendedUntil }, { status: 403 })
+    return NextResponse.json({ error: status.temporaryAction === "restrict" ? "restricted" : "suspended", until: status.suspendedUntil }, { status: 403 })
   }
   if (!(await hasAcceptedCurrent(userId))) {
     return NextResponse.json({ error: "acceptance_required" }, { status: 403 })

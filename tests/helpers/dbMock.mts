@@ -122,6 +122,8 @@ mock.module("../../lib/db.ts", {
       return dbMockState.areFriendsImpl(a, b)
     },
     fileReport: async () => "report-id",
+    recordMatchStart: async () => {},
+    recordMatchEnd: async () => {},
     sendFriendRequest: async () => ({ status: "sent", requestId: "req-id" }),
     respondToFriendRequest: async () => ({ status: "not_found" }),
     removeFriendship: async () => null,

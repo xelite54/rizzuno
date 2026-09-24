@@ -166,9 +166,12 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // §7 adds it as a purpose of processing; §12 adds its retention entry.
   // Material change to how content is handled before publication, so
   // every account with a prior acceptance record is asked again.
-  { document: "terms", version: "2026-09-24" },
-  { document: "privacy", version: "2026-09-24" },
+  // Bumped 2026-09-24b: added server-authoritative recent-match reporting,
+  // moderation appeals, standardized temporary restriction language, and
+  // the corresponding data-inventory/retention/export disclosures.
+  { document: "terms", version: "2026-09-24b" },
+  { document: "privacy", version: "2026-09-24b" },
 ]
 
 // Guidelines are incorporated into Terms; bump Terms whenever these versions change materially.
-export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-24", safety: "2026-09-24", copyright: "2026-09-24" } as const
+export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-24b", safety: "2026-09-24b", appeals: "2026-09-24", copyright: "2026-09-24b" } as const
