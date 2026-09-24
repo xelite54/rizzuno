@@ -3,7 +3,7 @@ import { build, stop } from "esbuild"
 import postcss from "postcss"
 import tailwind from "@tailwindcss/postcss"
 import { createServer } from "node:http"
-import { spawn } from "node:child_process"
+import { launchChrome } from "./chrome.mts"
 import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -27,19 +27,8 @@ const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 async function launch(side: "a" | "b") {
   const profile = path.join(artifactDir, `profile-${side}`)
-  const process = spawn(chrome, ["--headless=new", "--autoplay-policy=no-user-gesture-required", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] })
-  const endpoint = await new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => { process.kill(); reject(new Error("Chrome launch timeout")) }, 15_000)
-    process.once("error", reject)
-    process.once("exit", code => { clearTimeout(timeout); reject(new Error(`Chrome exited ${code}`)) })
-    let stderr = ""
-    process.stderr.on("data", data => {
-      stderr += data.toString()
-      const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/)
-      if (match) { clearTimeout(timeout); resolve(match[1]) }
-    })
-  })
-  const socket = new WebSocket(endpoint)
+  const { process, endpoint } = await launchChrome(chrome, profile)
+  const socket = new WebSocket(endpoint, { handshakeTimeout: 15_000 })
   await new Promise<void>((resolve, reject) => { socket.once("open", resolve); socket.once("error", reject) })
   let seq = 0
   const pending = new Map<number, { resolve: (value: Record<string, any>) => void; reject: (error: Error) => void }>()

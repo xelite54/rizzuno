@@ -13,7 +13,7 @@ import { normalizeUsername, containsBlockedUsername } from "@/lib/username"
 // filtering.
 
 /**
- * Claims a username for the signed-in account, permanently and uniquely —
+ * Claims a username for the signed-in account, with current server-enforced uniqueness —
  * called both by ChooseUsername (the first pick, required before matching)
  * and by My Profile → Edit profile (changing it later). Same endpoint for
  * both: a uniqueness guarantee enforced only at first pick and not at

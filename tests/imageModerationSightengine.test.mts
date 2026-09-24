@@ -177,9 +177,9 @@ test("parseSightengineResponse: a non-object body fails closed as malformed_resp
 const realFetch = globalThis.fetch
 
 test("SightengineProvider.analyze: a successful response is mapped end to end, and credentials are sent as multipart fields", async () => {
-  let capturedForm: FormData | null = null
+  const captured: { form: FormData | null } = { form: null }
   globalThis.fetch = (async (_url: string, init?: RequestInit) => {
-    capturedForm = init?.body as FormData
+    captured.form = init?.body as FormData
     return new Response(JSON.stringify(fixture({ gore: { prob: 0.6 } })), { status: 200 })
   }) as typeof fetch
   try {
@@ -187,10 +187,10 @@ test("SightengineProvider.analyze: a successful response is mapped end to end, a
     const outcome = await provider.analyze(Buffer.from([0x89, 0x50, 0x4e, 0x47]), "png")
     assert.equal(outcome.ok, true)
     if (outcome.ok) assert.equal(scoreOf(outcome.analysis.categories, "gore"), 0.6)
-    assert.ok(capturedForm, "a multipart form body should have been sent")
-    assert.equal(capturedForm!.get("api_user"), "test-user")
-    assert.equal(capturedForm!.get("api_secret"), "test-secret")
-    assert.ok(capturedForm!.get("media"), "the image bytes should have been attached as the media field")
+    assert.ok(captured.form, "a multipart form body should have been sent")
+    assert.equal(captured.form!.get("api_user"), "test-user")
+    assert.equal(captured.form!.get("api_secret"), "test-secret")
+    assert.ok(captured.form!.get("media"), "the image bytes should have been attached as the media field")
   } finally {
     globalThis.fetch = realFetch
   }
@@ -210,6 +210,7 @@ test("SightengineProvider.analyze: an HTTP-level error status fails closed as 'e
 
 test(
   "SightengineProvider.analyze: a hung request past REQUEST_TIMEOUT_MS fails closed as 'timeout'",
+  { timeout: 15_000 },
   async () => {
     // A fetch that never resolves on its own, but honors the abort signal
     // exactly the way the real global fetch does — this exercises this
@@ -232,6 +233,5 @@ test(
     } finally {
       globalThis.fetch = realFetch
     }
-  },
-  { timeout: 15_000 }
+  }
 )

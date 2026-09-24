@@ -1,3 +1,4 @@
+import { boundedReportChat, type ReportChatEntry } from "./reportEvidence"
 import { deleteStoredImage, storedImageKey } from "./imageStorage"
 import { log } from "./observability"
 import { Pool } from "pg"
@@ -336,13 +337,8 @@ export async function recordAcceptance(userId: string) {
 export type ClaimUsernameResult = { ok: true } | { ok: false; reason: "taken" }
 
 /**
- * Claims a username for this account, permanently and uniquely — once
- * claimed, no other account can take it, including after this account
- * stops using it (there's no self-service deletion that would free it up;
- * see app/api/account/delete's removal). Callers pass an already-lowercased,
- * already-format-validated username (see USERNAME_PATTERN in
- * app/api/profile/username/route.ts) — this function only enforces
- * uniqueness, not format.
+ * Claims a currently unique username; renaming or approved erasure releases
+ * the previous name. Callers validate format; the database enforces uniqueness.
  *
  * The real safety net against a race — two people submitting the same
  * available username at the same moment — is the UNIQUE index added in
@@ -385,6 +381,8 @@ export async function addBlock(blockerId: string, blockedId: string) {
   const client = await requirePool().connect()
   try {
     await client.query("BEGIN")
+    await client.query("SELECT id FROM users WHERE id=ANY($1::text[]) ORDER BY id FOR UPDATE", [[blockerId,blockedId]])
+
     await client.query(
       `INSERT INTO blocks (id, blocker_id, blocked_id, created_at) VALUES ($1, $2, $3, $4) ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
       [randomUUID(), blockerId, blockedId, ts]
@@ -662,6 +660,7 @@ export type ReportInput = {
   category: string
   details?: string
   matchId?: string | null
+  chatContext?: ReportChatEntry[]
 }
 
 export async function fileReport(input: ReportInput): Promise<string> {
@@ -680,6 +679,14 @@ export async function fileReport(input: ReportInput): Promise<string> {
     if (!existing.rows.length) await client.query(
       `INSERT INTO reports(id,reporter_id,reported_id,category,details,match_id,status,created_at,priority) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8)`,
       [id,input.reporterId,input.reportedId,input.category,input.details ?? null,input.matchId ?? null,now(),input.category === "underage_concern" ? "urgent" : "normal"])
+    if (!existing.rows.length) {
+      if (input.category === "underage_concern") await client.query("UPDATE reports SET safety_state='open' WHERE id=$1", [id])
+      const capturedAt = now()
+      const reports = await client.query("SELECT id,category,status,created_at FROM reports WHERE reported_id=$1 AND id<>$2 ORDER BY created_at DESC LIMIT 20", [input.reportedId,id])
+      const actions = await client.query("SELECT id,action,created_at FROM moderation_actions WHERE target_user_id=$1 ORDER BY created_at DESC LIMIT 20", [input.reportedId])
+      const chat = boundedReportChat(input.chatContext ?? [], capturedAt).filter(entry => entry.senderId === input.reporterId || entry.senderId === input.reportedId)
+      await client.query("INSERT INTO report_evidence(report_id,captured_at,chat_context,history) VALUES($1,$2,$3,$4)", [id,capturedAt,JSON.stringify(chat),JSON.stringify({ reports: reports.rows, actions: actions.rows })])
+    }
     await client.query("COMMIT")
     if (!existing.rows.length && input.category === "underage_concern") log.warn("moderation.urgent_report", { count: 1 })
     return id
@@ -693,6 +700,7 @@ export type ReportRow = {
   reported_id: string
   category: string
   priority: string
+  safety_state: "none" | "open" | "closed"
   details: string | null
   match_id: string | null
   status: string
@@ -702,7 +710,7 @@ export type ReportRow = {
 /** Admin-only — reports are never exposed to regular clients (see the admin route's authorization check). */
 export async function listReports(status?: string): Promise<ReportRow[]> {
   const { rows } = status
-    ? await q(`SELECT * FROM reports WHERE status = $1 ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`, [status])
+    ? await q(`SELECT * FROM reports WHERE (status = $1 OR ($1='pending' AND safety_state='open')) ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`, [status])
     : await q(`SELECT * FROM reports ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`)
   return (rows as Record<string, unknown>[]).map((r) => ({ ...r, created_at: Number(r.created_at) })) as ReportRow[]
 }
@@ -736,6 +744,7 @@ export async function resolveReport(
       | { id: string; reported_id: string; status: string }
       | undefined
     if (!report) throw new Error("report not found")
+    if (report.reported_id === actorAdminId) throw new Error("conflicted_reviewer")
     if (report.status !== "pending") throw new Error("report_already_reviewed")
 
     const previous = await client.query('SELECT banned_at,ban_reason,suspended_until,suspend_reason FROM users WHERE id=$1 FOR UPDATE', [report.reported_id])
@@ -831,13 +840,13 @@ export async function getPublicProfile(userId: string): Promise<PublicProfile> {
  * or a shared reference cannot cause deletion of an image still in use. */
 export async function cleanupUnreferencedStoredImage(reference: unknown): Promise<void> {
   if (!storedImageKey(reference)) return
+  // Persist retries before touching Storage; a failure must remain actionable.
   try {
-    const { rows } = await q<{ present: boolean }>(`SELECT EXISTS (
-      SELECT 1 FROM users WHERE profile_photo=$1
-      UNION ALL SELECT 1 FROM user_posts WHERE data_url=$1
-    ) AS present`, [reference])
-    if (!rows[0].present) await deleteStoredImage(reference)
-  } catch { log.error("image.storage_cleanup_failed") }
+    await q('INSERT INTO image_deletion_queue(reference,created_at) VALUES($1,$2) ON CONFLICT DO NOTHING', [reference,now()])
+    await deleteQueuedImage(String(reference))
+  }
+  catch { log.error("image.storage_cleanup_pending") }
+
 }
 
 async function cleanupStoredImages(references: unknown[]) {
@@ -1471,31 +1480,36 @@ export async function exportUserData(userId: string, actorId: string, caseRefere
     q('SELECT id,data_url,created_at FROM user_posts WHERE user_id=$1', [userId]),
     q('SELECT f.id, u.username AS other_username, f.created_at FROM friendships f JOIN users u ON u.id=CASE WHEN f.user_a_id=$1 THEN f.user_b_id ELSE f.user_a_id END WHERE f.user_a_id=$1 OR f.user_b_id=$1', [userId]),
     q('SELECT id,status,created_at,resolved_at,(sender_id=$1) AS sent_by_you FROM friend_requests WHERE sender_id=$1 OR recipient_id=$1', [userId]),
-    q('SELECT id,friendship_id,text,created_at,read_at,reply_to_id FROM friend_messages WHERE sender_id=$1 ORDER BY created_at', [userId]),
+    q('SELECT id,friendship_id,text,created_at,read_at,reply_to_id,(sender_id=$1) AS sent_by_you FROM friend_messages WHERE sender_id=$1 OR (recipient_id=$1 AND EXISTS(SELECT 1 FROM friendships f WHERE f.id=friendship_id)) ORDER BY created_at', [userId]),
     q('SELECT u.username,b.created_at FROM blocks b JOIN users u ON u.id=b.blocked_id WHERE blocker_id=$1', [userId]),
     q('SELECT document,version,accepted_at FROM legal_acceptance WHERE user_id=$1 ORDER BY accepted_at', [userId]),
     q('SELECT status,paid_until FROM billing_subscriptions WHERE user_id=$1', [userId]),
   ])
   await q('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at) VALUES($1,$2,$3,$4,$5,$6)', [randomUUID(),userId,actorId,'export',caseReference,now()])
   return { exportedAt: now(), profile: results[0].rows[0], posts: results[1].rows, friendships: results[2].rows,
-    requests: results[3].rows, sentMessages: results[4].rows, blocks: results[5].rows, legalAcceptances: results[6].rows, subscriptions: results[7].rows }
+    requests: results[3].rows, messages: results[4].rows, blocks: results[5].rows, legalAcceptances: results[6].rows, subscriptions: results[7].rows }
 }
 
 /** Erases product data; keeps an inaccessible identity tombstone and safety/legal audit records.
  * Cases needing a legal hold must not use this operation until reviewed. */
-export async function eraseUserData(userId: string, actorId: string, caseReference: string): Promise<void> {
+export async function eraseUserData(userId: string, actorId: string, caseReference: string): Promise<{ productErased: true; storagePending: number }> {
   await ensureMigrated()
   const client = await requirePool().connect()
   const removedImages: unknown[] = []
   try {
     await client.query('BEGIN')
+    await client.query('LOCK TABLE legal_holds IN SHARE MODE')
+    if ((await client.query('SELECT 1 FROM legal_holds WHERE released_at IS NULL LIMIT 1')).rowCount) throw new Error('active_legal_hold')
     const account = await client.query('SELECT id,profile_photo FROM users WHERE id=$1 FOR UPDATE', [userId])
     if (!account.rowCount) throw new Error('not_found')
+    const prior = await client.query("SELECT retained FROM privacy_operations WHERE user_id=$1 AND action='erase' ORDER BY created_at DESC LIMIT 1", [userId])
+    if (Array.isArray(prior.rows[0]?.retained?.imageReferences)) removedImages.push(...prior.rows[0].retained.imageReferences)
     // Paid accounts require separate verified cancellation/finance handling.
     const paid = await client.query("SELECT 1 FROM billing_customers WHERE user_id=$1", [userId])
     if (paid.rowCount) throw new Error('billing_review_required')
     await client.query('DELETE FROM friend_messages WHERE sender_id=$1 OR recipient_id=$1', [userId])
     await client.query('DELETE FROM friendships WHERE user_a_id=$1 OR user_b_id=$1', [userId])
+    await client.query('DELETE FROM blocks WHERE blocker_id=$1 OR blocked_id=$1', [userId])
     await client.query('DELETE FROM friend_requests WHERE sender_id=$1 OR recipient_id=$1', [userId])
     const posts = await client.query('DELETE FROM user_posts WHERE user_id=$1 RETURNING data_url', [userId])
     removedImages.push(account.rows[0].profile_photo, ...posts.rows.map(row => row.data_url))
@@ -1503,11 +1517,15 @@ export async function eraseUserData(userId: string, actorId: string, caseReferen
     await client.query('DELETE FROM image_moderation_rate_limits WHERE user_id=$1', [userId])
     await client.query('DELETE FROM turn_credential_rate_limits WHERE user_id=$1', [userId])
     await client.query('UPDATE users SET username=NULL,gender=NULL,profile_photo=NULL,bio=NULL,deleted_at=$2 WHERE id=$1', [userId,now()])
-    await client.query('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at) VALUES($1,$2,$3,$4,$5,$6)', [randomUUID(),userId,actorId,'erase',caseReference,now()])
+    for (const reference of new Set(removedImages)) if (storedImageKey(reference)) await client.query('INSERT INTO image_deletion_queue(reference,created_at) VALUES($1,$2) ON CONFLICT DO NOTHING', [reference,now()])
+    await client.query('INSERT INTO privacy_operations(id,user_id,actor_id,action,reason,created_at,retained) VALUES($1,$2,$3,$4,$5,$6,$7)', [randomUUID(),userId,actorId,'erase',caseReference,now(),JSON.stringify({ imageReferences: [...new Set(removedImages.filter(reference=>storedImageKey(reference)))], heldRecords: "Previously held pre-change records follow separately approved preservation retention; referenced objects remain restricted", identity: "Deleted identity prevents reentry", reports: "Restricted safety investigation, subject to approved reports retention", moderation: "Restricted enforcement and image-check history, subject to approved retention", legalAcceptance: "Acceptance evidence, subject to approved retention", privacyOperations: "Accountability for this request, subject to approved retention", imageDeletion: "Durable deletion queue; Storage completion separately checked" })])
     await client.query('COMMIT')
   } catch (err) { await client.query('ROLLBACK').catch(() => {}); throw err }
   finally { client.release() }
-  await cleanupStoredImages(removedImages)
+  // Failure is visible and retryable; do not claim erasure completed while objects remain.
+  for (const reference of new Set(removedImages)) if (storedImageKey(reference)) await deleteQueuedImage(String(reference))
+  const pending = await q<{count:string}>('SELECT count(*) AS count FROM image_deletion_queue WHERE reference=ANY($1::text[])', [removedImages.filter(reference=>storedImageKey(reference))])
+  return { productErased: true, storagePending: Number(pending.rows[0].count) }
 }
 
 /** References remain readable during the legacy data-URL migration. Removed or
@@ -1519,4 +1537,131 @@ export async function isStoredImageReferenced(reference: string): Promise<boolea
       WHERE p.data_url=$1 AND u.deleted_at IS NULL AND u.banned_at IS NULL
   ) AS present`, [reference])
   return rows[0].present
+}
+
+/** The holds table lock prevents a concurrent hold from racing a deletion. */
+async function deleteQueuedImage(reference: string) {
+  const client = await requirePool().connect()
+  try {
+    await client.query('BEGIN')
+    await client.query('LOCK TABLE legal_holds IN SHARE MODE')
+    if ((await client.query('SELECT 1 FROM legal_holds WHERE released_at IS NULL LIMIT 1')).rowCount) throw new Error('active_legal_hold')
+    const queued = await client.query('SELECT reference FROM image_deletion_queue WHERE reference=$1 FOR UPDATE', [reference])
+    if (queued.rowCount) {
+      const used = await client.query(`SELECT 1 FROM users WHERE profile_photo=$1 UNION ALL SELECT 1 FROM user_posts WHERE data_url=$1 UNION ALL SELECT 1 FROM held_records WHERE snapshot::text LIKE '%' || $1 || '%' LIMIT 1`, [reference])
+      if (!used.rowCount) {
+        await deleteStoredImage(reference)
+        await client.query('DELETE FROM image_deletion_queue WHERE reference=$1', [reference])
+      } else await client.query('UPDATE image_deletion_queue SET next_attempt_at=$2 WHERE reference=$1',[reference,now()+3_600_000])
+    }
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    await q('UPDATE image_deletion_queue SET attempts=attempts+1,next_attempt_at=$2 WHERE reference=$1', [reference,now()+60_000])
+    throw error
+  } finally { client.release() }
+}
+
+/** One bounded pass. Operator scheduler must monitor errors and backlog. */
+export async function purgeRetentionBatch(batchSize = 100) {
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 500) throw new Error('invalid_batch_size')
+  const { retentionPolicy } = await import('./retention')
+  const policy = retentionPolicy()
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  const counts: Record<string, number> = {}
+  try {
+    await client.query('BEGIN')
+    await client.query('LOCK TABLE legal_holds IN SHARE MODE')
+    if ((await client.query('SELECT 1 FROM legal_holds WHERE released_at IS NULL LIMIT 1')).rowCount) {
+      await client.query('COMMIT'); return { held: true, counts }
+    }
+    // Referenced replies, report/action links and safety decisions delay deletion
+    // until dependent records expire; no cascade silently bypasses their policy.
+    const specs = [
+      ['friendMessages','friend_messages','created_at', "NOT EXISTS(SELECT 1 FROM friend_messages reply WHERE reply.reply_to_id=t.id)"],
+      ['friendRequests','friend_requests','created_at','true'],
+      ['moderationActions','moderation_actions','created_at','true'],
+      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id)"],
+      ['imageChecks','moderation_events','created_at','true'],
+      ['legalAcceptance','legal_acceptance','accepted_at', "EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.deleted_at IS NOT NULL)"],
+      ['privacyOperations','privacy_operations','created_at','true'],
+      ['heldRecords','held_records','created_at','true'],
+    ] as const
+    for (const [category, table, timestamp, condition] of specs) {
+      const rule = policy.categories[category]
+      if (rule.mode !== 'automatic') continue
+      const cutoff = now() - rule.days! * 86_400_000
+      if (category === 'reports') {
+        // Decisions share the report policy, but unresolved investigations stay.
+        await client.query("DELETE FROM safety_decisions WHERE id IN (SELECT d.id FROM safety_decisions d JOIN reports r ON r.id=d.report_id WHERE r.status='reviewed' AND r.safety_state<>'open' AND d.created_at<$1 AND r.created_at<$1 ORDER BY d.created_at LIMIT $2)", [cutoff,batchSize])
+      }
+      const result = await client.query(`DELETE FROM ${table} WHERE id IN (SELECT t.id FROM ${table} t WHERE t.${timestamp}<$1 AND ${condition} ORDER BY t.${timestamp} LIMIT $2 FOR UPDATE SKIP LOCKED)`, [cutoff,batchSize])
+      counts[category] = result.rowCount ?? 0
+    }
+    await client.query('COMMIT')
+  } catch (error) { await client.query('ROLLBACK'); throw error }
+  finally { client.release() }
+  const queued = await q<{ reference: string }>('SELECT reference FROM image_deletion_queue WHERE next_attempt_at<=$2 ORDER BY created_at LIMIT $1', [batchSize,now()])
+  for (const row of queued.rows) await deleteQueuedImage(row.reference)
+  return { held: false, counts }
+}
+
+export async function getReportEvidence(reportId: string, actorId: string) {
+  const result = await q('SELECT e.* FROM report_evidence e JOIN reports r ON r.id=e.report_id WHERE e.report_id=$1 AND r.reported_id<>$2', [reportId,actorId])
+  if (result.rowCount) await q('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [randomUUID(),reportId,actorId,'evidence_access',reportId,'Restricted moderator evidence view',now()])
+  return result.rows[0] ?? null
+}
+
+export async function recordSafetyDecision(input: { reportId: string; actorId: string; decision: string; caseReference: string; rationale: string; externalReference?: string }) {
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  try {
+    await client.query('BEGIN')
+    const result = await client.query('SELECT id,reported_id FROM reports WHERE id=$1 FOR UPDATE', [input.reportId])
+    if (!result.rowCount) throw new Error('report_not_found')
+    if (result.rows[0].reported_id === input.actorId) throw new Error('conflicted_reviewer')
+    await client.query('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,external_reference,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(),input.reportId,input.actorId,input.decision,input.caseReference,input.rationale,input.externalReference ?? null,now()])
+    if (input.decision === 'investigation_open' || input.decision === 'investigation_closed') await client.query('UPDATE reports SET safety_state=$2 WHERE id=$1', [input.reportId,input.decision === 'investigation_open' ? 'open' : 'closed'])
+    await client.query('COMMIT')
+  } catch (error) { await client.query('ROLLBACK'); throw error }
+  finally { client.release() }
+}
+export async function setLegalHold(actorId: string, caseReference: string, reason: string, releaseId?: string) {
+  if (releaseId) {
+    const result = await q('UPDATE legal_holds SET released_at=$2,released_by=$3,release_reason=$4 WHERE id=$1 AND released_at IS NULL', [releaseId,now(),actorId,`${caseReference}: ${reason}`])
+    if (!result.rowCount) throw new Error('hold_not_found')
+    return releaseId
+  }
+  const id = randomUUID()
+  await q('INSERT INTO legal_holds(id,case_reference,reason,created_by,created_at) VALUES($1,$2,$3,$4,$5)', [id,caseReference,reason,actorId,now()])
+  return id
+}
+
+/** Storage inventory is separate from Postgres deletion; repeated complete scans
+ * catch uploads interrupted before a DB reference or deletion job was written. */
+export async function discoverOrphanedImages(offset = 0, batchSize = 100) {
+  const { listStoredImages, isImageKey } = await import('./imageStorage')
+  const { retentionPolicy } = await import('./retention')
+  const policy = retentionPolicy()
+  const rows = await listStoredImages(offset,batchSize)
+  const cutoff = now() - policy.categories.storedImages.days! * 86_400_000
+  for (const row of rows) {
+    if (!isImageKey(row.name) || !Number.isFinite(Date.parse(row.created_at)) || Date.parse(row.created_at) >= cutoff) continue
+    const reference = `/api/media/${row.name}`
+    await q(`INSERT INTO image_deletion_queue(reference,created_at) SELECT $1,$2 WHERE NOT EXISTS(SELECT 1 FROM users WHERE profile_photo=$1 UNION ALL SELECT 1 FROM user_posts WHERE data_url=$1) ON CONFLICT DO NOTHING`, [reference,now()])
+  }
+  return { nextOffset: rows.length === batchSize ? offset + batchSize : null }
+}
+
+/** One round trip for current account and legal eligibility, including live sockets. */
+export async function realtimeAccess(userIds: string[]): Promise<Map<string, "allowed" | "banned" | "suspended" | "acceptance_required">> {
+  if (userIds.length > 500) throw new Error('eligibility_batch_too_large')
+  const result = await q<{id:string; banned:boolean; suspended:boolean; accepted:boolean}>(`SELECT u.id,
+    (u.deleted_at IS NOT NULL OR u.banned_at IS NOT NULL) AS banned,
+    COALESCE(u.suspended_until>$3,false) AS suspended,
+    NOT EXISTS(SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS required(document text,version text)
+      WHERE NOT EXISTS(SELECT 1 FROM legal_acceptance a WHERE a.user_id=u.id AND a.document=required.document AND a.version=required.version)) AS accepted
+    FROM users u WHERE u.id=ANY($1::text[])`,[userIds,JSON.stringify(REQUIRED_DOCUMENTS),now()])
+  return new Map(result.rows.map(row=>[row.id,row.banned?'banned':row.suspended?'suspended':!row.accepted?'acceptance_required':'allowed']))
 }

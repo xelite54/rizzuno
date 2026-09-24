@@ -33,7 +33,7 @@ require("pg").Pool = class {
 }
 const originalFetch = globalThis.fetch
 globalThis.fetch = async (input, init) => {
-  assert.equal(transaction, false, "Storage deletion must never run inside an uncommitted DB transaction")
+  assert.equal(transaction, true, "Storage deletion holds a separate transaction lock against concurrent legal holds; product removal already committed")
   assert.equal(String(input), "https://storage.invalid/storage/v1/object/images")
   assert.equal(init?.method, "DELETE")
   assert.equal(new Headers(init?.headers).get("Content-Type"), "application/json")
@@ -147,6 +147,7 @@ test("shared references and storage outages do not break successful DB mutations
   failStorage=true
   try { await db.updateOwnProfile("shared-b",{profilePhoto:null}) } finally { failStorage=false }
   assert.equal(await photo("shared-b"),null); assert.deepEqual(deleted,[storedImageKey(reference(18))])
+  assert.equal((await pg.query("SELECT attempts FROM image_deletion_queue WHERE reference=$1",[reference(18)])).rows.length,1,"storage failure remains durably queued")
 })
 
 test("failed post commit restores trimmed rows before cleaning only the new upload",async()=>{

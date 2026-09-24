@@ -21,7 +21,7 @@ test("rejection never uploads; public bucket and corrupt readback never produce 
   let uploaded = 0, isPublic=false, corrupt=false
   const fetchMock = mock.method(globalThis,"fetch",async (input: string, init: RequestInit) => {
     if (input.includes("/bucket/")) return Response.json({public:isPublic})
-    if (init.method === "POST") { uploaded++; assert.equal(init.headers["Content-Type"],"image/webp"); return Response.json({}) }
+    if (init.method === "POST") { uploaded++; assert.equal(new Headers(init.headers).get("Content-Type"),"image/webp"); return Response.json({}) }
     return new Response(new Uint8Array(corrupt ? Buffer.from("wrong") : bytes))
   })
   try {

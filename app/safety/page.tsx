@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Practical safety guidance for meeting strangers on live video through Rizzuno.",
 }
 
-const LAST_UPDATED = "September 18, 2026"
+const LAST_UPDATED = "September 24, 2026"
 
 export default function SafetyPage() {
   return (
@@ -18,6 +18,7 @@ export default function SafetyPage() {
         This page is practical guidance, not a legal document. Read it before your first call.
       </p>
 
+      <p className="mt-4 text-sm text-muted">Underage concerns receive urgent priority for trained safety review. Generic nudity screening does not identify child sexual abuse material. Reports can preserve bounded recent text context; automatic screenshots and call recording are disabled. For copyright notices see our <Link href="/copyright" className="underline">Copyright Policy</Link>.</p>
       <div className="mt-8 space-y-6 text-[14px] leading-relaxed text-foreground">
         <section>
           <h2 className="text-[16px] font-semibold">You&apos;re talking to a stranger</h2>
@@ -75,8 +76,9 @@ export default function SafetyPage() {
             <strong className="text-foreground">Report</strong> sends the category you choose, any details you add, and which call it happened in to a
             human moderator for review — it does not notify the other person, and there can be a delay before any
             action is taken. <strong className="text-foreground">Block</strong> is enforced by our server and keeps that account from being matched
-            with yours again, across devices and sessions. As currently built, there is no way to undo a block once
-            made. Neither report nor block can retroactively undo anything that already happened on a call.
+            with yours again while either account blocks the other. You can remove your own block in My Profile →
+            Settings → Blocked users. Unblocking does not restore friendships or pending requests.
+
           </p>
         </section>
 

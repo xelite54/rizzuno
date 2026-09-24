@@ -1,8 +1,8 @@
 "use server"
 
 import { auth } from "@/auth"
-import { isAdminEmail } from "@/lib/admin"
-import { resolveReport, type ModerationAction } from "@/lib/db"
+import { isAdminEmail, isSafetyReviewer } from "@/lib/admin"
+import { getReport, resolveReport, type ModerationAction } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { revalidatePath } from "next/cache"
 
@@ -41,6 +41,8 @@ export async function resolveReportAction(formData: FormData) {
     throw new Error("Suspend requires a positive number of days")
   }
 
+  const report = await getReport(reportId)
+  if (report?.priority === "urgent" && !isSafetyReviewer(session.user.email)) throw new Error("Trained safety reviewer required")
   await resolveReport(reportId, session!.user!.id, action, reason, suspendUntil)
   revalidatePath("/admin")
 }

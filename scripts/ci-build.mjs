@@ -1,8 +1,9 @@
+import { ciLaunchFixture } from "./ci-launch-fixture.mjs"
 // Compile-only environment: no reachable provider and no production credentials.
 // Production builds use npm run build directly and MUST supply real config.
 import { spawnSync } from "node:child_process"
 const result = spawnSync("npm", ["run", "build"], { stdio: "inherit", env: {
-  ...process.env, NODE_ENV: "production", DATABASE_URL: "postgresql://ci:ci@127.0.0.1:1/ci",
+  ...process.env, ...ciLaunchFixture, NODE_ENV: "production", DATABASE_URL: "postgresql://ci:ci@127.0.0.1:1/ci",
   DATABASE_SSL_CA: "", DATABASE_SSL_CA_REQUIRED: "false",
   AUTH_SECRET: "ci-only-auth-secret-000000000000000000000", AUTH_GOOGLE_ID: "ci.invalid", AUTH_GOOGLE_SECRET: "ci-only",
   AUTH_URL: "https://ci.invalid", APP_URL: "https://ci.invalid", REALTIME_TICKET_SECRET: "ci-only-realtime-secret-000000000000000000",

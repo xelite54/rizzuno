@@ -18,6 +18,7 @@ export const dbMockState = {
   genders: new Map<string, "male" | "female">(),
   plusEnabled: true,
   bannedUserIds: new Set<string>(),
+  deletedUserIds: new Set<string>(),
   acceptanceRequiredUserIds: new Set<string>(),
   suspendedUntil: new Map<string, number>(),
   blockedPairs: new Set<string>(), // "a|b" — checked both directions
@@ -65,6 +66,7 @@ export function resetDbMockState() {
   dbMockState.genders.clear()
   dbMockState.plusEnabled = true
   dbMockState.bannedUserIds.clear()
+  dbMockState.deletedUserIds.clear()
   dbMockState.acceptanceRequiredUserIds.clear()
   dbMockState.suspendedUntil.clear()
   dbMockState.blockedPairs.clear()
@@ -81,6 +83,7 @@ export function resetDbMockState() {
 
 mock.module("../../lib/db.ts", {
   exports: {
+    realtimeAccess: async (ids: string[]) => new Map(ids.map(id => [id, dbMockState.bannedUserIds.has(id) || dbMockState.deletedUserIds.has(id) ? "banned" : (dbMockState.suspendedUntil.get(id) ?? 0) > Date.now() ? "suspended" : dbMockState.acceptanceRequiredUserIds.has(id) ? "acceptance_required" : "allowed"])),
     checkAndIncrementApiRateLimit: async () => false,
     hasAcceptedCurrent: async (userId: string) => !dbMockState.acceptanceRequiredUserIds.has(userId),
     canTargetUser: async (a: string, b: string) => [...dbMockState.friendships.values()].some((pair) => pair.includes(a) && pair.includes(b)) || dbMockState.incomingRequests.some((r) => r.senderId === b),
@@ -98,7 +101,7 @@ mock.module("../../lib/db.ts", {
       banned: dbMockState.bannedUserIds.has(userId),
       banReason: null,
       suspendedUntil: dbMockState.suspendedUntil.get(userId) ?? null,
-      deleted: false,
+      deleted: dbMockState.deletedUserIds.has(userId),
     }),
     addBlock: async (blockerId: string, blockedId: string) => {
       if (dbMockState.addBlockShouldThrow) throw new Error("simulated addBlock failure")

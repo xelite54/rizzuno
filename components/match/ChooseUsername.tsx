@@ -11,7 +11,7 @@ type ChooseUsernameProps = {
  * One required step between signing in and entering the app — this is how
  * a real match will see you, so it isn't optional. Claims the username
  * server-side (see app/api/profile/username) before calling `onChosen` —
- * usernames are now permanently unique per lib/db.ts's `claimUsername()`,
+ * currently claimed usernames are unique per lib/db.ts's `claimUsername()`,
  * so this actually blocks one already taken by another account rather than
  * just checking length/characters and hoping for the best.
  */

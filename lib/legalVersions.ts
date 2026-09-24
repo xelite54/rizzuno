@@ -166,6 +166,9 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // §7 adds it as a purpose of processing; §12 adds its retention entry.
   // Material change to how content is handled before publication, so
   // every account with a prior acceptance record is asked again.
-  { document: "terms", version: "2026-09-19" },
-  { document: "privacy", version: "2026-09-19" },
+  { document: "terms", version: "2026-09-24" },
+  { document: "privacy", version: "2026-09-24" },
 ]
+
+// Guidelines are incorporated into Terms; bump Terms whenever these versions change materially.
+export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-24", safety: "2026-09-24", copyright: "2026-09-24" } as const

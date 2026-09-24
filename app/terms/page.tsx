@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "September 19, 2026"
+const LAST_UPDATED = "September 24, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -166,7 +166,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">7. Live WebRTC video &amp; audio</h2>
             <p className="mt-2 text-muted">
               Calls happen over WebRTC, a peer-to-peer technology. Once connected, your camera and microphone stream
-              directly to the other person&apos;s device rather than through Rizzuno&apos;s servers, and Rizzuno
+              directly to the other person&apos;s device when possible, or through a configured TURN relay. Rizzuno
               does not monitor, record, or review that stream. Establishing this direct connection can expose
               limited network information — such as your public IP address — to the person you&apos;re matched with
               and to the connectivity infrastructure involved in setting it up (see Section 31 and our{" "}
@@ -186,7 +186,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">8. Text &amp; image communication</h2>
             <p className="mt-2 text-muted">
               In-call text and image chat messages are relayed live through Rizzuno&apos;s server to whoever
-              you&apos;re currently matched with, and are not stored once relayed. Chat text, and the username you
+              you&apos;re currently matched with. Recent text is held briefly in memory and may be retained in a restricted report snapshot as described in Section 22. Images are not kept as call-chat history. Chat text, and the username you
               choose, pass through a basic keyword filter for the most severe content before being shown — this
               catches obvious cases only and is not comprehensive moderation.
             </p>
@@ -328,6 +328,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="reports">
+            <p className="mt-2 text-muted">Reports may preserve up to 20 recent in-call text messages from the preceding two minutes, the report time and room ID, and a bounded summary of prior reports and moderation actions. This evidence is restricted to authorized safety reviewers. Automatic screenshots and call recording are not enabled.</p>
             <h2 className="text-[16px] font-semibold">22. Reports</h2>
             <p className="mt-2 text-muted">
               You can report a current match from the in-call safety menu, and use supported friend/request or username-result reporting controls, in one of a few categories,
@@ -356,7 +357,7 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               Reports are reviewed by human moderators, not resolved automatically. Rizzuno does not monitor,
               record, or review live video or audio, and does not automatically screen calls for violations — the
-              keyword filtering described in Section 8 covers chat text and usernames only; the automated image
+              text filtering covers chat text, usernames and bios; the automated image
               check described in Section 8 covers profile photos, posts, and chat images specifically, not
               video/audio. Moderation of what happens on a call substantially depends on it being reported.
             </p>
@@ -447,7 +448,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">31. Third-party infrastructure</h2>
             <p className="mt-2 text-muted">
               Rizzuno relies on third-party infrastructure to operate — sign-in through Google, hosting through
-              Vercel and Railway, a database provider (e.g. Supabase), Sightengine for image screening, configured TURN relays, and Google&apos;s public STUN servers to help
+              the hosting, database, storage and connectivity services disclosed in our Privacy Policy, Sightengine for image screening, configured TURN relays, and Google&apos;s public STUN servers to help
               establish peer-to-peer calls. See our{" "}
               <Link href="/privacy" className="underline underline-offset-2 hover:text-accent">
                 Privacy Policy
@@ -481,8 +482,7 @@ export default function TermsOfServicePage() {
               storing what you write into a report. This license is limited to what running the service actually
               requires; it doesn&apos;t give Rizzuno any broader right to reuse, license, or commercially exploit
               your content, and it lasts only as long as reasonably necessary for that specific processing — for
-              transient in-call content, that&apos;s the moment it&apos;s relayed, since it&apos;s not retained on
-              Rizzuno&apos;s servers at all (see Section 9).
+              transient in-call content, this ordinarily ends after relay and the bounded recent-text window described in Section 22. Report evidence and lawful preservation are covered by the narrow retained-record exception below.
             </p>
             <p className="mt-2 text-muted">
               Where something you sent has legitimately become part of a report, moderation action, or other record
@@ -573,6 +573,7 @@ export default function TermsOfServicePage() {
           </section>
 
           <section id="related">
+            <p className="mt-2 text-muted">Copyright complaints, counter-notices and our repeat-infringer policy are described in the <Link href="/copyright" className="underline">Copyright Policy</Link>, which forms part of these Terms.</p>
             <h2 className="text-[16px] font-semibold">42. Related policies</h2>
             <p className="mt-2 text-muted">
               These Terms should be read together with our{" "}
@@ -596,7 +597,7 @@ export default function TermsOfServicePage() {
             <h2 className="text-[16px] font-semibold">43. Survival</h2>
             <p className="mt-2 text-muted">
               Sections that by their nature should survive your stopping use of Rizzuno — including Intellectual
-              Property (31), Disclaimers (34), Limitation of Liability (35), Indemnification (36), and any
+              Property (32), Disclaimers (35), Limitation of Liability (36), Indemnification (37), and any
               obligation you accrued before you stopped using Rizzuno — remain in effect after your account is
               deleted or your access ends.
             </p>
@@ -620,6 +621,8 @@ export default function TermsOfServicePage() {
 
           <section id="contact">
             <h2 className="text-[16px] font-semibold">45. Governing law &amp; contact</h2>
+            {LEGAL_CONFIG.legalEmail && <p className="mt-2 text-muted">Legal notices: <a href={`mailto:${LEGAL_CONFIG.legalEmail}`} className="underline">{LEGAL_CONFIG.legalEmail}</a>.</p>}
+            {LEGAL_CONFIG.operatorAddress && <p className="mt-2 text-muted">{LEGAL_CONFIG.operatorAddress}</p>}
             {LEGAL_CONFIG.governingLaw && (
               <p className="mt-2 text-muted">These Terms are governed by {LEGAL_CONFIG.governingLaw}.</p>
             )}
@@ -650,8 +653,7 @@ export default function TermsOfServicePage() {
               </p>
             ) : (
               <p className="mt-2 text-muted">
-                This policy does not yet name Rizzuno&apos;s operating entity or a dedicated contact address for
-                these Terms.
+                Operator and contact details for this development preview are supplied through deployment configuration.
               </p>
             )}
           </section>

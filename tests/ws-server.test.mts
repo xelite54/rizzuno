@@ -969,3 +969,21 @@ test("valid tickets require current legal acceptance and reconnect after accepta
     await server.close()
   }
 })
+
+test("already-open sockets cannot continue matching after deletion, suspension or legal-version invalidation", async () => {
+  for (const restriction of ["deleted", "suspended", "legal"] as const) {
+    resetDbMockState()
+    const server = await startTestServer()
+    const userId = uid(restriction)
+    try {
+      const client = await connectAndHello(server.url,userId,{gender:"male"})
+      if (restriction === "deleted") dbMockState.deletedUserIds.add(userId)
+      else if (restriction === "suspended") dbMockState.suspendedUntil.set(userId,Date.now()+60_000)
+      else dbMockState.acceptanceRequiredUserIds.add(userId)
+      const closed = new Promise<number>(resolve=>client.ws.once("close",code=>resolve(code)))
+      client.send({type:"find"})
+      assert.equal((await client.waitForType("rejected")).reason,restriction === "deleted" ? "banned" : restriction === "legal" ? "acceptance_required" : "suspended")
+      assert.equal(await closed,1008)
+    } finally { await server.close() }
+  }
+})

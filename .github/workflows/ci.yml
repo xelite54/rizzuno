@@ -1,6 +1,7 @@
 name: CI
 on:
   pull_request:
+  merge_group:
   push:
     branches: [main]
 permissions:
@@ -21,7 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npx tsc --noEmit
+      - run: npm run typecheck
       - run: npm test
       - run: node scripts/ci-build.mjs
   security:
@@ -65,11 +66,19 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          chrome-version: '154.0.8037.57' # Chrome for Testing stable, reviewed 2026-09-24
+          install-dependencies: true
+      - run: '"$CHROME_PATH" --version'
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
       - run: npm run test:webrtc:browser
         env:
-          CHROME_PATH: /usr/bin/google-chrome
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
           MEDIA_HOLD_MS: '120000'
       - run: npm run test:homepage:runtime
         env:
-          CHROME_PATH: /usr/bin/google-chrome
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
           HOMEPAGE_HOLD_MS: '180000'

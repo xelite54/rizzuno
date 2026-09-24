@@ -1,3 +1,4 @@
+import { countryAllowed } from "@/lib/launchReadiness"
 import { withHttpMetrics } from "@/lib/httpMetrics"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
@@ -21,6 +22,7 @@ import { requestCountry } from "@/lib/country"
  * before a ban took effect.
  */
 async function handleGET(request: Request) {
+  if (!countryAllowed(requestCountry(request))) return NextResponse.json({ error: "region_unavailable" }, { status: 451 })
   const session = await auth()
   const userId = session?.user?.id
   if (!userId) {
@@ -38,7 +40,7 @@ async function handleGET(request: Request) {
     return NextResponse.json({ error: "account_deleted" }, { status: 403 })
   }
   if (status.banned) {
-    return NextResponse.json({ error: "banned", reason: status.banReason }, { status: 403 })
+    return NextResponse.json({ error: "banned", reason: "Your account is restricted under the Community Guidelines." }, { status: 403 })
   }
   if (status.suspendedUntil) {
     return NextResponse.json({ error: "suspended", until: status.suspendedUntil }, { status: 403 })

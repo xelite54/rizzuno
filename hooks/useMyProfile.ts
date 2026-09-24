@@ -74,11 +74,8 @@ const CURRENT_MIGRATION_VERSION = 1
  * (migration 0005_profile_fields; see app/api/profile/me, app/api/profile/
  * posts) — this used to be entirely client-side localStorage, which meant
  * another account could never see a friend's actual photo/bio/posts on
- * their profile (only whatever happened to be sitting in the VIEWING
- * account's own browser). `gender` is deliberately NOT part of this move —
- * it stays exactly what it always was: client state, sent live over the
- * realtime connection for matching (see hooks/useMatchmaking.ts's "hello"/
- * "profile-update"), never persisted to Postgres.
+ * their profile (only the viewing account’s browser cache). Gender is also
+ * persisted server-side and read during matchmaking; browser state is a cache.
  *
  * localStorage is still used, but only as a same-browser CACHE now, for an
  * instant paint before the server round trip resolves — never the

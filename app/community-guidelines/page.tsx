@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: "Rizzuno's rules for how to treat the people you're matched with, and how reporting and blocking work.",
 }
 
-const LAST_UPDATED = "September 18, 2026"
+const LAST_UPDATED = "September 24, 2026"
 
 export default function CommunityGuidelinesPage() {
   return (
@@ -15,6 +15,7 @@ export default function CommunityGuidelinesPage() {
       <h1 className="text-[28px] font-bold tracking-tight">Community Guidelines</h1>
       <p className="mt-2 text-[13px] text-muted">Last updated {LAST_UPDATED}</p>
 
+      <p className="mt-4 text-sm text-muted">Underage concerns receive urgent priority for trained safety review. Generic nudity screening does not identify child sexual abuse material. Reports can preserve bounded recent text context; automatic screenshots and call recording are disabled. For copyright notices see our <Link href="/copyright" className="underline">Copyright Policy</Link>.</p>
       <div className="mt-8 space-y-6 text-[14px] leading-relaxed text-foreground">
         <section>
           <h2 className="text-[16px] font-semibold">Be an adult about it</h2>
@@ -72,10 +73,10 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="text-[16px] font-semibold">Blocking</h2>
           <p className="mt-2 text-muted">
-            Blocking someone from the ••• menu is immediate and enforced by our server: the two accounts won&apos;t
-            be matched with each other again, regardless of device, tab, sign-out, or new session. As currently
-            built, Rizzuno does not have a feature that lets you undo a block once you&apos;ve made it — we&apos;d
-            rather tell you that plainly than promise a control you don&apos;t actually have.
+            Blocking prevents matching and ends friendships and pending requests. In My Profile → Settings →
+            Blocked users, you can undo your own block. The other person’s block, if any, remains in effect.
+            Unblocking does not restore old friendships or requests; normal matching cooldowns still apply.
+
           </p>
         </section>
 

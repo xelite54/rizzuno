@@ -70,6 +70,7 @@ export function SignInLanding({ onSignIn, errorMessage }: SignInLandingProps) {
         <Link href="/safety" className="underline underline-offset-2 hover:text-foreground">
           Safety
         </Link>
+        <Link href="/copyright" className="underline underline-offset-2 hover:text-foreground">Copyright</Link>
       </nav>
     </div>
   )

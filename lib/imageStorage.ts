@@ -76,3 +76,16 @@ export async function storeApprovedImage(result: ModerationResult): Promise<stri
   if (createHash("sha256").update(stored).digest("hex") !== createHash("sha256").update(bytes).digest("hex")) throw new Error("storage_verification_failed")
   return `/api/media/${key}`
 }
+
+/** Bounded inventory page. Only application-generated root keys are considered. */
+export async function listStoredImages(offset: number, limit = 100): Promise<{ name: string; created_at: string }[]> {
+  if (!Number.isSafeInteger(offset) || offset < 0 || limit < 1 || limit > 500) throw new Error("invalid_storage_page")
+  const { bucket } = imageStorageConfig()
+  const response = await storageRequest(`object/list/${bucket}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prefix: "", limit, offset, sortBy: { column: "name", order: "asc" } }) })
+  const rows: unknown = await response.json()
+  if (!Array.isArray(rows)) throw new Error("storage_invalid_inventory")
+  return rows.map(row => {
+    if (!row || typeof row.name !== "string") throw new Error("storage_invalid_inventory")
+    return { name: row.name, created_at: typeof row.created_at === "string" ? row.created_at : "" }
+  })
+}

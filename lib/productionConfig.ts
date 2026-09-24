@@ -1,3 +1,4 @@
+import { validateLaunchReadiness } from "./launchReadiness"
 import { billingMode } from "./billingMode"
 import { databaseConfig } from "./dbConfig"
 import { imageStorageConfig } from "./imageStorage"
@@ -11,6 +12,8 @@ function url(name: string, protocols: string[]): URL {
 }
 export function validateProductionConfig(role: "web" | "realtime") {
   if (process.env.NODE_ENV !== "production") return
+  validateLaunchReadiness()
+  if (process.env.STAGING_PROBE_SECRET && process.env.DEPLOYMENT_TIER !== "staging") throw new Error("Staging probes forbidden outside staging")
   billingMode()
   const required = role === "web"
     ? ["AUTH_SECRET", "AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_URL", "APP_URL", "DATABASE_URL", "REALTIME_TICKET_SECRET", "NEXT_PUBLIC_WS_URL", "SIGHTENGINE_API_USER", "SIGHTENGINE_API_SECRET", "NEXT_PUBLIC_TURN_URL", "TURN_STATIC_AUTH_SECRET"]

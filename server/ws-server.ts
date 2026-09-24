@@ -1,3 +1,5 @@
+import { countryAllowed } from "../lib/launchReadiness"
+import { boundedReportChat, type ReportChatEntry } from "../lib/reportEvidence"
 import type { ClusterBackend } from "./clusterGateway"
 import { log } from "../lib/observability"
 import { isClientMessage, MAX_WS_PAYLOAD } from "../lib/signaling/validation"
@@ -12,6 +14,7 @@ import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from ".
 import { verifyTicket } from "../lib/realtimeTicket"
 import {
   getUserStatus,
+  realtimeAccess,
   hasAcceptedCurrent,
   canTargetUser,
   getAccountGender,
@@ -124,6 +127,26 @@ async function friendsMayCall(a: ConnectionState, b: ConnectionState): Promise<b
   return friends && !blocked && [aStatus, bStatus].every((status) => !status.banned && !status.deleted && !(status.suspendedUntil && status.suspendedUntil > Date.now()))
 }
 
+async function checkLiveAccess(states: ConnectionState[]): Promise<boolean> {
+  let access: Awaited<ReturnType<typeof realtimeAccess>>
+  try { access = await realtimeAccess(states.map(state => state.userId)) }
+  catch {
+    log.error("realtime.eligibility_unavailable")
+    for (const state of states) { cleanUpAccount(state, "socket_closed"); state.ws.close(1011, "Eligibility unavailable") }
+    return false
+  }
+  let allowed = true
+  for (const state of states) {
+    const result = access.get(state.userId) ?? "banned"
+    if (result === "allowed") continue
+    allowed = false
+    send(state.ws, { type: "rejected", reason: result })
+    cleanUpAccount(state, "socket_closed")
+    state.ws.close(1008, "Account eligibility changed")
+  }
+  return allowed
+}
+
 const MAX_REPORT_DETAILS_LENGTH = 500
 const DATA_URL_IMAGE_PATTERN = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i
 
@@ -137,6 +160,7 @@ type ConnectionState = {
   username?: string
   gender?: Gender
   profilePhoto?: string | null
+  recentChat?: ReportChatEntry[]
   countryCode?: string
   roomId: string | null
   /**
@@ -485,6 +509,7 @@ async function tryMatch(state: ConnectionState, expectedGeneration: number) {
   // dispatching. Re-checks everything `reserveMatch` already checked once
   // (that check happened before the Friends-lookup await above, which is
   // itself a real async boundary either side could have gone stale across).
+  await checkLiveAccess([connections.get(room.a), connections.get(room.b)].filter((state): state is ConnectionState => Boolean(state)))
   const aCheck = checkLive(room.a, room.aGeneration)
   const bCheck = checkLive(room.b, room.bGeneration)
   const pairStillOpposite = Boolean(aCheck.gender && bCheck.gender && aCheck.gender !== bCheck.gender)
@@ -613,6 +638,7 @@ function expireMatch(roomId: string, userIds: string[]) {
   for (const userId of userIds) {
     const state = connections.get(userId)
     if (!state || state.roomId !== roomId) continue
+    state.recentChat = []
     state.roomId = null
     send(state.ws, { type: "peer-left", roomId })
   }
@@ -654,6 +680,7 @@ function abortRoomSetup(roomId: string) {
   for (const userId of [setup.aUserId, setup.bUserId]) {
     const s = connections.get(userId)
     if (s && s.roomId === roomId) {
+      s.recentChat = []
       s.roomId = null
       send(s.ws, { type: "room-setup-failed", roomId, source: setup.source })
     }
@@ -678,6 +705,8 @@ function dispatchMatch(
   source: "random" | "friend",
   alreadyFriends: boolean
 ) {
+  aState.recentChat = []
+  bState.recentChat = []
   aState.roomId = roomId
   bState.roomId = roomId
   const deadline = setTimeout(() => abortRoomSetup(roomId), roomSetupTestConfig.deadlineMs)
@@ -712,8 +741,10 @@ function leaveCurrentRoom(state: ConnectionState, notifyPartner: boolean, reason
   clearRoomSetup(roomId)
   const partner = roomPartner(state)
   matchmaker.leaveRoom(state.userId)
+  state.recentChat = []
   state.roomId = null
   if (notifyPartner && partner) {
+    partner.recentChat = []
     partner.roomId = null
     send(partner.ws, { type: "peer-left", roomId })
   }
@@ -944,7 +975,8 @@ export function createRizzunoWebSocketServer() {
         // than trusted — everything downstream (matching, blocks, reports,
         // moderation) uses `userId` from here, never anything the client
         // said about itself directly.
-        const verified = verifyTicket(message.ticket)
+        const verifiedTicket = verifyTicket(message.ticket)
+        const verified = verifiedTicket && (!process.env.SUPPORTED_COUNTRIES || countryAllowed(verifiedTicket.countryCode ?? null)) ? verifiedTicket : null
         if (!verified) {
           log.warn("ws-server: hello rejected — invalid or expired ticket")
           send(ws, { type: "rejected", reason: "invalid_ticket" })
@@ -1142,6 +1174,9 @@ export function createRizzunoWebSocketServer() {
       }
 
       if (connections.get(state.userId) !== state || ws.readyState !== WebSocket.OPEN) return
+      const eligibilityActions = new Set(["find", "skip", "chat", "rtc-ready", "friend-request", "friend-respond", "friend-chat-send", "match-invite", "match-invite-respond", "profile-update"])
+      if (eligibilityActions.has(message.type) && !await checkLiveAccess([state])) return
+      if (connections.get(state.userId) !== state || ws.readyState !== WebSocket.OPEN) return
       const limitedActions = new Set(["friends-refresh", "profile-update", "friend-request", "friend-respond", "unfriend", "friend-block", "unblock", "user-report", "report", "match-invite", "match-invite-respond", "friend-chat-send", "friend-chat-read"])
       if (limitedActions.has(message.type) && await isRateLimited(`ws:${message.type}:${state.userId}`, message.type === "friend-chat-send" ? 60 : 30, 60_000)) {
         send(ws, { type: "error", message: "Too many requests. Please try again shortly." }); return
@@ -1280,6 +1315,9 @@ export function createRizzunoWebSocketServer() {
               break
             }
             const ts = Date.now()
+            const entry = { senderId: state.userId, text, timestamp: ts }
+            state.recentChat = boundedReportChat([...(state.recentChat ?? []), entry], ts)
+            partner.recentChat = boundedReportChat([...(partner.recentChat ?? []), entry], ts)
             send(partner.ws, {
               type: "chat",
               roomId: message.roomId,
@@ -1350,6 +1388,7 @@ export function createRizzunoWebSocketServer() {
               category: message.category,
               details: sanitizeText(message.details, MAX_REPORT_DETAILS_LENGTH) || undefined,
               matchId: message.roomId,
+              chatContext: state.recentChat,
             })
           }
           send(state.ws, { type: "reported" })
@@ -1744,7 +1783,15 @@ export function createRizzunoWebSocketServer() {
   // marked not-yet-answered and pinged again. `unref()` so this interval
   // alone never keeps the process alive past `server.ts`'s own shutdown.
   const HEARTBEAT_INTERVAL_MS = 20_000
+  let checkingAccess = false
   const heartbeatTimer = setInterval(() => {
+    if (!checkingAccess) {
+      checkingAccess = true
+      const current = [...connections.values()]
+      void (async () => {
+        for (let offset=0;offset<current.length;offset+=500) await checkLiveAccess(current.slice(offset,offset+500).filter(state=>connections.get(state.userId)===state))
+      })().catch(() => log.error("realtime.eligibility_check_failed")).finally(() => { checkingAccess=false })
+    }
     for (const connectionState of connections.values()) {
       if (connectionState.ws.readyState !== WebSocket.OPEN) continue // its own close handler already cleans it up
       if (!connectionState.isAlive) {

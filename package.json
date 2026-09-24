@@ -13,7 +13,13 @@
     "images:migrate": "tsx scripts/migrate-legacy-images.mts",
     "test:load": "node --import tsx --experimental-test-module-mocks tests/load/realtime.mts",
     "test:homepage:browser": "node --import tsx tests/browser/runHomepage.mts",
-    "test:homepage:runtime": "node --import tsx --experimental-test-module-mocks tests/browser/runHomepageRuntime.mts"
+    "test:homepage:runtime": "node --import tsx --experimental-test-module-mocks tests/browser/runHomepageRuntime.mts",
+    "launch:check": "tsx scripts/launch-readiness.mts",
+    "retention:purge": "tsx scripts/retention.mts",
+    "retention:inventory": "tsx scripts/storage-inventory.mts",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p tests/browser/tsconfig.json",
+    "security:check": "npm audit --audit-level=high",
+    "test:staging:ws": "node --import tsx tests/load/staging.mts"
   },
   "dependencies": {
     "image-size": "2.0.4",
@@ -31,7 +37,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^24.13.3",
+    "@types/node": "^24.13.6",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",

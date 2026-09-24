@@ -427,4 +427,138 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE billing_subscriptions VALIDATE CONSTRAINT subscription_owner;
     `,
   },
+  {
+    id: "0015_launch_evidence_retention",
+    sql: `
+      CREATE TABLE legal_holds (
+        id TEXT PRIMARY KEY, case_reference TEXT NOT NULL, reason TEXT NOT NULL,
+        created_by TEXT NOT NULL, created_at BIGINT NOT NULL, released_at BIGINT,
+        released_by TEXT, release_reason TEXT
+      );
+      -- A hold conservatively pauses ALL destructive processing. Scope narrowing
+      -- requires a separately reviewed implementation, never guessed predicates.
+      CREATE TABLE held_records (
+        id BIGSERIAL PRIMARY KEY, table_name TEXT NOT NULL, record_id TEXT NOT NULL,
+        snapshot JSONB NOT NULL, created_at BIGINT NOT NULL
+      );
+      CREATE INDEX held_record_lookup ON held_records(table_name,record_id);
+      ALTER TABLE held_records ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON held_records FROM PUBLIC;
+      CREATE FUNCTION preserve_held_record() RETURNS trigger LANGUAGE plpgsql AS $hold$
+      DECLARE previous jsonb;
+      BEGIN
+        LOCK TABLE legal_holds IN SHARE MODE;
+        IF EXISTS(SELECT 1 FROM legal_holds WHERE released_at IS NULL) THEN
+          previous := to_jsonb(OLD);
+          IF TG_OP='UPDATE' AND previous=to_jsonb(NEW) THEN RETURN NEW; END IF;
+          IF NOT EXISTS(SELECT 1 FROM held_records WHERE table_name=TG_TABLE_NAME AND record_id=COALESCE(previous->>'id',previous->>'report_id') AND snapshot=previous) THEN
+            INSERT INTO held_records(table_name,record_id,snapshot,created_at) VALUES(TG_TABLE_NAME,COALESCE(previous->>'id',previous->>'report_id'),previous,extract(epoch from clock_timestamp())*1000);
+          END IF;
+        END IF;
+        IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+      END $hold$;
+      REVOKE ALL ON FUNCTION preserve_held_record() FROM PUBLIC;
+      CREATE TRIGGER preserve_users BEFORE UPDATE OR DELETE ON users FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_posts BEFORE UPDATE OR DELETE ON user_posts FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_messages BEFORE UPDATE OR DELETE ON friend_messages FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_requests BEFORE UPDATE OR DELETE ON friend_requests FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_friends BEFORE UPDATE OR DELETE ON friendships FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_blocks BEFORE UPDATE OR DELETE ON blocks FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_acceptance BEFORE UPDATE OR DELETE ON legal_acceptance FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_reports BEFORE UPDATE OR DELETE ON reports FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_actions BEFORE UPDATE OR DELETE ON moderation_actions FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_checks BEFORE UPDATE OR DELETE ON moderation_events FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_privacy BEFORE UPDATE OR DELETE ON privacy_operations FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      ALTER TABLE reports ADD COLUMN safety_state TEXT NOT NULL DEFAULT 'none' CHECK (safety_state IN ('none','open','closed'));
+      UPDATE reports SET safety_state='open' WHERE category='underage_concern' AND status='pending';
+      CREATE TABLE report_evidence (
+        report_id TEXT PRIMARY KEY REFERENCES reports(id) ON DELETE CASCADE,
+        captured_at BIGINT NOT NULL, chat_context JSONB NOT NULL DEFAULT '[]',
+        history JSONB NOT NULL DEFAULT '{}', screenshot_state TEXT NOT NULL DEFAULT 'not_captured',
+        CHECK (screenshot_state='not_captured')
+      );
+      CREATE TABLE safety_decisions (
+        id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id),
+        actor_id TEXT NOT NULL, decision TEXT NOT NULL, case_reference TEXT NOT NULL,
+        rationale TEXT NOT NULL, external_reference TEXT, created_at BIGINT NOT NULL
+      );
+      CREATE TRIGGER preserve_evidence BEFORE UPDATE OR DELETE ON report_evidence FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_safety BEFORE UPDATE OR DELETE ON safety_decisions FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TABLE image_deletion_queue (
+        reference TEXT PRIMARY KEY, created_at BIGINT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at BIGINT NOT NULL DEFAULT 0
+      );
+      CREATE INDEX image_deletion_due ON image_deletion_queue(next_attempt_at,created_at);
+      CREATE FUNCTION queue_removed_image() RETURNS trigger LANGUAGE plpgsql AS $queue$
+      DECLARE reference text;
+      BEGIN
+        IF TG_TABLE_NAME='users' THEN
+          reference:=OLD.profile_photo;
+          IF TG_OP='UPDATE' AND NEW.profile_photo IS NOT DISTINCT FROM OLD.profile_photo THEN RETURN NEW; END IF;
+        ELSE reference:=OLD.data_url; END IF;
+        IF reference LIKE '/api/media/%' THEN
+          INSERT INTO image_deletion_queue(reference,created_at) VALUES(reference,extract(epoch from clock_timestamp())*1000) ON CONFLICT DO NOTHING;
+        END IF;
+        IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+      END $queue$;
+      REVOKE ALL ON FUNCTION queue_removed_image() FROM PUBLIC;
+      CREATE TRIGGER queue_profile_image AFTER UPDATE OR DELETE ON users FOR EACH ROW EXECUTE FUNCTION queue_removed_image();
+      CREATE TRIGGER queue_post_image AFTER DELETE ON user_posts FOR EACH ROW EXECUTE FUNCTION queue_removed_image();
+      ALTER TABLE privacy_operations ADD COLUMN retained JSONB;
+      CREATE INDEX retention_messages ON friend_messages(created_at);
+      CREATE INDEX retention_requests ON friend_requests(created_at);
+      CREATE INDEX retention_reports ON reports(created_at);
+      CREATE INDEX retention_actions ON moderation_actions(created_at);
+      CREATE INDEX retention_privacy ON privacy_operations(created_at);
+      CREATE INDEX retention_acceptance ON legal_acceptance(accepted_at);
+      ALTER TABLE legal_holds ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE report_evidence ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE safety_decisions ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE image_deletion_queue ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON legal_holds, report_evidence, safety_decisions, image_deletion_queue FROM PUBLIC;
+
+      -- Database enforcement closes races between status checks, erasure and
+      -- product writes from separate web/realtime instances. Owner identity is
+      -- still authenticated in application code; these are consistency guards.
+      CREATE FUNCTION guard_product_identity() RETURNS trigger LANGUAGE plpgsql AS $guard$
+      DECLARE ids text[]; account record;
+      BEGIN
+        IF TG_TABLE_NAME='user_posts' OR TG_TABLE_NAME='billing_subscriptions' THEN ids:=ARRAY[NEW.user_id];
+        ELSIF TG_TABLE_NAME='friendships' THEN ids:=ARRAY[NEW.user_a_id, NEW.user_b_id];
+        ELSE ids:=ARRAY[NEW.sender_id, NEW.recipient_id]; END IF;
+        FOR account IN SELECT id,deleted_at,banned_at,suspended_until FROM users WHERE id=ANY(ids) ORDER BY id FOR UPDATE LOOP
+          IF account.deleted_at IS NOT NULL OR account.banned_at IS NOT NULL OR account.suspended_until > extract(epoch from clock_timestamp())*1000 THEN
+            RAISE EXCEPTION 'account_unavailable' USING ERRCODE='23514';
+          END IF;
+        END LOOP;
+        IF (SELECT count(*) FROM users WHERE id=ANY(ids)) <> cardinality(ids) THEN RAISE EXCEPTION 'invalid_accounts' USING ERRCODE='23514'; END IF;
+        IF cardinality(ids)=2 AND EXISTS(SELECT 1 FROM blocks WHERE (blocker_id=ids[1] AND blocked_id=ids[2]) OR (blocker_id=ids[2] AND blocked_id=ids[1])) THEN
+          RAISE EXCEPTION 'blocked' USING ERRCODE='23514';
+        END IF;
+        IF TG_TABLE_NAME='friend_messages' THEN
+        IF NOT EXISTS(SELECT 1 FROM friendships WHERE id=NEW.friendship_id AND user_a_id=least(NEW.sender_id,NEW.recipient_id) AND user_b_id=greatest(NEW.sender_id,NEW.recipient_id)) THEN
+          RAISE EXCEPTION 'not_friends' USING ERRCODE='23514';
+        END IF;
+        END IF;
+        RETURN NEW;
+      END $guard$;
+      REVOKE ALL ON FUNCTION guard_product_identity() FROM PUBLIC;
+      CREATE TRIGGER guard_posts BEFORE INSERT ON user_posts FOR EACH ROW EXECUTE FUNCTION guard_product_identity();
+      CREATE TRIGGER guard_subscription BEFORE INSERT OR UPDATE ON billing_subscriptions FOR EACH ROW EXECUTE FUNCTION guard_product_identity();
+      CREATE TRIGGER guard_friendship BEFORE INSERT ON friendships FOR EACH ROW EXECUTE FUNCTION guard_product_identity();
+      CREATE TRIGGER guard_request BEFORE INSERT ON friend_requests FOR EACH ROW EXECUTE FUNCTION guard_product_identity();
+      CREATE TRIGGER guard_message BEFORE INSERT ON friend_messages FOR EACH ROW EXECUTE FUNCTION guard_product_identity();
+      CREATE FUNCTION guard_erased_profile() RETURNS trigger LANGUAGE plpgsql AS $guard$
+      BEGIN
+        IF NEW.deleted_at IS NOT NULL AND (NEW.username IS NOT NULL OR NEW.gender IS NOT NULL OR NEW.profile_photo IS NOT NULL OR COALESCE(NEW.bio,'') <> '') THEN
+          RAISE EXCEPTION 'account_deleted' USING ERRCODE='23514';
+        END IF;
+        RETURN NEW;
+      END $guard$;
+      REVOKE ALL ON FUNCTION guard_erased_profile() FROM PUBLIC;
+      CREATE TRIGGER guard_profile BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION guard_erased_profile();
+    `,
+  },
+
 ]

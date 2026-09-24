@@ -1,9 +1,5 @@
-# Operator/legal launch checklist
+# Production legal review
 
-Obtain jurisdiction-specific review; repository text is not a legal opinion. Fill or confirm LEGAL_OPERATOR_NAME, LEGAL_OPERATOR_ADDRESS where required, LEGAL_NOTICE_EMAIL, PRIVACY_CONTACT_EMAIL; LEGAL_GOVERNING_LAW only if chosen; LEGAL_DISPUTE_RESOLUTION only if legally reviewed. No placeholder entity/address/law/arbitration is fabricated.
+The current release gates and configuration requirements are consolidated in [REGIONAL_LAUNCH_CHECKLIST.md](REGIONAL_LAUNCH_CHECKLIST.md), [RETENTION.md](RETENTION.md), and [SAFETY_ESCALATION.md](SAFETY_ESCALATION.md). Complete those records before release. `npm run launch:check` validates supplied declarations; it does not determine legal sufficiency or configure providers.
 
-Confirm controller/operator disclosures; Google authentication and STUN; Supabase Postgres and private image Storage; Vercel web; Railway realtime/Redis; Sightengine general screening; TURN provider identity and processing regions. Publish actual provider/region information before launch. Review subprocessors, cross-border transfers and incident contact procedure.
-
-Confirm Terms, Privacy, Safety, Community Guidelines and age checkbox consistently say 18 or higher local majority, self-attestation rather than verified age. Review stored friend messages, transient call chat, P2P IP exposure, encrypted TURN relay, no call recording by Rizzuno, user ability to capture received media, reports/blocks, moderation limits and account deletion exceptions.
-
-Approve retention periods and legal holds for each category in RETENTION.md. Confirm export/erasure identity verification and physical Storage-object handling. Do not promise absolute deletion or never-overwritten records contrary to legal obligations. Document underage triage, emergency escalation, suspensions, evidence minimization and review before geographic expansion. Specialist illegal-content provider and age-assurance capability remain not configured until independently approved and integrated.
+Terms and Privacy version `2026-09-24` require reacceptance. Guidelines and copyright changes are incorporated through Terms. Prior acceptance rows remain unchanged. Legal identity/contact, deployment disclosures, supported countries, retention approval and U.S. DMCA registration confirmation are required production inputs. Optional law/dispute clauses render only with explicit review. No actual registration, reviewed jurisdiction, provider region or operator identity is asserted by the repository.

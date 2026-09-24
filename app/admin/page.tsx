@@ -1,3 +1,5 @@
+import Link from "next/link"
+import { severeContentCapability } from "@/lib/imageModeration/severeContent"
 import { notFound } from "next/navigation"
 import { auth } from "@/auth"
 import { isRateLimited } from "@/lib/apiRateLimit"
@@ -25,11 +27,12 @@ export default async function AdminPage() {
 
   if (!session?.user?.id || await isRateLimited(`admin-read:${session.user.id}`, 60, 60_000)) notFound()
 
-  const pending = await listReports("pending")
-  const reviewed = (await listReports("reviewed")).slice(0, 20)
+  const pending = (await listReports("pending")).filter(report=>report.reported_id!==session.user.id)
+  const reviewed = (await listReports("reviewed")).filter(report=>report.reported_id!==session.user.id).slice(0, 20)
 
   return (
     <main className="mx-auto min-h-full w-full max-w-3xl bg-background px-6 py-16 text-foreground">
+      <p className="text-sm">Specialist illegal-content detection: {severeContentCapability().state}. Underage concerns require a trained safety reviewer. Follow the operator safety escalation runbook.</p>
       <h1 className="text-[24px] font-bold tracking-tight">Moderation queue</h1>
       <p className="mt-1 text-[13px] text-muted">{pending.length} pending report(s).</p>
 
@@ -47,6 +50,7 @@ export default async function AdminPage() {
             </div>
             {report.details && <p className="mt-1 text-[13px] text-muted">&ldquo;{report.details}&rdquo;</p>}
 
+            <Link className="underline text-sm" href={`/admin/safety/${report.id}`}>Restricted safety case and evidence</Link>
             <form action={resolveReportAction} className="mt-3 flex flex-wrap items-center gap-2">
               <input type="hidden" name="reportId" value={report.id} />
               <select name="action" className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[13px]" defaultValue="no_action">
