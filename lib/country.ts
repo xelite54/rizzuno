@@ -20,3 +20,19 @@ export function requestCountry(request: Request): string | null {
   // browser payload or arbitrary forwarded header on a standalone server.
   return process.env.VERCEL === "1" ? normalizeCountry(request.headers.get("x-vercel-ip-country")) : null
 }
+
+const usRegions = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" "))
+
+export function normalizeUsRegion(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const code = value.trim().toUpperCase()
+  return usRegions.has(code) ? code : null
+}
+
+/** Vercel derives this ISO 3166-2 subdivision from the request IP. Browser
+ * fields and forwarded location values are never accepted. A proxy placed in
+ * front of Vercel must undergo a separate trust review before state gating. */
+export function requestUsRegion(request: Request): string | null {
+  if (process.env.VERCEL !== "1" || requestCountry(request) !== "US") return null
+  return normalizeUsRegion(request.headers.get("x-vercel-ip-country-region"))
+}

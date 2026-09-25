@@ -24,6 +24,7 @@ test("report snapshots are deduplicated, server-linked and urgent investigations
   await pg.exec("INSERT INTO users(id,created_at) VALUES('reporter',0),('target',0)")
   const input={reporterId:"reporter",reportedId:"target",category:"underage_concern",matchId:"room-one",chatContext:[{senderId:"target",text:"relevant",timestamp:Date.now()},{senderId:"unrelated",text:"excluded",timestamp:Date.now()}]}
   const id=await db.fileReport(input)
+  assert.equal((await pg.query("SELECT id FROM cybertipline_cases WHERE report_id=$1",[id])).rows.length,0,"ordinary underage reports never create CyberTipline cases")
   assert.equal(await db.fileReport(input),id)
   const evidence=await db.getReportEvidence(id,"reviewer")
   assert.equal((evidence!.chat_context as unknown[]).length,1)
@@ -39,6 +40,15 @@ test("report snapshots are deduplicated, server-linked and urgent investigations
   assert.equal((await db.getUserStatus("target")).suspendedUntil,null)
   assert.equal((await db.listUserAppeals("target"))[0].status,"overturned")
   await db.recordSafetyDecision({reportId:id,actorId:"reviewer",decision:"investigation_closed",caseReference:"case-123",rationale:"Reviewed"})
+  const submittedAt=Date.now()-1000; const expires=submittedAt+365*86_400_000
+  await db.recordCyberTiplineCase({reportId:id,actorId:"reviewer",caseReference:"cyber-case-123",decision:"manual_report_submitted",rationale:"Operator-entered test decision",submittedAt,receiptReference:"manual-receipt",preservationExpiresAt:expires})
+  const cyber=await db.getCyberTiplineCase(id,"reviewer-two")
+  assert.equal(cyber?.receiptReference,"manual-receipt")
+  assert.equal(cyber?.preservationExpiresAt,expires)
+  await assert.rejects(db.recordCyberTiplineCase({reportId:id,actorId:"reviewer",caseReference:"cyber-case-123",decision:"not_required",rationale:"attempted early release"}),/preservation/)
+  await pg.query("UPDATE reports SET created_at=0 WHERE id=$1",[id]); await pg.query("UPDATE report_evidence SET captured_at=0 WHERE report_id=$1",[id]); await pg.query("UPDATE safety_decisions SET created_at=0 WHERE report_id=$1",[id]); await pg.query("UPDATE moderation_actions SET created_at=0 WHERE report_id=$1",[id])
+  await db.purgeRetentionBatch(100)
+  assert.equal((await pg.query("SELECT report_id FROM report_evidence WHERE report_id=$1",[id])).rows.length,1,"active CyberTipline preservation overrides ordinary report-evidence expiry")
   assert.ok(!(await db.listReports("pending")).some(row=>row.id===id))
 })
 test("recent-match reports derive the target from the private server ledger",async()=>{

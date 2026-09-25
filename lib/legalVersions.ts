@@ -169,9 +169,12 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // Bumped 2026-09-24b: added server-authoritative recent-match reporting,
   // moderation appeals, standardized temporary restriction language, and
   // the corresponding data-inventory/retention/export disclosures.
-  { document: "terms", version: "2026-09-24b" },
-  { document: "privacy", version: "2026-09-24b" },
+  // Bumped 2026-09-25: moved the self-attested age check before OAuth,
+  // disclosed the transient DOB processing/state gate, and added the manual
+  // CyberTipline decision and scoped preservation workflow.
+  { document: "terms", version: "2026-09-25" },
+  { document: "privacy", version: "2026-09-25" },
 ]
 
 // Guidelines are incorporated into Terms; bump Terms whenever these versions change materially.
-export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-24b", safety: "2026-09-24b", appeals: "2026-09-24", copyright: "2026-09-24b" } as const
+export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-25", safety: "2026-09-25", appeals: "2026-09-24", copyright: "2026-09-24b" } as const

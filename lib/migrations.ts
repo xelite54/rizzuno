@@ -634,5 +634,50 @@ export const MIGRATIONS: Migration[] = [
       REVOKE ALL ON match_sessions, appeals FROM PUBLIC;
     `,
   },
+  {
+    // Operator-entered U.S. child-safety reporting decisions. No report or
+    // preservation row is created merely because a user selected the
+    // underage category, and the application never submits to CyberTipline.
+    id: "0017_cybertipline_preservation",
+    sql: `
+      CREATE TABLE cybertipline_cases (
+        id TEXT PRIMARY KEY,
+        report_id TEXT NOT NULL UNIQUE REFERENCES reports(id),
+        case_reference TEXT NOT NULL UNIQUE,
+        reviewer_id TEXT NOT NULL,
+        decision TEXT NOT NULL CHECK (decision IN ('not_required','manual_report_required','manual_report_submitted')),
+        rationale TEXT NOT NULL,
+        decided_at BIGINT NOT NULL,
+        submitted_at BIGINT,
+        receipt_reference TEXT,
+        preservation_status TEXT NOT NULL CHECK (preservation_status IN ('not_started','active','expired','released')),
+        preservation_expires_at BIGINT,
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL,
+        CHECK (
+          (decision <> 'manual_report_submitted' AND submitted_at IS NULL AND receipt_reference IS NULL AND preservation_status='not_started' AND preservation_expires_at IS NULL)
+          OR
+          (decision = 'manual_report_submitted' AND submitted_at IS NOT NULL AND receipt_reference IS NOT NULL AND length(receipt_reference) BETWEEN 1 AND 500 AND preservation_status='active' AND preservation_expires_at >= submitted_at + 31536000000)
+        )
+      );
+      CREATE INDEX cybertipline_preservation_due ON cybertipline_cases(preservation_expires_at) WHERE preservation_status='active';
+      CREATE INDEX cybertipline_case_updated ON cybertipline_cases(updated_at);
+      CREATE FUNCTION guard_cybertipline_preservation() RETURNS trigger LANGUAGE plpgsql AS $preservation$
+      BEGIN
+        IF OLD.preservation_status='active' AND OLD.preservation_expires_at>extract(epoch from clock_timestamp())*1000
+          AND (NEW.preservation_status<>'active' OR NEW.preservation_expires_at<OLD.preservation_expires_at) THEN
+          RAISE EXCEPTION 'active_cybertipline_preservation' USING ERRCODE='23514';
+        END IF;
+        RETURN NEW;
+      END $preservation$;
+      REVOKE ALL ON FUNCTION guard_cybertipline_preservation() FROM PUBLIC;
+      CREATE TRIGGER guard_cybertipline_preservation BEFORE UPDATE ON cybertipline_cases
+        FOR EACH ROW EXECUTE FUNCTION guard_cybertipline_preservation();
+      CREATE TRIGGER preserve_cybertipline_cases BEFORE UPDATE OR DELETE ON cybertipline_cases
+        FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      ALTER TABLE cybertipline_cases ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON cybertipline_cases FROM PUBLIC;
+    `,
+  },
 
 ]

@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Rizzuno's rules for how to treat the people you're matched with, and how reporting and blocking work.",
 }
 
-const LAST_UPDATED = "September 24, 2026"
+const LAST_UPDATED = "September 25, 2026"
 
 export default function CommunityGuidelinesPage() {
   return (

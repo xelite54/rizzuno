@@ -1749,16 +1749,18 @@ export async function purgeRetentionBatch(batchSize = 100) {
     if ((await client.query('SELECT 1 FROM legal_holds WHERE released_at IS NULL LIMIT 1')).rowCount) {
       await client.query('COMMIT'); return { held: true, counts }
     }
+    await client.query("UPDATE cybertipline_cases SET preservation_status='expired',updated_at=$1 WHERE preservation_status='active' AND preservation_expires_at<=$1",[now()])
     // Referenced replies, report/action links and safety decisions delay deletion
     // until dependent records expire; no cascade silently bypasses their policy.
     const specs = [
       ['friendMessages','friend_messages','created_at', "NOT EXISTS(SELECT 1 FROM friend_messages reply WHERE reply.reply_to_id=t.id)"],
       ['friendRequests','friend_requests','created_at','true'],
       ['appeals','appeals','submitted_at', "status IN ('upheld','overturned','dismissed')"],
-      ['moderationActions','moderation_actions','created_at','NOT EXISTS(SELECT 1 FROM appeals a WHERE a.enforcement_id=t.id)'],
-      ['reportEvidence','report_evidence','captured_at', "evidence_key IS NULL AND EXISTS(SELECT 1 FROM reports r WHERE r.id=t.report_id AND r.status='reviewed' AND r.safety_state<>'open')"],
-      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM report_evidence e WHERE e.report_id=t.id)"],
+      ['moderationActions','moderation_actions','created_at',"NOT EXISTS(SELECT 1 FROM appeals a WHERE a.enforcement_id=t.id) AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.report_id AND c.preservation_status='active' AND c.preservation_expires_at>extract(epoch from clock_timestamp())*1000)"],
+      ['reportEvidence','report_evidence','captured_at', "evidence_key IS NULL AND EXISTS(SELECT 1 FROM reports r WHERE r.id=t.report_id AND r.status='reviewed' AND r.safety_state<>'open') AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.report_id AND c.preservation_status='active' AND c.preservation_expires_at>extract(epoch from clock_timestamp())*1000)"],
+      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM report_evidence e WHERE e.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.id)"],
       ['recentMatches','match_sessions','started_at', "report_eligible_until<extract(epoch from clock_timestamp())*1000 AND NOT EXISTS(SELECT 1 FROM reports r WHERE r.match_id=t.id)"],
+      ['cybertiplineCases','cybertipline_cases','updated_at', "preservation_status<>'active' OR preservation_expires_at<=extract(epoch from clock_timestamp())*1000"],
       ['imageChecks','moderation_events','created_at','true'],
       ['legalAcceptance','legal_acceptance','accepted_at', "EXISTS(SELECT 1 FROM users u WHERE u.id=t.user_id AND u.deleted_at IS NOT NULL)"],
       ['privacyOperations','privacy_operations','created_at','true'],
@@ -1770,7 +1772,7 @@ export async function purgeRetentionBatch(batchSize = 100) {
       const cutoff = now() - rule.days! * 86_400_000
       if (category === 'reports') {
         // Decisions share the report policy, but unresolved investigations stay.
-        await client.query("DELETE FROM safety_decisions WHERE id IN (SELECT d.id FROM safety_decisions d JOIN reports r ON r.id=d.report_id WHERE r.status='reviewed' AND r.safety_state<>'open' AND d.created_at<$1 AND r.created_at<$1 ORDER BY d.created_at LIMIT $2)", [cutoff,batchSize])
+        await client.query("DELETE FROM safety_decisions WHERE id IN (SELECT d.id FROM safety_decisions d JOIN reports r ON r.id=d.report_id WHERE r.status='reviewed' AND r.safety_state<>'open' AND d.created_at<$1 AND r.created_at<$1 AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=r.id AND c.preservation_status='active' AND c.preservation_expires_at>extract(epoch from clock_timestamp())*1000) ORDER BY d.created_at LIMIT $2)", [cutoff,batchSize])
       }
       const key = category === 'reportEvidence' ? 'report_id' : 'id'
       const result = await client.query(`DELETE FROM ${table} WHERE ${key} IN (SELECT t.${key} FROM ${table} t WHERE t.${timestamp}<$1 AND ${condition} ORDER BY t.${timestamp} LIMIT $2 FOR UPDATE SKIP LOCKED)`, [cutoff,batchSize])
@@ -1803,6 +1805,59 @@ export async function recordSafetyDecision(input: { reportId: string; actorId: s
     await client.query('COMMIT')
   } catch (error) { await client.query('ROLLBACK'); throw error }
   finally { client.release() }
+}
+
+export type CyberTiplineCase = {
+  id: string; reportId: string; caseReference: string; reviewerId: string
+  decision: "not_required" | "manual_report_required" | "manual_report_submitted"
+  rationale: string; decidedAt: number; submittedAt: number | null
+  receiptReference: string | null; preservationStatus: "not_started" | "active" | "expired" | "released"
+  preservationExpiresAt: number | null; updatedAt: number
+}
+
+function mapCyberTiplineCase(row: Record<string, unknown>): CyberTiplineCase {
+  return { id:String(row.id),reportId:String(row.report_id),caseReference:String(row.case_reference),reviewerId:String(row.reviewer_id),
+    decision:row.decision as CyberTiplineCase["decision"],rationale:String(row.rationale),decidedAt:Number(row.decided_at),
+    submittedAt:row.submitted_at===null?null:Number(row.submitted_at),receiptReference:row.receipt_reference===null?null:String(row.receipt_reference),
+    preservationStatus:row.preservation_status as CyberTiplineCase["preservationStatus"],
+    preservationExpiresAt:row.preservation_expires_at===null?null:Number(row.preservation_expires_at),updatedAt:Number(row.updated_at) }
+}
+
+/** Restricted lookup. The access itself is appended to the safety audit log. */
+export async function getCyberTiplineCase(reportId: string, actorId: string): Promise<CyberTiplineCase | null> {
+  const result = await q<Record<string, unknown>>(`SELECT c.* FROM cybertipline_cases c JOIN reports r ON r.id=c.report_id
+    WHERE c.report_id=$1 AND r.reported_id<>$2`,[reportId,actorId])
+  if (!result.rowCount) return null
+  await q('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    [randomUUID(),reportId,actorId,'cybertipline_case_access',String(result.rows[0].case_reference),'Restricted CyberTipline case view',now()])
+  return mapCyberTiplineCase(result.rows[0])
+}
+
+/** Records a human/operator decision only. This function neither determines
+ * legal coverage nor transmits anything to NCMEC. A submitted report requires
+ * an operator-entered receipt and at least one year of scoped preservation. */
+export async function recordCyberTiplineCase(input: { reportId:string; actorId:string; caseReference:string; decision:CyberTiplineCase["decision"]; rationale:string; submittedAt?:number; receiptReference?:string; preservationExpiresAt?:number }) {
+  const stamp=now(); const submitted=input.submittedAt ?? null; const expires=input.preservationExpiresAt ?? null; const receipt=input.receiptReference?.trim() || null
+  if (input.decision==='manual_report_submitted') {
+    if (!Number.isSafeInteger(submitted)||submitted!>stamp+60_000||submitted!<0||!receipt||receipt.length>500||!Number.isSafeInteger(expires)||expires!<submitted!+365*86_400_000) throw new Error('invalid_cybertipline_submission')
+  } else if (submitted!==null||receipt!==null||expires!==null) throw new Error('submission_fields_not_allowed')
+  await ensureMigrated(); const client=await requirePool().connect()
+  try {
+    await client.query('BEGIN')
+    const report=await client.query('SELECT reported_id FROM reports WHERE id=$1 FOR UPDATE',[input.reportId])
+    if(!report.rowCount)throw new Error('report_not_found')
+    if(report.rows[0].reported_id===input.actorId)throw new Error('conflicted_reviewer')
+    const existing=await client.query('SELECT id,created_at FROM cybertipline_cases WHERE report_id=$1 FOR UPDATE',[input.reportId])
+    const id=existing.rows[0]?.id ?? randomUUID(); const created=existing.rows[0]?.created_at ?? stamp
+    await client.query(`INSERT INTO cybertipline_cases(id,report_id,case_reference,reviewer_id,decision,rationale,decided_at,submitted_at,receipt_reference,preservation_status,preservation_expires_at,created_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$7)
+      ON CONFLICT(report_id) DO UPDATE SET case_reference=EXCLUDED.case_reference,reviewer_id=EXCLUDED.reviewer_id,decision=EXCLUDED.decision,rationale=EXCLUDED.rationale,decided_at=EXCLUDED.decided_at,submitted_at=EXCLUDED.submitted_at,receipt_reference=EXCLUDED.receipt_reference,preservation_status=EXCLUDED.preservation_status,preservation_expires_at=EXCLUDED.preservation_expires_at,updated_at=EXCLUDED.updated_at`,
+      [id,input.reportId,input.caseReference,input.actorId,input.decision,input.rationale.trim(),stamp,submitted,receipt,input.decision==='manual_report_submitted'?'active':'not_started',expires,created])
+    await client.query('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,external_reference,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+      [randomUUID(),input.reportId,input.actorId,`cybertipline_${input.decision}`,input.caseReference,input.rationale.trim(),receipt,stamp])
+    await client.query('COMMIT')
+    return id
+  } catch(error){await client.query('ROLLBACK').catch(()=>{});throw error} finally{client.release()}
 }
 export async function setLegalHold(actorId: string, caseReference: string, reason: string, releaseId?: string) {
   if (releaseId) {

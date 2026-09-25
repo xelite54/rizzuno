@@ -1,4 +1,4 @@
-import { normalizeCountry } from "./country"
+import { normalizeCountry, normalizeUsRegion } from "./country"
 import { retentionPolicy } from "./retention"
 import { recentMatchReportWindowMs } from "./recentMatches"
 
@@ -11,8 +11,22 @@ export function countryAllowed(country: string | null, env: Record<string, strin
   if (env.NODE_ENV !== "production" && !env.SUPPORTED_COUNTRIES) return true
   return country !== null && supportedCountries(env).includes(country)
 }
+export function supportedUsRegions(env: Record<string, string | undefined> = process.env): string[] {
+  const raw = env.SUPPORTED_US_REGIONS?.trim()
+  if (!raw) return []
+  const values = raw.split(",").map(value => value.trim())
+  if (values.some(value => !normalizeUsRegion(value) || value !== value.toUpperCase())) throw new Error("Invalid configuration: SUPPORTED_US_REGIONS")
+  return [...new Set(values)]
+}
+export function locationAllowed(country: string | null, usRegion: string | null, env: Record<string, string | undefined> = process.env) {
+  if (!countryAllowed(country, env)) return false
+  const regions = supportedUsRegions(env)
+  if (country !== "US" || !regions.length) return true
+  return usRegion !== null && regions.includes(usRegion)
+}
 /** Run for both production services and before release. Never prints secret values. */
 export function validateLaunchReadiness(env: Record<string, string | undefined> = process.env) {
+  const compileOnlyFixture = env.RIZZUNO_CI_COMPILE_ONLY === "true" && env.CI === "true" && env.LEGAL_OPERATOR_NAME === "CI compile fixture — not an operator"
   for (const key of ["LEGAL_OPERATOR_NAME", "LEGAL_OPERATOR_ADDRESS", "LEGAL_DEPLOYMENT_DISCLOSURE", "LAUNCH_REVIEW_REFERENCE", "ADMIN_EMAILS", "SAFETY_REVIEWER_EMAILS"]) {
     if (!env[key]?.trim()) throw new Error(`Missing launch configuration: ${key}`)
   }
@@ -24,9 +38,14 @@ export function validateLaunchReadiness(env: Record<string, string | undefined> 
   if ((env.LEGAL_GOVERNING_LAW || env.LEGAL_DISPUTE_RESOLUTION) && env.LEGAL_TERMS_REVIEWED !== "true") throw new Error("Optional dispute terms require legal review")
   const countries = supportedCountries(env)
   if (countries.includes("US")) {
-    if (env.DMCA_AGENT_REGISTERED !== "true") throw new Error("US launch requires external DMCA agent registration confirmation")
+    if (env.DMCA_AGENT_REGISTERED !== "true" && !compileOnlyFixture) throw new Error("US launch requires external DMCA agent registration confirmation")
     for (const key of ["DMCA_AGENT_NAME", "DMCA_AGENT_ADDRESS", "DMCA_AGENT_PHONE", "DMCA_REGISTRATION_REFERENCE"]) if (!env[key]?.trim()) throw new Error(`Missing launch configuration: ${key}`)
+    for (const key of ["PROVIDER_REGION_DISCLOSURE_REVIEWED", "TRAINED_SAFETY_REVIEWERS_CONFIRMED", "CYBERTIPLINE_PROCEDURE_APPROVED", "BREACH_RESPONSE_APPROVED", "US_STATE_LAUNCH_REVIEW_APPROVED"]) {
+      if (env[key] !== "true" && !compileOnlyFixture) throw new Error(`US launch operator approval required: ${key}`)
+    }
   }
+  const regions = supportedUsRegions(env)
+  if (regions.length && !countries.includes("US")) throw new Error("SUPPORTED_US_REGIONS requires US in SUPPORTED_COUNTRIES")
   if (env.LAUNCH_GEO_SOURCE !== "vercel") throw new Error("Configure reviewed trusted geolocation: LAUNCH_GEO_SOURCE=vercel")
   recentMatchReportWindowMs(env)
   retentionPolicy(env)

@@ -1,15 +1,20 @@
-import { countryAllowed } from "./lib/launchReadiness"
-import { requestCountry } from "./lib/country"
+import { locationAllowed } from "./lib/launchReadiness"
+import { requestCountry, requestUsRegion } from "./lib/country"
 import { NextResponse, type NextRequest } from "next/server"
 import { contentSecurityPolicy } from "./lib/securityHeaders"
 import { csrfGuard } from "./lib/requestSecurity"
+import { AGE_ELIGIBILITY_COOKIE, readEligibilityToken } from "./lib/preAuthEligibility"
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
   // Public legal/contact pages remain reachable; product and sign-in fail closed.
   const publicLegal = ["/terms", "/privacy", "/community-guidelines", "/safety", "/copyright", "/appeals", "/reports/recent"]
-  if (!publicLegal.includes(path) && path !== "/api/billing/webhook" && !path.startsWith("/_next/") && !countryAllowed(requestCountry(request))) {
+  if (!publicLegal.includes(path) && path !== "/api/billing/webhook" && !path.startsWith("/_next/") && !locationAllowed(requestCountry(request), requestUsRegion(request))) {
     return new NextResponse("Rizzuno is not available in your region.", { status: 451, headers: { "Cache-Control": "no-store" } })
+  }
+  if ((path.startsWith("/api/auth/signin") || path.startsWith("/api/auth/callback/")) &&
+      (await readEligibilityToken(request.cookies.get(AGE_ELIGIBILITY_COOKIE)?.value))?.eligible !== true) {
+    return NextResponse.json({ error: "age_eligibility_required" }, { status: 403, headers: { "Cache-Control": "no-store" } })
   }
   // Auth.js owns OAuth/CSRF; Stripe authenticates the raw body signature.
   if (path.startsWith("/api/auth/") || path === "/api/billing/webhook") return NextResponse.next()

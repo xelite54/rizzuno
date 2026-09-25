@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Practical safety guidance for meeting strangers on live video through Rizzuno.",
 }
 
-const LAST_UPDATED = "September 24, 2026"
+const LAST_UPDATED = "September 25, 2026"
 
 export default function SafetyPage() {
   return (
@@ -26,7 +26,7 @@ export default function SafetyPage() {
           <h2 className="text-[16px] font-semibold">You&apos;re talking to a stranger</h2>
           <p className="mt-2 text-muted">
             Random matches may be strangers or people you have met before. Mutually accepted friend invitations are separate from random matching. Every Rizzuno
-            user is required to affirm that they meet Rizzuno&apos;s age requirement before matching, and is
+            user is required to complete a self-attested eligibility check before Google Sign-In and affirm the requirement again before matching, and is
             signed in with a Google account — that&apos;s it. Rizzuno does not independently verify each
             user&apos;s actual age, identity, intentions, or honesty beyond that affirmation, so you should not
             assume another user&apos;s age or identity has been verified, and Rizzuno can&apos;t guarantee any of
@@ -97,8 +97,8 @@ export default function SafetyPage() {
 
         <section>
           <h2 className="text-[16px] font-semibold">Underage concerns</h2>
-          <p className="mt-2 text-muted">Rizzuno is only for people who are at least 18, or the higher age of majority where they live. The age gate is self-attestation; Google Sign-In does not verify age. Report a suspected underage user immediately and leave the interaction.</p>
-          <p className="mt-2 text-muted">The documented operator flow is: urgent flag → temporary restriction when credible and appropriate → trained safety review with minimal evidence and a case reference → permanent removal if confirmed → an <Link href="/appeals" className="underline">appeal</Link> for an incorrectly flagged user. Legal holds and external-reporting decisions are recorded where applicable. Generic nudity scores are never treated as CSAM detection.</p>
+          <p className="mt-2 text-muted">Rizzuno is only for people who are at least 18, or the higher age of majority where they live. The pre-Google age gate uses the date entered only to calculate eligibility and does not store the exact date. It remains self-attestation; Google Sign-In does not verify age. Report a suspected underage user immediately and leave the interaction.</p>
+          <p className="mt-2 text-muted">The documented operator flow is: urgent flag → temporary restriction when credible and appropriate → trained safety review with minimal evidence and a case reference → permanent removal if confirmed → an <Link href="/appeals" className="underline">appeal</Link> for an incorrectly flagged user. An ordinary underage report is not sent to NCMEC. Authorized staff can separately record a manual CyberTipline decision and receipt; Rizzuno has no automatic NCMEC submission or claimed partnership. A recorded manual submission starts restricted preservation of existing report context without creating recordings or screenshots. Generic nudity scores are never treated as CSAM detection.</p>
         </section>
 
         <section>

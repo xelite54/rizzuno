@@ -1,11 +1,11 @@
-import { countryAllowed } from "@/lib/launchReadiness"
+import { locationAllowed } from "@/lib/launchReadiness"
 import { withHttpMetrics } from "@/lib/httpMetrics"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { mintTicket } from "@/lib/realtimeTicket"
 import { getUserStatus, hasAcceptedCurrent } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
-import { requestCountry } from "@/lib/country"
+import { requestCountry, requestUsRegion } from "@/lib/country"
 
 /**
  * The only bridge between an authenticated Auth.js session and the
@@ -22,7 +22,7 @@ import { requestCountry } from "@/lib/country"
  * before a ban took effect.
  */
 async function handleGET(request: Request) {
-  if (!countryAllowed(requestCountry(request))) return NextResponse.json({ error: "region_unavailable" }, { status: 451 })
+  if (!locationAllowed(requestCountry(request), requestUsRegion(request))) return NextResponse.json({ error: "region_unavailable" }, { status: 451 })
   const session = await auth()
   const userId = session?.user?.id
   if (!userId) {

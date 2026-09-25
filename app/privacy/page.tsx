@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "September 24, 2026"
+const LAST_UPDATED = "September 25, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
@@ -119,7 +119,7 @@ export default function PrivacyPolicyPage() {
             <h3 className="mt-3 font-semibold">Social</h3>
             <p className="mt-1 text-muted">Friend requests, friendships, persisted friend messages and posts are stored. Friend messages include sender/recipient references, friendship and retry-deduplication IDs, creation time, optional read time, and an optional reply reference.</p>
             <h3 className="mt-3 font-semibold">Safety and moderation</h3>
-            <p className="mt-1 text-muted">Reports, restricted report evidence, safety decision logs, legal holds and held snapshots, moderation actions, image-check metadata, and appeals are stored. An appeal contains its ID, affected account, enforcement reference, the user&apos;s reason and optional reference, submission time, status, reviewer, user-facing resolution and resolution time. Reporter identities, internal notes, and report evidence are not exposed through the user appeal view.</p>
+            <p className="mt-1 text-muted">Reports, restricted report evidence, safety decision logs, legal holds and held snapshots, moderation actions, image-check metadata, and appeals are stored. When authorized staff separately open a U.S. CyberTipline case, its restricted record stores the internal case/report references, reviewer, manual decision and rationale, decision time, and—only after staff record a manual submission—the submission time, receipt/reference, preservation status and expiration. An ordinary underage report does not create this record or automatically submit anything. An appeal contains its ID, affected account, enforcement reference, the user&apos;s reason and optional reference, submission time, status, reviewer, user-facing resolution and resolution time. Reporter identities, internal notes, and report evidence are not exposed through the user appeal view.</p>
             <h3 className="mt-3 font-semibold">Technical and security</h3>
             <p className="mt-1 text-muted">Rate-limit keys are hashed before storage. The application processes timestamps, signed realtime tickets, room/signaling state, security events, query/pool metrics, and the network/browser information described in Section 6. Hosting and network providers may process IP addresses and request/device data in their controlled logs.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Friend messages include text, sender and recipient account references, friendship ID, client message ID for retry deduplication, creation time, optional read time, and an optional reference to an earlier message in that friendship. Moderator records include reasons, responsible moderator, relevant report and timestamps. Image checks retain a hash, category scores, provider/reference, policy/model versions and decision metadata, without an additional image copy.</p>
@@ -155,7 +155,7 @@ export default function PrivacyPolicyPage() {
               service, these providers may automatically process technical information as a normal part of
               operating that infrastructure — for example, your IP address, request timestamps, and basic
               browser/device information may appear in server or platform logs. Rizzuno&apos;s own application code
-              displays an approximate country/region flag to your match and enforces the supported-country allowlist using Vercel&apos;s IP-country lookup.
+              displays an approximate country/region flag to your match and enforces the supported-country allowlist using Vercel&apos;s IP-country lookup. If the operator enables the optional U.S. state gate, Rizzuno also processes Vercel&apos;s IP-derived country-region code to allow or deny access; it is not taken from a browser location field and is not shown to matches.
               Only the country code is included in the short-lived signed connection ticket and match identity;
               this feature does not save the IP address or country in your profile. There is no manual country-preference control and Rizzuno does not request GPS or precise location. VPNs may change the country shown.
               Rizzuno does not deliberately log or store your IP address in its database, but we do not claim our
@@ -206,6 +206,7 @@ export default function PrivacyPolicyPage() {
 
           <section id="cookies">
             <h2 className="text-[16px] font-semibold">9. Cookies &amp; browser storage</h2>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Before OAuth, a signed, httpOnly eligibility cookie stores only whether the check passed, when it was completed, and the gate version for up to 24 hours. It does not contain the date of birth entered on the screen and cannot be read by client-side JavaScript.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Auth.js uses secure authentication/session and OAuth security cookies. The session is HTTP-only; production cookies use HTTPS. The configured session lifetime is seven days, subject to session refresh and sign-out. Cookies protect sign-in and do not serve advertising.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Browser local storage caches profile fields, friends/requests, blocked accounts, recent match history (up to 50), and a cosmetic fallback handle. These caches can persist after a connection ends and are keyed by account where applicable; they are not the authority for server-side blocks or profile data. Clearing site storage removes browser copies, not Postgres records. The application also uses navigation state to return to profile panels.</p>
 
@@ -241,7 +242,7 @@ export default function PrivacyPolicyPage() {
           <section id="retention">
             <h2 className="text-[16px] font-semibold">12. Data retention</h2>
             <p className="mt-3 text-muted">Profile fields, including gender, remain until changed or erased. Posts remain until removed or displaced by the 20-post limit. Friendships end when removed or blocked. Blocks can be undone by their creator and are removed during approved account erasure.</p>
-            <p className="mt-3 text-muted">Operator-approved retention policies separately cover friend messages, friend requests, recent-session history, reports, report evidence, moderation actions, appeals, image-check metadata, legal acceptances, privacy-operation logs, security/infrastructure logs and account tombstones. Automatic deletion runs in bounded batches where approved; records needing individual review remain restricted until that review. Dependencies, open appeals, report eligibility, and active investigations can delay deletion. Contact us for the policy applicable to a record.</p>
+            <p className="mt-3 text-muted">Operator-approved retention policies separately cover friend messages, friend requests, recent-session history, reports, report evidence, moderation actions, appeals, CyberTipline case records, image-check metadata, legal acceptances, privacy-operation logs, security/infrastructure logs and account tombstones. Automatic deletion runs in bounded batches where approved; records needing individual review remain restricted until that review. Dependencies, open appeals, report eligibility, and active investigations can delay deletion. A staff-recorded manual CyberTipline submission preserves the associated existing report context for at least one year from the recorded submission time; a longer active legal hold continues to override deletion. This mechanism does not record a call, take a screenshot, monitor live video, or create a video archive. Contact us for the policy applicable to a record.</p>
             <p className="mt-3 text-muted">Legal holds pause erasure and retention purges; product edits/removals preserve restricted pre-change records while a hold applies. Prior legal acceptances are preserved across version changes; automatic expiry of acceptance history applies only to erased accounts. A restricted deleted-identity record prevents reentry and requires separate periodic review rather than automatic deletion.</p>
             <p className="mt-3 text-muted">Approved erasure removes product data and queues associated private image objects for deletion with retries. Orphaned images are inventoried separately and expire under the approved Storage policy. Infrastructure logs and backup expiry follow separately approved provider settings; database deletion does not erase backups immediately. Restores must reapply erasures before serving traffic.</p>
           </section>
@@ -267,6 +268,12 @@ export default function PrivacyPolicyPage() {
               if that&apos;s older, whichever is higher — and is not directed at children.
             </p>
             <p className="mt-2 text-muted">
+              Before Google OAuth starts, the eligibility screen processes the date of birth you enter to determine
+              whether you are at least 18 and asks you to affirm any higher applicable age of majority. Rizzuno does
+              not store that exact date. It stores only the eligibility result, check time and gate version in a
+              signed, httpOnly cookie for up to 24 hours. An ineligible result prevents the Google OAuth flow.
+            </p>
+            <p className="mt-2 text-muted">
               Rizzuno records an account&apos;s affirmation that the user meets this age requirement, together with
               the applicable Terms/Privacy version and the time of acceptance, through the legal-acceptance system
               described in Section 3. This age declaration comes from the user, not from Google: Google Sign-In
@@ -277,9 +284,10 @@ export default function PrivacyPolicyPage() {
               represent that it does, and does not guarantee the real age of any other user.
             </p>
             <p className="mt-2 text-muted">
-              Rizzuno does not knowingly collect information from children. If Rizzuno becomes aware that an account
-              does not meet this age requirement, Rizzuno may restrict or terminate that account and handle any
-              associated information as required by applicable law.
+              Rizzuno does not permit children to create or use accounts. The pre-OAuth check necessarily processes
+              the date entered by a person who receives an ineligible result, but does not retain that exact date or
+              start Google OAuth. If Rizzuno becomes aware that an account does not meet the age requirement,
+              Rizzuno may restrict or terminate it and handle associated information as required by applicable law.
             </p>
           </section>
 

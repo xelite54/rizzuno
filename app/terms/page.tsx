@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "September 24, 2026"
+const LAST_UPDATED = "September 25, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -108,15 +108,17 @@ export default function TermsOfServicePage() {
               or the age of majority in the jurisdiction where you live if that age is higher than 18.
             </p>
             <p className="mt-2 text-muted">
-              By continuing to access or use Rizzuno — including by continuing through Google Sign-In after being
-              presented with Rizzuno&apos;s age notice, and by checking the affirmation box shown after you sign in
+              By continuing to access or use Rizzuno — including by completing Rizzuno&apos;s date-based eligibility
+              screen before Google Sign-In, and by checking the affirmation box shown after you sign in
               — you represent and warrant that you satisfy this age requirement.
             </p>
             <p className="mt-2 text-muted">If you do not satisfy this age requirement, you must not access or use Rizzuno.</p>
             <p className="mt-2 text-muted">
-              Rizzuno currently relies on this representation as an age-eligibility self-attestation, recorded
-              against your account together with the version of these Terms and the date you accepted them (see
-              Section 41). Google Sign-In authenticates the Google account used to access Rizzuno; it does not
+              Rizzuno currently relies on this representation as an age-eligibility self-attestation. The pre-sign-in
+              screen sends the entered date of birth to Rizzuno only to calculate eligibility; the exact date is not
+              stored. A signed, short-lived cookie records only the result, time and gate version. After sign-in,
+              the legal-acceptance record stores the applicable version and acceptance time (see Section 41).
+              Google Sign-In authenticates the Google account used to access Rizzuno; it does not
               constitute age verification by Google or by Rizzuno. Rizzuno does not currently perform government-ID,
               biometric, facial-age-estimation, or other independent identity-level age verification, and does not
               guarantee that another user&apos;s stated age is accurate.
@@ -245,6 +247,7 @@ export default function TermsOfServicePage() {
               suspect another user doesn&apos;t meet Rizzuno&apos;s age requirement, report it using the
               &ldquo;Underage concern&rdquo; category in the in-call safety menu or recent-match reporting page (see Section 22).
             </p>
+            <p className="mt-2 text-muted">An underage report is not automatically sent to NCMEC or any authority. Authorized staff may separately record a reviewed manual CyberTipline decision, submission timestamp and receipt/reference. Rizzuno does not claim a partnership with NCMEC and does not automatically submit CyberTipline reports. When staff record that a report was manually submitted, Rizzuno preserves the existing restricted report context for the configured minimum period; it does not create call recordings, automatic screenshots, continuous video analysis, or a video evidence archive.</p>
           </section>
 
           <section id="nonconsensual-sexual">

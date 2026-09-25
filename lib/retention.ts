@@ -6,7 +6,7 @@ export const RETENTION = {
   cleanupIntervalMs: 60 * 60 * 1000,
 } as const
 
-export const RETENTION_CATEGORIES = ["friendMessages", "friendRequests", "recentMatches", "reports", "reportEvidence", "moderationActions", "appeals", "imageChecks", "legalAcceptance", "privacyOperations", "accountTombstones", "storedImages", "heldRecords", "securityLogs", "infrastructureLogs", "backups"] as const
+export const RETENTION_CATEGORIES = ["friendMessages", "friendRequests", "recentMatches", "reports", "reportEvidence", "moderationActions", "appeals", "cybertiplineCases", "imageChecks", "legalAcceptance", "privacyOperations", "accountTombstones", "storedImages", "heldRecords", "securityLogs", "infrastructureLogs", "backups"] as const
 export type RetentionCategory = typeof RETENTION_CATEGORIES[number]
 export type RetentionRule = { mode: "automatic" | "external" | "review"; days?: number; reason: string }
 export type RetentionPolicy = { approvedBy: string; caseReference: string; reviewBy: string; categories: Record<RetentionCategory, RetentionRule> }

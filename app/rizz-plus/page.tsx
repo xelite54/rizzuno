@@ -3,7 +3,8 @@
 import Link from "next/link"
 import { LegalNav } from "@/components/LegalNav"
 import { useEffect, useState } from "react"
-import { signIn, useSession } from "next-auth/react"
+import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import { useRizzPlus } from "@/components/RizzPlusProvider"
 import styles from "./page.module.css"
 import { safeUpgradeReturn } from "@/lib/upgradeNavigation"
@@ -17,6 +18,7 @@ const benefits = [
 ]
 
 export default function RizzPlusPage() {
+  const router = useRouter()
   const { status } = useSession()
   const { active, loading, canManage, refresh } = useRizzPlus()
   const [busy, setBusy] = useState(false)
@@ -53,7 +55,7 @@ export default function RizzPlusPage() {
   }, [refresh])
 
   async function openBilling(manage = false) {
-    if (status !== "authenticated") { await signIn("google", { redirectTo: `/rizz-plus?returnTo=${encodeURIComponent(returnTo)}` }); return }
+    if (status !== "authenticated") { router.push("/"); return }
     setBusy(true); setError(null)
     try {
       const response = await fetch(`/api/billing/${manage ? "portal" : "checkout"}`, { method: "POST" })

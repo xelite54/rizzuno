@@ -1,12 +1,13 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { ciLaunchFixture } from "../scripts/ci-launch-fixture.mjs"
-import { validateLaunchReadiness, countryAllowed } from "../lib/launchReadiness.ts"
+import { validateLaunchReadiness, countryAllowed, locationAllowed } from "../lib/launchReadiness.ts"
+import { requestUsRegion } from "../lib/country.ts"
 import { retentionPolicy, RETENTION_CATEGORIES } from "../lib/retention.ts"
 import { boundedReportChat } from "../lib/reportEvidence.ts"
 
 test("launch gate rejects missing operator decisions, unregistered US process and expired retention approval", () => {
-  const env = { ...ciLaunchFixture, NODE_ENV: "production" }
+  const env = { ...ciLaunchFixture, NODE_ENV: "production", DMCA_AGENT_REGISTERED:"true", PROVIDER_REGION_DISCLOSURE_REVIEWED:"true",TRAINED_SAFETY_REVIEWERS_CONFIRMED:"true",CYBERTIPLINE_PROCEDURE_APPROVED:"true",BREACH_RESPONSE_APPROVED:"true",US_STATE_LAUNCH_REVIEW_APPROVED:"true" }
   validateLaunchReadiness(env)
   for (const key of Object.keys(ciLaunchFixture)) {
     const candidate: Record<string,string|undefined> = { ...env }; delete candidate[key]
@@ -22,6 +23,12 @@ test("launch gate rejects missing operator decisions, unregistered US process an
   assert.equal(countryAllowed(null, env),false)
   assert.equal(countryAllowed("CA",env),false)
   assert.equal(countryAllowed("US",env),true)
+  assert.equal(locationAllowed("US",null,{...env,SUPPORTED_US_REGIONS:"NY,CA"}),false)
+  assert.equal(locationAllowed("US","NY",{...env,SUPPORTED_US_REGIONS:"NY,CA"}),true)
+  assert.equal(locationAllowed("US","TX",{...env,SUPPORTED_US_REGIONS:"NY,CA"}),false)
+  const before=process.env.VERCEL; process.env.VERCEL="1"
+  try { assert.equal(requestUsRegion(new Request("https://example.invalid",{headers:{"x-vercel-ip-country":"US","x-vercel-ip-country-region":"ny"}})),"NY") }
+  finally { if(before===undefined)delete process.env.VERCEL; else process.env.VERCEL=before }
   assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_COUNTRIES:"US,*"}))
 })
 test("report text snapshot rejects future/old timestamps and caps count and content", () => {
