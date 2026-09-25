@@ -18,6 +18,7 @@ export default function CommunityGuidelinesPage() {
       <p className="mt-2 text-[13px] text-muted">Version {RELATED_LEGAL_VERSIONS.guidelines} · Last updated {LAST_UPDATED}</p>
 
       <p className="mt-4 text-sm text-muted">Underage concerns receive urgent priority for trained safety review. Generic nudity screening does not identify child sexual abuse material. Reports can preserve bounded recent text context; automatic screenshots and call recording are disabled. For copyright notices see our <Link href="/copyright" className="underline">Copyright Policy</Link>.</p>
+      <p className="mt-2 text-sm text-muted">A possible under-13 account is referred to a separate restricted safety/privacy review. A report does not verify age, does not automatically trigger a CyberTipline report, and does not establish COPPA compliance.</p>
       <div className="mt-8 space-y-6 text-[14px] leading-relaxed text-foreground">
         <section>
           <h2 className="text-[16px] font-semibold">Be an adult about it</h2>

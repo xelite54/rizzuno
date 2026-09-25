@@ -289,6 +289,7 @@ export default function PrivacyPolicyPage() {
               start Google OAuth. If Rizzuno becomes aware that an account does not meet the age requirement,
               Rizzuno may restrict or terminate it and handle associated information as required by applicable law.
             </p>
+            <p className="mt-2 text-muted">Information suggesting an account may belong to a child under 13 is routed to restricted trained safety and privacy review. A report is not proof of age. Reviewers can record the case, restrict access while it is investigated, minimize further collection, refer it to the operator&apos;s approved privacy process, remove a confirmed ineligible account, and document which records are deleted or retained for a specific safety, legal-hold, security, or account-reentry purpose. This process is not a claim of verified age or COPPA compliance.</p>
           </section>
 
           <section id="security">

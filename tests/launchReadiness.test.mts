@@ -7,7 +7,7 @@ import { retentionPolicy, RETENTION_CATEGORIES } from "../lib/retention.ts"
 import { boundedReportChat } from "../lib/reportEvidence.ts"
 
 test("launch gate rejects missing operator decisions, unregistered US process and expired retention approval", () => {
-  const env = { ...ciLaunchFixture, NODE_ENV: "production", DMCA_AGENT_REGISTERED:"true", PROVIDER_REGION_DISCLOSURE_REVIEWED:"true",TRAINED_SAFETY_REVIEWERS_CONFIRMED:"true",CYBERTIPLINE_PROCEDURE_APPROVED:"true",BREACH_RESPONSE_APPROVED:"true",US_STATE_LAUNCH_REVIEW_APPROVED:"true" }
+  const env = { ...ciLaunchFixture, NODE_ENV: "production", LEGAL_REVIEW_APPROVED:"true",SAFETY_WORKFLOW_APPROVED:"true",RETENTION_SCHEDULER_CONFIRMED:"true",SUPPORTED_US_REGIONS:"NY",DMCA_512_RELIANCE:"true",DMCA_AGENT_REGISTERED:"true", PROVIDER_REGION_DISCLOSURE_REVIEWED:"true",TRAINED_SAFETY_REVIEWERS_CONFIRMED:"true",UNDER13_RESPONSE_PROCEDURE_APPROVED:"true",CYBERTIPLINE_PROCEDURE_APPROVED:"true",BREACH_RESPONSE_APPROVED:"true",US_STATE_LAUNCH_REVIEW_APPROVED:"true" }
   validateLaunchReadiness(env)
   for (const key of Object.keys(ciLaunchFixture)) {
     const candidate: Record<string,string|undefined> = { ...env }; delete candidate[key]
@@ -26,6 +26,8 @@ test("launch gate rejects missing operator decisions, unregistered US process an
   assert.equal(locationAllowed("US",null,{...env,SUPPORTED_US_REGIONS:"NY,CA"}),false)
   assert.equal(locationAllowed("US","NY",{...env,SUPPORTED_US_REGIONS:"NY,CA"}),true)
   assert.equal(locationAllowed("US","TX",{...env,SUPPORTED_US_REGIONS:"NY,CA"}),false)
+  assert.equal(locationAllowed("US","NY",{...env,SUPPORTED_US_REGIONS:""}),false)
+  assert.doesNotThrow(() => validateLaunchReadiness({...env,DMCA_512_RELIANCE:"false",DMCA_AGENT_REGISTERED:"false",DMCA_AGENT_NAME:undefined,DMCA_AGENT_ADDRESS:undefined,DMCA_AGENT_PHONE:undefined,DMCA_REGISTRATION_REFERENCE:undefined}))
   const before=process.env.VERCEL; process.env.VERCEL="1"
   try { assert.equal(requestUsRegion(new Request("https://example.invalid",{headers:{"x-vercel-ip-country":"US","x-vercel-ip-country-region":"ny"}})),"NY") }
   finally { if(before===undefined)delete process.env.VERCEL; else process.env.VERCEL=before }

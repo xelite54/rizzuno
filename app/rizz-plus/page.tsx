@@ -10,11 +10,11 @@ import styles from "./page.module.css"
 import { safeUpgradeReturn } from "@/lib/upgradeNavigation"
 
 const benefits = [
-  "No ads",
-  "Post photos",
-  "Change gender",
-  "Change profile photo",
-  "Send friend requests",
+  { name: "No ads", note: "Rizzuno has no ads for anyone right now." },
+  { name: "Change gender", note: "Update the gender shown on your profile." },
+  { name: "Send friend requests", note: "Keep in touch with people you meet." },
+  { name: "Post photos", note: "Share photos on your profile." },
+  { name: "Change profile photo", note: "Swap your photo whenever you like." },
 ]
 
 export default function RizzPlusPage() {
@@ -84,44 +84,83 @@ export default function RizzPlusPage() {
     } catch { setError(manage ? "Billing isn’t available right now. Please try again shortly." : "Couldn’t activate Rizz+. Please try again shortly."); setBusy(false) }
   }
 
+  const primaryLabel = busy ? (active && canManage ? "Opening billing…" : "Activating Rizz+…") : loading ? "Checking membership…" : active ? "Manage subscription" : "Activate Rizz+"
+
   return (
-    <main className={`${styles.page} h-dvh overflow-hidden text-[#f5eff5]`}>
-      <nav className={styles.nav}>
-        <Link href={returnTo} className={styles.back} aria-label="Go back"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg><span>Back</span></Link>
-        <Link href="/" className="text-[15px] font-medium tracking-tight text-white/60">Rizzuno<span className="text-white/40">.com</span></Link>
-      </nav>
-      <div className={styles.stage}>
-      <div className={styles.layout}>
-        <section className={styles.story}>
-          <div className={styles.pass} aria-label="Rizz+ membership pass preview">
-            <div className={styles.passMain}>
-              <div className={styles.passName}>Rizz<span>+</span></div>
-              <div className={styles.price}><span>Free</span><p>test access · no automatic charges</p></div>
+    <main className={`${styles.page} h-dvh`}>
+      <div className={styles.scroll}>
+        <nav className={styles.nav}>
+          <Link href={returnTo} className={styles.back} aria-label="Go back"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m10 6-6 6 6 6M4 12h16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg><span>Back</span></Link>
+          <Link href="/" className={styles.wordmark}>Rizzuno</Link>
+        </nav>
+
+        <div className={styles.column}>
+          <header className={styles.header}>
+            <div className={styles.titleRow}>
+              <h1 className={styles.title}>Rizz+</h1>
+              {!loading && <span className={`${styles.status} ${active ? styles.statusActive : ""}`}>{active ? "Active" : "Test access"}</span>}
             </div>
-          </div>
-        </section>
-        <section className={styles.details} aria-label="Membership benefits">
-          <ul className={styles.benefits}>
-            {benefits.map((benefit) => <li key={benefit}><span className={styles.benefitNumber} aria-hidden="true">–</span><span>{benefit}</span></li>)}
-          </ul>
-          {returned && !active && <p role="status" className="mt-3 text-[13px] text-[#ddb8d2]">{waiting ? "Confirming your membership…" : "Refresh your membership status below to confirm activation."}</p>}
-          {returned && active && <p role="status" className="mt-3 text-[13px] text-[#ddb8d2]">Rizz+ is active. Your features are unlocked.</p>}
-          {error && <p role="alert" className="mt-3 text-[13px] text-[#f2a4b7]">{error}</p>}
-          {/* A free grant (see grantFreeRizzPlus in lib/db.ts) has no real
-              Stripe customer behind it, so there's nothing for the billing
-              portal to manage — canManage stays false for it. Only a real
-              paid subscription gets the "Manage subscription" action;
-              a free member just sees their status here instead of a button
-              that would otherwise 404 against the portal route. */}
-          <button disabled={busy || loading || (returned && !active) || (active && !canManage)} onClick={() => void openBilling(active)} className="mt-4 flex h-12 w-full items-center justify-center rounded-2xl bg-[#e8cedf] px-5 text-[14px] font-semibold text-[#261b28] transition hover:bg-[#f2deeb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"><span>{busy ? (active && canManage ? "Opening billing…" : "Activating Rizz+…") : loading ? "Checking membership…" : active ? (canManage ? "Manage subscription" : "You’re a Rizz+ member") : "Get Rizz+"}</span></button>
-          {active && (canManage ? <button disabled={busy} onClick={() => void openBilling(true)} className="mt-3 w-full text-xs text-white/70 underline">Cancel paid subscription in billing ↗</button> : confirmCancel ? <div className="mt-4 rounded-xl border border-white/15 p-4 text-xs"><p>Cancel test Rizz+? Plus features will lock immediately. Your friends and existing photos stay.</p><div className="mt-3 flex gap-4"><button disabled={busy} onClick={() => setConfirmCancel(false)}>Keep Rizz+</button><button disabled={busy} onClick={() => void cancelMembership()} className="text-[#f2a4b7]">Confirm cancellation</button></div></div> : <button disabled={busy} onClick={() => setConfirmCancel(true)} className="mt-3 w-full text-xs text-white/70 underline">Cancel test membership</button>)}
-          {!active && canManage && <button onClick={() => void openBilling(true)} disabled={busy} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Manage existing billing</button>}
-          {returned && !active && <button onClick={() => void refresh()} className="mt-2 w-full text-[12px] text-white/60 underline underline-offset-4">Refresh membership status</button>}
-          <p className="mt-3 text-[11px] leading-relaxed text-white/60">Temporary test access. No card required and no automatic charge from this activation.</p>
-          <p className="mt-2 text-[11px] text-white/30">Rizzuno currently has no ads for any users. Membership does not bypass content moderation.</p>
-          <LegalNav className="mt-3 text-[11px] text-white/45"/>
-        </section>
-      </div>
+            <p className={styles.lede}>A few extra ways to use Rizzuno. Free while we test it.</p>
+          </header>
+
+          <section className={styles.section} aria-labelledby="membership-heading">
+            <h2 id="membership-heading" className={styles.label}>Membership</h2>
+            <div className={styles.plan}>
+              <div>
+                <p className={styles.planName}>Rizz+</p>
+                <p className={styles.planPrice}>Free during test access</p>
+                <p className={styles.planMeta}>No card required · No automatic charges</p>
+              </div>
+              {active && <span className={styles.activeDot}><span aria-hidden="true" />Active</span>}
+            </div>
+          </section>
+
+          <section className={styles.section} aria-labelledby="included-heading">
+            <h2 id="included-heading" className={styles.label}>Included</h2>
+            <ul className={styles.features}>
+              {benefits.map((benefit) => (
+                <li key={benefit.name}>
+                  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  <div><p className={styles.featureName}>{benefit.name}</p><p className={styles.featureNote}>{benefit.note}</p></div>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className={styles.section} aria-labelledby="manage-heading">
+            <h2 id="manage-heading" className={styles.label}>{active ? "Manage" : "Get started"}</h2>
+            {returned && !active && <p role="status" className={styles.notice}>{waiting ? "Confirming your membership…" : "Refresh your membership status below to confirm activation."}</p>}
+            {returned && active && <p role="status" className={styles.notice}>Rizz+ is active. Your features are unlocked.</p>}
+            {error && <p role="alert" className={styles.error}>{error}</p>}
+            {/* A free grant (see grantFreeRizzPlus in lib/db.ts) has no real
+                Stripe customer behind it, so there's nothing for the billing
+                portal to manage — canManage stays false for it. Only a real
+                paid subscription gets the "Manage subscription" action;
+                a free member just sees their status and a cancel option
+                instead of a button that would 404 against the portal route. */}
+            <div className={styles.actions}>
+              {(!active || canManage) && <button disabled={busy || loading || (returned && !active)} onClick={() => void openBilling(active)} className={active ? styles.secondary : styles.primary}>{primaryLabel}</button>}
+              {active && canManage && <button disabled={busy} onClick={() => void openBilling(true)} className={styles.textLink}>Cancel paid subscription in billing ↗</button>}
+              {active && !canManage && !confirmCancel && <button disabled={busy} onClick={() => setConfirmCancel(true)} className={styles.secondary}>Cancel test membership</button>}
+              {!active && canManage && <button onClick={() => void openBilling(true)} disabled={busy} className={styles.textLink}>Manage existing billing</button>}
+              {returned && !active && <button onClick={() => void refresh()} className={styles.textLink}>Refresh membership status</button>}
+            </div>
+            {active && !canManage && confirmCancel && (
+              <div className={styles.confirm} role="group" aria-label="Confirm cancellation">
+                <p>Cancel test Rizz+? Plus features lock immediately. Your friends and existing photos stay.</p>
+                <div className={styles.confirmActions}>
+                  <button disabled={busy} onClick={() => setConfirmCancel(false)} className={styles.secondary}>Keep Rizz+</button>
+                  <button disabled={busy} onClick={() => void cancelMembership()} className={styles.danger}>{busy ? "Cancelling…" : "Confirm cancellation"}</button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <footer className={styles.footer}>
+            <p>Rizz+ is in temporary test access. Activating it requires no card and creates no automatic charge. Membership does not bypass content moderation.</p>
+            <LegalNav className="mt-4 gap-x-4 text-[12px] text-white/45 [&_a]:underline-offset-[3px] [&_a:hover]:text-white/80" />
+          </footer>
+        </div>
       </div>
     </main>
   )

@@ -43,8 +43,9 @@ export default async function SafetyCase({ params }: { params: Promise<{ reportI
     </form>
     <form action={decision} className="grid gap-3">
       <h2 className="font-semibold">Decision log</h2>
+      <p className="text-sm">For a possible under-13 account, open the dedicated review and refer it to the approved privacy/safety process. These entries document review; use the enforcement control for an actual restriction or removal. They do not make a legal determination or contact an external organization.</p>
       <label>Case reference <input name="caseReference" required pattern="[A-Za-z0-9_-]{6,80}" className="border" /></label>
-      <label>Decision <select name="decision" className="border">{["investigation_open", "emergency_escalation", "external_report_required", "external_report_submitted", "external_report_not_required", "investigation_closed"].map(value => <option key={value}>{value}</option>)}</select></label>
+      <label>Decision <select name="decision" className="border">{["investigation_open", "under13_review_opened", "under13_privacy_review_referred", "under13_not_confirmed", "under13_account_removed", "emergency_escalation", "external_report_required", "external_report_submitted", "external_report_not_required", "investigation_closed"].map(value => <option key={value}>{value}</option>)}</select></label>
       <label>Rationale <textarea name="rationale" required maxLength={2000} className="border" /></label>
       <label>External receipt/reference <input name="externalReference" maxLength={200} className="border" /></label>
       <button className="rounded border p-2">Record decision</button>

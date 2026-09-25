@@ -1801,7 +1801,7 @@ export async function recordSafetyDecision(input: { reportId: string; actorId: s
     if (!result.rowCount) throw new Error('report_not_found')
     if (result.rows[0].reported_id === input.actorId) throw new Error('conflicted_reviewer')
     await client.query('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,external_reference,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [randomUUID(),input.reportId,input.actorId,input.decision,input.caseReference,input.rationale,input.externalReference ?? null,now()])
-    if (input.decision === 'investigation_open' || input.decision === 'investigation_closed') await client.query('UPDATE reports SET safety_state=$2 WHERE id=$1', [input.reportId,input.decision === 'investigation_open' ? 'open' : 'closed'])
+    if (['investigation_open','under13_review_opened'].includes(input.decision) || input.decision === 'investigation_closed') await client.query('UPDATE reports SET safety_state=$2 WHERE id=$1', [input.reportId,input.decision === 'investigation_closed' ? 'closed' : 'open'])
     await client.query('COMMIT')
   } catch (error) { await client.query('ROLLBACK'); throw error }
   finally { client.release() }

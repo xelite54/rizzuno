@@ -9,7 +9,7 @@ export default function CopyrightPage() {
     <p>Version {RELATED_LEGAL_VERSIONS.copyright}. Respect others’ copyright when uploading profiles, posts or chat content. This policy forms part of our <Link href="/terms" className="underline">Terms</Link>.</p>
     <h2 className="text-lg font-semibold">Where to send a complaint</h2>
     {LEGAL_CONFIG.copyrightEmail && <p>Copyright-notice contact: <a className="underline" href={`mailto:${LEGAL_CONFIG.copyrightEmail}`}>{LEGAL_CONFIG.copyrightEmail}</a>.</p>}
-    {LEGAL_CONFIG.dmcaRegistered ? <p>The operator confirms registration of this designated agent: {LEGAL_CONFIG.dmcaAgentName}, {LEGAL_CONFIG.dmcaAgentAddress}, telephone {LEGAL_CONFIG.dmcaAgentPhone}. Send notices to the copyright-notice email above.</p> : <p>This complaint channel does not assert that a DMCA agent has been registered. Registration must be independently confirmed before the operator relies on the U.S. statutory process.</p>}
+    {LEGAL_CONFIG.dmca512Reliance && LEGAL_CONFIG.dmcaRegistered ? <p>The operator confirms that it is relying on the U.S. statutory process and has registered this designated agent: {LEGAL_CONFIG.dmcaAgentName}, {LEGAL_CONFIG.dmcaAgentAddress}, telephone {LEGAL_CONFIG.dmcaAgentPhone}. Send notices to the copyright-notice email above.</p> : <p>This complaint channel does not assert DMCA safe-harbor reliance or that a designated agent has been registered. The operator must make that decision and, if relying on 17 U.S.C. §512, independently complete and maintain registration before enabling that disclosure.</p>}
     <h2 className="text-lg font-semibold">Infringement notice</h2>
     <p>Send a written notice including:</p>
     <ol className="list-decimal space-y-2 pl-6">

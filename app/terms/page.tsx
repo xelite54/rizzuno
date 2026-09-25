@@ -248,6 +248,7 @@ export default function TermsOfServicePage() {
               &ldquo;Underage concern&rdquo; category in the in-call safety menu or recent-match reporting page (see Section 22).
             </p>
             <p className="mt-2 text-muted">An underage report is not automatically sent to NCMEC or any authority. Authorized staff may separately record a reviewed manual CyberTipline decision, submission timestamp and receipt/reference. Rizzuno does not claim a partnership with NCMEC and does not automatically submit CyberTipline reports. When staff record that a report was manually submitted, Rizzuno preserves the existing restricted report context for the configured minimum period; it does not create call recordings, automatic screenshots, continuous video analysis, or a video evidence archive.</p>
+            <p className="mt-2 text-muted">A report or other information suggesting an account may belong to a child under 13 enters a distinct restricted safety and privacy review. Staff may temporarily restrict the account, minimize further collection and access, refer the case to the approved operator process, remove a confirmed ineligible account, and document any specifically justified retention or deletion. The report alone does not verify age or decide whether any law applies. Rizzuno does not claim COPPA compliance through this workflow.</p>
           </section>
 
           <section id="nonconsensual-sexual">

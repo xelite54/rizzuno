@@ -172,9 +172,11 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // Bumped 2026-09-25: moved the self-attested age check before OAuth,
   // disclosed the transient DOB processing/state gate, and added the manual
   // CyberTipline decision and scoped preservation workflow.
-  { document: "terms", version: "2026-09-25" },
-  { document: "privacy", version: "2026-09-25" },
+  // Bumped 2026-09-25b: added the distinct under-13 escalation/referral flow,
+  // explicit reviewed-state access requirement, and conditional §512 wording.
+  { document: "terms", version: "2026-09-25b" },
+  { document: "privacy", version: "2026-09-25b" },
 ]
 
 // Guidelines are incorporated into Terms; bump Terms whenever these versions change materially.
-export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-25", safety: "2026-09-25", appeals: "2026-09-24", copyright: "2026-09-24b" } as const
+export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-25b", safety: "2026-09-25b", appeals: "2026-09-24", copyright: "2026-09-25" } as const

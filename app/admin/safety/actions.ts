@@ -18,7 +18,7 @@ export async function viewEvidence(reportId: string) {
 }
 export async function safetyDecision(input: { reportId: string; decision: string; caseReference: string; rationale: string; externalReference?: string }) {
   const actorId = await reviewer()
-  if (!input || !isWireId(input.reportId) || !["investigation_open", "emergency_escalation", "external_report_required", "external_report_submitted", "external_report_not_required", "investigation_closed"].includes(input.decision) || !/^[A-Za-z0-9_-]{6,80}$/.test(input.caseReference) || !input.rationale?.trim() || input.rationale.length > 2000 || (input.externalReference?.length ?? 0) > 200) throw new Error("Invalid safety decision")
+  if (!input || !isWireId(input.reportId) || !["investigation_open", "under13_review_opened", "under13_privacy_review_referred", "under13_not_confirmed", "under13_account_removed", "emergency_escalation", "external_report_required", "external_report_submitted", "external_report_not_required", "investigation_closed"].includes(input.decision) || !/^[A-Za-z0-9_-]{6,80}$/.test(input.caseReference) || !input.rationale?.trim() || input.rationale.length > 2000 || (input.externalReference?.length ?? 0) > 200) throw new Error("Invalid safety decision")
   await recordSafetyDecision({ ...input, actorId })
 }
 export async function legalHold(input: { caseReference: string; reason: string; releaseId?: string }) {

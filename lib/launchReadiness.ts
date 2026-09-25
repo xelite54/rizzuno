@@ -21,7 +21,10 @@ export function supportedUsRegions(env: Record<string, string | undefined> = pro
 export function locationAllowed(country: string | null, usRegion: string | null, env: Record<string, string | undefined> = process.env) {
   if (!countryAllowed(country, env)) return false
   const regions = supportedUsRegions(env)
-  if (country !== "US" || !regions.length) return true
+  if (country !== "US") return true
+  // Production U.S. access has no implicit nationwide fallback. The operator
+  // must explicitly list each reviewed state/DC region.
+  if (!regions.length) return env.NODE_ENV !== "production"
   return usRegion !== null && regions.includes(usRegion)
 }
 /** Run for both production services and before release. Never prints secret values. */
@@ -34,13 +37,17 @@ export function validateLaunchReadiness(env: Record<string, string | undefined> 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env[key] ?? "")) throw new Error(`Invalid configuration: ${key}`)
   }
   if (env.COPYRIGHT_NOTICE_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.COPYRIGHT_NOTICE_EMAIL)) throw new Error("Invalid configuration: COPYRIGHT_NOTICE_EMAIL")
-  if (env.LEGAL_REVIEW_APPROVED !== "true" || env.SAFETY_WORKFLOW_APPROVED !== "true" || env.RETENTION_SCHEDULER_CONFIRMED !== "true") throw new Error("Operator legal, safety and retention scheduler approvals required")
+  if ((env.LEGAL_REVIEW_APPROVED !== "true" || env.SAFETY_WORKFLOW_APPROVED !== "true" || env.RETENTION_SCHEDULER_CONFIRMED !== "true") && !compileOnlyFixture) throw new Error("Operator legal, safety and retention scheduler approvals required")
   if ((env.LEGAL_GOVERNING_LAW || env.LEGAL_DISPUTE_RESOLUTION) && env.LEGAL_TERMS_REVIEWED !== "true") throw new Error("Optional dispute terms require legal review")
   const countries = supportedCountries(env)
   if (countries.includes("US")) {
-    if (env.DMCA_AGENT_REGISTERED !== "true" && !compileOnlyFixture) throw new Error("US launch requires external DMCA agent registration confirmation")
-    for (const key of ["DMCA_AGENT_NAME", "DMCA_AGENT_ADDRESS", "DMCA_AGENT_PHONE", "DMCA_REGISTRATION_REFERENCE"]) if (!env[key]?.trim()) throw new Error(`Missing launch configuration: ${key}`)
-    for (const key of ["PROVIDER_REGION_DISCLOSURE_REVIEWED", "TRAINED_SAFETY_REVIEWERS_CONFIRMED", "CYBERTIPLINE_PROCEDURE_APPROVED", "BREACH_RESPONSE_APPROVED", "US_STATE_LAUNCH_REVIEW_APPROVED"]) {
+    if (!compileOnlyFixture && !supportedUsRegions(env).length) throw new Error("US launch requires an explicit reviewed SUPPORTED_US_REGIONS allowlist")
+    if (!compileOnlyFixture && !["true", "false"].includes(env.DMCA_512_RELIANCE ?? "")) throw new Error("US launch requires an explicit DMCA_512_RELIANCE decision")
+    if (env.DMCA_512_RELIANCE === "true") {
+      if (env.DMCA_AGENT_REGISTERED !== "true" && !compileOnlyFixture) throw new Error("External DMCA agent registration confirmation required when relying on 17 U.S.C. §512")
+      for (const key of ["DMCA_AGENT_NAME", "DMCA_AGENT_ADDRESS", "DMCA_AGENT_PHONE", "DMCA_REGISTRATION_REFERENCE"]) if (!env[key]?.trim()) throw new Error(`Missing launch configuration: ${key}`)
+    }
+    for (const key of ["PROVIDER_REGION_DISCLOSURE_REVIEWED", "TRAINED_SAFETY_REVIEWERS_CONFIRMED", "UNDER13_RESPONSE_PROCEDURE_APPROVED", "CYBERTIPLINE_PROCEDURE_APPROVED", "BREACH_RESPONSE_APPROVED", "US_STATE_LAUNCH_REVIEW_APPROVED"]) {
       if (env[key] !== "true" && !compileOnlyFixture) throw new Error(`US launch operator approval required: ${key}`)
     }
   }
