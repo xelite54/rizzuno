@@ -19,7 +19,8 @@
     "retention:inventory": "tsx scripts/storage-inventory.mts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p tests/browser/tsconfig.json",
     "security:check": "npm audit --audit-level=high",
-    "test:staging:ws": "node --import tsx tests/load/staging.mts"
+    "test:staging:ws": "node --import tsx tests/load/staging.mts",
+    "test:postviewer:browser": "node --import tsx tests/browser/runPostViewer.mts"
   },
   "dependencies": {
     "image-size": "2.0.4",

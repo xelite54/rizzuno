@@ -19,6 +19,7 @@ import type { FriendState } from "./FriendButton"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
 import { ImageModerationRejectedError, type Post, type Gender } from "@/hooks/useMyProfile"
 import type { BlockedUser } from "@/hooks/useFriends"
+import { PostNavArrow, neighborIndex, usePostKeyboardNav, usePostSwipe } from "./PostViewer"
 
 type MyProfileSheetProps = {
   profileReady: boolean
@@ -352,6 +353,19 @@ export function MyProfileSheet({
       setDeletingPost(false)
     }
   }
+
+  // Previous/next between your own posts — the same behavior as the shared
+  // PostViewer other people's profiles use (arrows, ArrowLeft/Right, swipe).
+  const viewingPostIndex = viewingPost ? posts.findIndex((post) => post.id === viewingPost.id) : -1
+  const previousPostIndex = viewingPostIndex >= 0 ? neighborIndex(viewingPostIndex, posts.length, -1) : null
+  const nextPostIndex = viewingPostIndex >= 0 ? neighborIndex(viewingPostIndex, posts.length, 1) : null
+  function showPostAt(index: number | null) {
+    if (index === null || deletingPost) return
+    setViewingPost(posts[index])
+    setConfirmingDeletePost(false)
+  }
+  usePostKeyboardNav(open && view === "viewPost" && !deletingPost, () => showPostAt(previousPostIndex), () => showPostAt(nextPostIndex))
+  const postSwipe = usePostSwipe(() => showPostAt(previousPostIndex), () => showPostAt(nextPostIndex))
 
   function handleSignOut() {
     // Destroys the real Auth.js session and navigates away. Profile data is
@@ -779,13 +793,20 @@ export function MyProfileSheet({
             {view === "viewPost" && viewingPost && (
               <div className="flex min-h-full flex-col">
                 {/* Much bigger than the grid thumbnail — an immersive view, not another small tile. */}
-                <div className="flex flex-1 items-center justify-center bg-black px-2 py-4">
+                <div className="relative flex flex-1 touch-pan-y items-center justify-center bg-black px-2 py-4" {...postSwipe.handlers}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- local/data-URL post image, not a static asset */}
                   <img
+                    key={viewingPost.id}
                     src={viewingPost.dataUrl}
-                    alt="Post"
+                    alt={`Post ${viewingPostIndex + 1} of ${posts.length}`}
                     className="max-h-[70vh] w-full max-w-2xl rounded-xl object-contain"
                   />
+                  {posts.length > 1 && (
+                    <>
+                      <PostNavArrow direction="previous" disabled={previousPostIndex === null || deletingPost} onClick={() => showPostAt(previousPostIndex)} className="absolute left-2 top-1/2 -translate-y-1/2" />
+                      <PostNavArrow direction="next" disabled={nextPostIndex === null || deletingPost} onClick={() => showPostAt(nextPostIndex)} className="absolute right-2 top-1/2 -translate-y-1/2" />
+                    </>
+                  )}
                 </div>
                 <div className="mx-auto w-full max-w-[520px] px-4 py-4">
                   {confirmingDeletePost ? (

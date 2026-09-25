@@ -74,6 +74,9 @@ jobs:
       - run: '"$CHROME_PATH" --version'
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+      - run: npm run test:postviewer:browser
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
       - run: npm run test:webrtc:browser
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}

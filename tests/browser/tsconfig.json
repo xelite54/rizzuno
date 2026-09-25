@@ -11,7 +11,8 @@
     "../../types/next-assets.d.ts",
     "homepageHarness.tsx",
     "homepageFixtures.ts",
-    "homepageRuntime.tsx"
+    "homepageRuntime.tsx",
+    "postViewerHarness.tsx"
   ],
   "exclude": []
 }
