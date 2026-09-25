@@ -1,5 +1,8 @@
 "use client"
 import { PublicProfilePosts } from "./PublicProfilePosts"
+import { ProfileAvatar } from "./ProfileAvatar"
+import { usePublicProfile } from "@/hooks/usePublicProfile"
+import { resolveProfilePhoto } from "@/lib/publicProfile"
 import { ReportButton } from "./ReportButton"
 import { ProfileActionsMenu } from "./ProfileActionsMenu"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
@@ -275,7 +278,7 @@ export function FriendsPanel({
     let cancelled = false
     setFriendProfileStatus("loading")
     setFriendProfile(null)
-    fetch(`/api/friends/profile/${encodeURIComponent(viewingFriendId)}`)
+    fetch(`/api/friends/profile/${encodeURIComponent(viewingFriendId)}`, { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error(`friend profile fetch failed: ${res.status}`)
         return res.json()
@@ -492,6 +495,11 @@ export function FriendsPanel({
   // profile is open, since the search input (the only thing that could
   // change it) is unreachable behind that full-screen view.
   const viewingSearchResult = searchResults.find((person) => person.username === viewingSearchResultUsername) ?? null
+  // Search rows and pending requests are snapshots; the open profile shows
+  // the server's current photo once loaded (same source as posts below).
+  const { profile: viewingRequesterProfile } = usePublicProfile(viewingRequester?.username)
+  const { profile: viewingSearchResultProfile } = usePublicProfile(viewingSearchResult?.username)
+  const viewingSearchResultPhoto = resolveProfilePhoto(viewingSearchResultProfile, viewingSearchResult?.profilePhoto)
 
   function openSearchProfile(username: string) {
     const friend = friends.find((person) => person.username.toLowerCase() === username.toLowerCase())
@@ -1154,9 +1162,7 @@ export function FriendsPanel({
               </div>
 
               <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-                <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                  {viewingRequester.displayName.charAt(0)}
-                </span>
+                <ProfileAvatar key={viewingRequester.id} photo={resolveProfilePhoto(viewingRequesterProfile)} identity={viewingRequester.displayName} />
                 {/* The "•••" trigger is positioned absolutely off the name
                     itself (see the wrapper below) rather than sharing a flex
                     row with it — a row would size to name+button together,
@@ -1396,15 +1402,15 @@ export function FriendsPanel({
               </div>
 
               <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-                {viewingSearchResult.profilePhoto ? (
+                {viewingSearchResultPhoto ? (
                   <button
                     type="button"
-                    onClick={() => setEnlargedSearchResultPhoto(viewingSearchResult.profilePhoto ?? null)}
+                    onClick={() => setEnlargedSearchResultPhoto(viewingSearchResultPhoto)}
                     aria-label={`Enlarge ${viewingSearchResult.username}'s profile photo`}
                     className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo */}
-                    <img src={viewingSearchResult.profilePhoto} alt="" className="h-full w-full rounded-full object-cover" />
+                    <img src={viewingSearchResultPhoto} alt="" className="h-full w-full rounded-full object-cover" />
                     <span className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/20" />
                     <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white">
                       <ExpandIcon className="h-3 w-3" />

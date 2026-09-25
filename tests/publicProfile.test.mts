@@ -4,12 +4,13 @@ let signedIn = true
 let blocked = false
 let banned = false
 let readCount = 0
+let photo: string | null = null
 mock.module("../auth.ts", { exports: { auth: async () => signedIn ? { user: { id: "viewer" } } : null } })
 mock.module("../lib/db.ts", { exports: {
   getUserIdByUsername: async (name: string) => name === "alex" ? "target" : null,
   getUserStatus: async () => ({ banned, deleted: false, suspendedUntil: null }),
   isBlockedEitherWay: async () => blocked,
-  getPublicProfile: async () => { readCount++; return { username: "alex", profilePhoto: null, bio: "Hello", posts: [{ id: "post", dataUrl: "data:image/png;base64,test" }] } },
+  getPublicProfile: async () => { readCount++; return { username: "alex", profilePhoto: photo, bio: "Hello", posts: [{ id: "post", dataUrl: "data:image/png;base64,test" }] } },
 } })
 mock.module("../lib/apiRateLimit.ts", { exports: { isRateLimited: () => false } })
 const { GET } = await import("../app/api/profile/public/[username]/route.ts")
@@ -35,4 +36,12 @@ test("public profile endpoint requires authentication and a valid existing usern
   signedIn = true
   assert.equal((await get("../invalid")).status, 404)
   assert.equal((await get("missing")).status, 404)
+})
+test("another user's custom profile photo is returned to viewers", async () => {
+  photo = "/api/media/0b7c3f5e-1d2a-4c6b-9e8f-123456789abc.webp"
+  try {
+    const body = await (await get()).json()
+    assert.equal(body.profilePhoto, photo)
+    assert.equal(body.posts.length, 1)
+  } finally { photo = null }
 })

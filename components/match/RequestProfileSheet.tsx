@@ -3,6 +3,9 @@ import panelStyles from "./SocialPanel.module.css"
 import { PublicProfilePosts } from "./PublicProfilePosts"
 import { ReportButton } from "./ReportButton"
 import { ProfileActionsMenu } from "./ProfileActionsMenu"
+import { ProfileAvatar } from "./ProfileAvatar"
+import { usePublicProfile } from "@/hooks/usePublicProfile"
+import { resolveProfilePhoto } from "@/lib/publicProfile"
 
 import { AnimatePresence, motion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
@@ -24,6 +27,7 @@ type RequestProfileSheetProps = {
  * profile straight from the live in-call toast.
  */
 export function RequestProfileSheet({ request, onAccept, onDecline, onReport, onClose }: RequestProfileSheetProps) {
+  const { profile } = usePublicProfile(request?.username)
   return (
     <AnimatePresence>
       {request && (
@@ -50,9 +54,7 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
           </div>
 
           <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-            <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-              {request.displayName.charAt(0)}
-            </span>
+            <ProfileAvatar key={request.id} photo={resolveProfilePhoto(profile)} identity={request.displayName} />
             {/* The "•••" trigger sits absolutely off the name (see the
                 wrapper below) rather than in a shared flex row with it — a
                 row would size to name+button together, pulling the name
