@@ -8,6 +8,7 @@
     "mediaHarness.tsx",
     "syntheticCapture.ts",
     "../../next-env.d.ts",
+    "../../types/next-assets.d.ts",
     "homepageHarness.tsx",
     "homepageFixtures.ts",
     "homepageRuntime.tsx"

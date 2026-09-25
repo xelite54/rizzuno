@@ -15,9 +15,8 @@ import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilt
 import { CHAT_SEND_MIN_INTERVAL_MS, CHAT_SEND_TOO_FAST_MESSAGE } from "@/lib/chatRateLimit"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
-import { ChevronLeftIcon, CloseIcon, DotsIcon, ExpandIcon, MailIcon, ReplyIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
+import { ChevronLeftIcon, CloseIcon, DotsIcon, MailIcon, ReplyIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
 import { TypingDots } from "./MatchChatPanel"
-import { ProfilePhotoViewer } from "./ProfilePhotoViewer"
 import { isSameDay, formatDayLabel, formatTime } from "@/lib/chatFormat"
 import { EASE_OUT, DURATION_QUICK, DURATION_BASE } from "@/lib/motion"
 import type { DemoFriend, PendingRequest } from "@/hooks/useFriends"
@@ -156,15 +155,6 @@ export function FriendsPanel({
   // send, on switching conversations, and on the panel closing, the same
   // way `draft` itself already resets for each of those.
   const [replyingTo, setReplyingTo] = useState<FriendChatEntry | null>(null)
-  // Which profile's photo is currently open full-screen (see
-  // ProfilePhotoViewer.tsx) — at most one of the three profile screens
-  // below (friend/search-result) is ever open at once, so a single
-  // "which photo, if any" slot covers both rather than needing one flag
-  // per screen. Holds the actual data URL (not just "open: true") since
-  // the viewer needs it directly and it can't disappear out from under a
-  // still-open viewer the way looking it back up by id could.
-  const [enlargedFriendPhoto, setEnlargedFriendPhoto] = useState<string | null>(null)
-  const [enlargedSearchResultPhoto, setEnlargedSearchResultPhoto] = useState<string | null>(null)
 
   // Per-row "•••" menu on a friend in the list (View profile / Remove friend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
@@ -253,8 +243,6 @@ export function FriendsPanel({
       setSearchErrored(false)
       setViewingSearchResultUsername(null)
       setSearchResultBlockConfirm(false)
-      setEnlargedFriendPhoto(null)
-      setEnlargedSearchResultPhoto(null)
       setReplyingTo(null)
     }, 250)
     return () => clearTimeout(timer)
@@ -1248,33 +1236,7 @@ export function FriendsPanel({
                 ) : (
                   <>
                     <span className="relative flex h-24 w-24 shrink-0">
-                      {friendProfile?.profilePhoto ? (
-                        <button
-                          type="button"
-                          onClick={() => setEnlargedFriendPhoto(friendProfile.profilePhoto)}
-                          aria-label={`Enlarge ${friendName}'s profile photo`}
-                          className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element -- data-URL profile photo, not a static asset */}
-                          <img
-                            src={friendProfile.profilePhoto}
-                            alt=""
-                            className="h-24 w-24 rounded-full object-cover"
-                          />
-                          {/* A dimming overlay on hover for pointer devices,
-                              plus a small always-visible corner badge so
-                              touch devices (no hover) see the same "this
-                              expands" cue. */}
-                          <span className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/20" />
-                          <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white">
-                            <ExpandIcon className="h-3 w-3" />
-                          </span>
-                        </button>
-                      ) : (
-                        <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                          {friendName.charAt(0).toUpperCase()}
-                        </span>
-                      )}
+                      <ProfileAvatar key={viewingFriend.id} photo={resolveProfilePhoto(friendProfile, viewingFriend.profilePhoto)} identity={friendName} />
                       {/* Presence dot, not a text label — shown only when
                           actually online, the same convention Instagram/etc.
                           use on a profile photo (silence means not online,
@@ -1402,25 +1364,7 @@ export function FriendsPanel({
               </div>
 
               <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-                {viewingSearchResultPhoto ? (
-                  <button
-                    type="button"
-                    onClick={() => setEnlargedSearchResultPhoto(viewingSearchResultPhoto)}
-                    aria-label={`Enlarge ${viewingSearchResult.username}'s profile photo`}
-                    className="group relative h-24 w-24 cursor-zoom-in overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo */}
-                    <img src={viewingSearchResultPhoto} alt="" className="h-full w-full rounded-full object-cover" />
-                    <span className="absolute inset-0 rounded-full bg-black/0 transition group-hover:bg-black/20" />
-                    <span className="absolute bottom-0 right-0 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-black/60 text-white">
-                      <ExpandIcon className="h-3 w-3" />
-                    </span>
-                  </button>
-                ) : (
-                  <span className="flex h-24 w-24 items-center justify-center rounded-full bg-accent-2 text-[32px] font-semibold text-accent-foreground">
-                    {viewingSearchResult.username.charAt(0).toUpperCase()}
-                  </span>
-                )}
+                <ProfileAvatar key={viewingSearchResult.username} photo={viewingSearchResultPhoto} identity={viewingSearchResult.username} />
                 {/* The "•••" trigger sits absolutely off the username (see
                     the wrapper below) rather than in a shared flex row with
                     it — a row would size to name+button together, pulling
@@ -1500,21 +1444,6 @@ export function FriendsPanel({
             </motion.div>
           )}
         </AnimatePresence>
-
-        {enlargedFriendPhoto && (
-          <ProfilePhotoViewer
-            photo={enlargedFriendPhoto}
-            owner={friendProfile?.username ?? (viewingFriend?.displayName ?? "Friend")}
-            onClose={() => setEnlargedFriendPhoto(null)}
-          />
-        )}
-        {enlargedSearchResultPhoto && (
-          <ProfilePhotoViewer
-            photo={enlargedSearchResultPhoto}
-            owner={viewingSearchResult?.username ?? "Profile"}
-            onClose={() => setEnlargedSearchResultPhoto(null)}
-          />
-        )}
         </>,
         document.body
       )}
