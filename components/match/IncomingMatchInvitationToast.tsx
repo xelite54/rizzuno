@@ -1,5 +1,6 @@
 "use client"
 
+import { UserAvatar } from "@/components/UserAvatar"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
 import type { MatchInvitation } from "@/lib/signaling/protocol"
@@ -29,9 +30,7 @@ export function IncomingMatchInvitationToast({ invitation, canAccept, error, onR
           className={`${panelStyles.panel} fixed right-4 top-4 z-[80] w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-surface p-4 shadow-2xl`}
         >
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[15px] font-semibold text-white" aria-hidden="true">
-              {invitation.username.charAt(0).toUpperCase()}
-            </span>
+            <UserAvatar name={invitation.username} username={invitation.username} photo={invitation.profilePhoto} className="h-10 w-10 text-[15px]" />
             <div className="min-w-0 flex-1 pt-1">
               <p className="truncate text-[14px] font-semibold text-foreground">{invitation.username}</p>
               <p className="mt-1 text-[13px] text-muted">Wants to match with you</p>

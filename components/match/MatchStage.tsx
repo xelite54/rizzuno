@@ -414,6 +414,7 @@ export function MatchStage() {
     senderId: r.senderId,
     displayName: r.username ?? "",
     username: r.username ?? "",
+    profilePhoto: r.profilePhoto ?? null,
   }))
   const blockedUsers: BlockedUser[] = rawBlockedUsers.map((b) => ({
     id: b.userId,

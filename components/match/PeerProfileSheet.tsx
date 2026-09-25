@@ -60,10 +60,10 @@ export function PeerProfileSheet({ peer, open, friendState, onAddFriend, onClose
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             <div className="mx-auto w-full max-w-lg px-6 py-6">
               <div className="flex flex-col items-center text-center">
-                <ProfileAvatar key={identity} photo={resolveProfilePhoto(freshProfile, peer.profilePhoto)} identity={identity} />
+                <ProfileAvatar key={identity} photo={resolveProfilePhoto(freshProfile, peer.profilePhoto)} identity={identity} username={peer.username ?? null} />
                 <p className="mt-3 text-[17px] font-semibold text-foreground">{identity}</p>
 
                 {FRIENDS_ENABLED && (

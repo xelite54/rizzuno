@@ -1,5 +1,6 @@
 "use client"
 
+import { UserAvatar } from "@/components/UserAvatar"
 import styles from "./MatchStage.module.css"
 
 import { FriendButton } from "./FriendButton"
@@ -27,12 +28,7 @@ export function PersonBadge({ peer, friendState, onAddFriend, onViewProfile }: P
       <div className="flex items-center gap-1.5 rounded-full bg-black/55 p-1.5">
         <button type="button" onClick={onViewProfile} aria-label={`View ${identity}'s profile`}
           className="flex min-w-0 cursor-pointer items-center gap-2 rounded-full px-1.5 py-1 text-left transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2">
-          <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-2 text-sm">
-            {peer.profilePhoto ? (
-              // eslint-disable-next-line @next/next/no-img-element -- peer profile image
-              <img src={peer.profilePhoto} alt="" className="h-full w-full object-cover" />
-            ) : identity.charAt(0).toUpperCase()}
-          </span>
+          <UserAvatar name={identity} username={peer.username ?? null} photo={peer.profilePhoto} className="h-8 w-8 text-sm" tone="bg-surface-2" />
           <span className="truncate text-[13px] font-semibold text-foreground">{identity}</span>
           {country && <span title={country.name} aria-label={country.name} className="shrink-0 text-base">{country.flag}</span>}
         </button>

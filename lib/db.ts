@@ -636,28 +636,33 @@ export async function listFriends(userId: string): Promise<FriendSummary[]> {
   }))
 }
 
-export type ReceivedFriendRequest = { requestId: string; senderId: string; username: string | null; createdAt: number }
+/** `profilePhoto` is live-joined from `users.profile_photo`, like listFriends(), so a request always shows the sender's current photo. */
+export type ReceivedFriendRequest = { requestId: string; senderId: string; username: string | null; profilePhoto: string | null; createdAt: number }
 
 export async function listPendingRequestsReceived(userId: string): Promise<ReceivedFriendRequest[]> {
-  const { rows } = await q<{ id: string; sender_id: string; created_at: string; username: string | null }>(
-    `SELECT fr.id, fr.sender_id, fr.created_at, u.username
+  const { rows } = await q<{ id: string; sender_id: string; created_at: string; username: string | null; profile_photo: string | null }>(
+    `SELECT fr.id, fr.sender_id, fr.created_at, u.username, u.profile_photo
      FROM friend_requests fr
      JOIN users u ON u.id = fr.sender_id
      WHERE fr.recipient_id = $1 AND fr.status = 'pending'
      ORDER BY fr.created_at DESC`,
     [userId]
   )
-  return rows.map((r) => ({ requestId: r.id, senderId: r.sender_id, username: r.username, createdAt: Number(r.created_at) }))
+  return rows.map((r) => ({ requestId: r.id, senderId: r.sender_id, username: r.username, profilePhoto: r.profile_photo, createdAt: Number(r.created_at) }))
 }
 
-export type SentFriendRequest = { requestId: string; recipientId: string; createdAt: number }
+export type SentFriendRequest = { requestId: string; recipientId: string; username: string | null; profilePhoto: string | null; createdAt: number }
 
 export async function listPendingRequestsSent(userId: string): Promise<SentFriendRequest[]> {
-  const { rows } = await q<{ id: string; recipient_id: string; created_at: string }>(
-    `SELECT id, recipient_id, created_at FROM friend_requests WHERE sender_id = $1 AND status = 'pending' ORDER BY created_at DESC`,
+  const { rows } = await q<{ id: string; recipient_id: string; created_at: string; username: string | null; profile_photo: string | null }>(
+    `SELECT fr.id, fr.recipient_id, fr.created_at, u.username, u.profile_photo
+     FROM friend_requests fr
+     JOIN users u ON u.id = fr.recipient_id
+     WHERE fr.sender_id = $1 AND fr.status = 'pending'
+     ORDER BY fr.created_at DESC`,
     [userId]
   )
-  return rows.map((r) => ({ requestId: r.id, recipientId: r.recipient_id, createdAt: Number(r.created_at) }))
+  return rows.map((r) => ({ requestId: r.id, recipientId: r.recipient_id, username: r.username, profilePhoto: r.profile_photo, createdAt: Number(r.created_at) }))
 }
 
 export type ReportInput = {
@@ -962,6 +967,31 @@ export async function getUsername(userId: string): Promise<string | null> {
 export async function getUserIdByUsername(username: string): Promise<string | null> {
   const { rows } = await q<{ id: string }>(`SELECT id FROM users WHERE username = $1`, [username.trim().toLowerCase()])
   return rows[0]?.id ?? null
+}
+
+/**
+ * Current `users.profile_photo` for a batch of usernames, as `viewerId` may
+ * see them — the same visibility rules as GET /api/profile/public/[username]:
+ * banned, deleted, suspended, and blocked-either-way accounts are simply
+ * absent (the caller shows the initial). Only username → photo is returned.
+ */
+export async function getCurrentProfilePhotos(viewerId: string, usernames: string[]): Promise<Record<string, string | null>> {
+  if (!usernames.length) return {}
+  const { rows } = await q<{ username: string; profile_photo: string | null }>(
+    `SELECT u.username, u.profile_photo
+       FROM users u
+      WHERE u.username = ANY($1::text[])
+        AND u.banned_at IS NULL
+        AND u.deleted_at IS NULL
+        AND (u.suspended_until IS NULL OR u.suspended_until <= $3)
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks b
+           WHERE (b.blocker_id = $2 AND b.blocked_id = u.id)
+              OR (b.blocker_id = u.id AND b.blocked_id = $2)
+        )`,
+    [usernames, viewerId, now()]
+  )
+  return Object.fromEntries(rows.map((r) => [r.username, r.profile_photo]))
 }
 
 export type Post = { id: string; dataUrl: string }

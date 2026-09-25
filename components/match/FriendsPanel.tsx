@@ -3,6 +3,8 @@ import { PublicProfilePosts } from "./PublicProfilePosts"
 import { ProfileAvatar } from "./ProfileAvatar"
 import { usePublicProfile } from "@/hooks/usePublicProfile"
 import { resolveProfilePhoto } from "@/lib/publicProfile"
+import { primeCurrentPhoto } from "@/lib/currentPhotos"
+import { UserAvatar } from "@/components/UserAvatar"
 import { ReportButton } from "./ReportButton"
 import { ProfileActionsMenu } from "./ProfileActionsMenu"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
@@ -282,6 +284,7 @@ export function FriendsPanel({
           console.warn("friends panel: a confirmed friend's profile came back with no username")
         }
         setFriendProfile(data)
+        if (data.username) primeCurrentPhoto(data.username, data.profilePhoto)
         setFriendProfileStatus("loaded")
       })
       .catch(() => {
@@ -657,12 +660,7 @@ export function FriendsPanel({
                             aria-label={`View ${person.username}'s profile`}
                             className="flex cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 transition hover:bg-surface-2"
                           >
-                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
-                              {person.profilePhoto ? (
-                                // eslint-disable-next-line @next/next/no-img-element -- moderated user profile photo
-                                <img src={person.profilePhoto} alt="" className="h-full w-full rounded-full object-cover" />
-                              ) : person.username.charAt(0).toUpperCase()}
-                            </span>
+                            <UserAvatar name={person.username} username={person.username} photo={person.profilePhoto} className="h-9 w-9 text-[13px]" />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[13px] font-medium text-foreground">
                                 {person.username}
@@ -712,18 +710,7 @@ export function FriendsPanel({
                           className="flex min-w-0 flex-1 items-center gap-3 text-left"
                         >
                           <span className="relative shrink-0">
-                            {friend.profilePhoto ? (
-                              // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
-                              <img
-                                src={friend.profilePhoto}
-                                alt=""
-                                className="h-9 w-9 rounded-full object-cover"
-                              />
-                            ) : (
-                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
-                                {friend.displayName.charAt(0)}
-                              </span>
-                            )}
+                            <UserAvatar name={friend.displayName} username={friend.username || null} photo={friend.profilePhoto} className="h-9 w-9 text-[12px]" />
                             <span
                               className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-surface ${
                                 friend.online ? "bg-online" : "bg-muted"
@@ -864,14 +851,7 @@ export function FriendsPanel({
                     }}
                     className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition hover:bg-surface-2"
                   >
-                    {active.profilePhoto ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
-                      <img src={active.profilePhoto} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
-                    ) : (
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[11px] font-semibold text-accent-foreground">
-                        {active.displayName.charAt(0)}
-                      </span>
-                    )}
+                    <UserAvatar name={active.displayName} username={active.username || null} photo={active.profilePhoto} className="h-8 w-8 text-[11px]" />
                     <span className="min-w-0">
                       <span className="block truncate text-[14px] font-medium text-foreground">
                         {active.displayName}
@@ -1082,9 +1062,7 @@ export function FriendsPanel({
                         aria-label={`View ${request.displayName}'s profile`}
                         className="mx-3 mb-3 grid cursor-pointer grid-cols-[2.75rem_minmax(0,1fr)] items-center gap-3 rounded-2xl border border-border p-4 transition hover:bg-surface-2"
                       >
-                        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[14px] font-semibold text-accent-foreground">
-                          {request.displayName.charAt(0)}
-                        </span>
+                        <UserAvatar name={request.displayName} username={request.username || null} photo={request.profilePhoto} className="h-11 w-11 text-[14px]" />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[14px] font-medium text-foreground">
                             {request.displayName}
@@ -1149,8 +1127,8 @@ export function FriendsPanel({
                 </button>
               </div>
 
-              <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-                <ProfileAvatar key={viewingRequester.id} photo={resolveProfilePhoto(viewingRequesterProfile)} identity={viewingRequester.displayName} />
+              <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
+                <ProfileAvatar key={viewingRequester.id} photo={resolveProfilePhoto(viewingRequesterProfile, viewingRequester.profilePhoto)} identity={viewingRequester.displayName} username={viewingRequester.username || null} />
                 {/* The "•••" trigger is positioned absolutely off the name
                     itself (see the wrapper below) rather than sharing a flex
                     row with it — a row would size to name+button together,
@@ -1227,7 +1205,10 @@ export function FriendsPanel({
                 </button>
               </div>
 
-              <div className="flex flex-1 flex-col items-center px-6 py-10 text-center">
+              {/* The body is the scroll container: min-h-0 lets it shrink
+                  below its content inside the fixed flex column, so the
+                  header stays put and posts stay reachable. */}
+              <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
                 {loading ? (
                   <>
                     <span className="h-24 w-24 shrink-0 animate-pulse rounded-full bg-surface-2" aria-hidden="true" />
@@ -1236,7 +1217,7 @@ export function FriendsPanel({
                 ) : (
                   <>
                     <span className="relative flex h-24 w-24 shrink-0">
-                      <ProfileAvatar key={viewingFriend.id} photo={resolveProfilePhoto(friendProfile, viewingFriend.profilePhoto)} identity={friendName} />
+                      <ProfileAvatar key={viewingFriend.id} photo={resolveProfilePhoto(friendProfile, viewingFriend.profilePhoto)} identity={friendName} username={friendProfile?.username ?? (viewingFriend.username || null)} />
                       {/* Presence dot, not a text label — shown only when
                           actually online, the same convention Instagram/etc.
                           use on a profile photo (silence means not online,
@@ -1363,8 +1344,8 @@ export function FriendsPanel({
                 </button>
               </div>
 
-              <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-                <ProfileAvatar key={viewingSearchResult.username} photo={viewingSearchResultPhoto} identity={viewingSearchResult.username} />
+              <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
+                <ProfileAvatar key={viewingSearchResult.username} photo={viewingSearchResultPhoto} identity={viewingSearchResult.username} username={viewingSearchResult.username} />
                 {/* The "•••" trigger sits absolutely off the username (see
                     the wrapper below) rather than in a shared flex row with
                     it — a row would size to name+button together, pulling

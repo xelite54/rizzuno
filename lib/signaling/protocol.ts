@@ -103,14 +103,15 @@ export type FriendSummary = {
 export type FriendChatMessage = { id: string; text: string; createdAt: number; replyToId: string | null }
 
 /** A friend request someone else sent you — `id` is the request's own opaque id (used to accept/decline it), not the sender's account id, which this doesn't expose until you accept. */
-export type ReceivedFriendRequest = { id: string; senderId: string; username: string | null; createdAt: number }
+export type ReceivedFriendRequest = { id: string; senderId: string; username: string | null; profilePhoto: string | null; createdAt: number }
 
 /** A friend request you sent — `recipientId` is included because, unlike an incoming request, you already necessarily learned it by choosing to send this (it's your own action, not exposure of a stranger's identity). */
-export type SentFriendRequest = { id: string; recipientId: string; createdAt: number }
+export type SentFriendRequest = { id: string; recipientId: string; username: string | null; profilePhoto: string | null; createdAt: number }
 
 export type BlockedUserSummary = { userId: string; username: string | null }
 
-export type MatchInvitation = { id: string; userId: string; username: string; expiresAt: number; direction: "incoming" | "outgoing" }
+/** `profilePhoto` is the other side's current photo, read from the server's connection state (itself loaded from `users.profile_photo`). */
+export type MatchInvitation = { id: string; userId: string; username: string; profilePhoto: string | null; expiresAt: number; direction: "incoming" | "outgoing" }
 
 export type FriendRequestResult =
   | "subscription_required"

@@ -408,7 +408,10 @@ export function useMyProfile() {
     })
     if (res.status === 402) router.push(subscriptionHref("profile-photo"))
     if (!res.ok) await throwForFailedImageUpload(res, "failed to update profile photo")
-    setProfilePhotoState(photo)
+    // Keep the server's stored reference (never the multi-megabyte upload),
+    // so the local cache and realtime updates match what others see.
+    const saved: { profilePhoto?: string | null } = await res.json().catch(() => ({}))
+    setProfilePhotoState(saved.profilePhoto !== undefined ? saved.profilePhoto : photo)
   }, [router])
 
   // Adds a post — persists (and gets moderated) server-side FIRST, so the

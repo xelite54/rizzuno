@@ -14,6 +14,8 @@ import { mock } from "node:test"
  */
 export const dbMockState = {
   usernames: new Map<string, string>(),
+  /** Stored `users.profile_photo` per account id (absent = null). */
+  photos: new Map<string, string>(),
   incomingRequests: [] as { requestId: string; senderId: string; username: string; createdAt: number }[],
   genders: new Map<string, "male" | "female">(),
   plusEnabled: true,
@@ -62,6 +64,7 @@ let friendMessageCounter = 0
 
 export function resetDbMockState() {
   dbMockState.usernames.clear()
+  dbMockState.photos.clear()
   dbMockState.incomingRequests = []
   dbMockState.genders.clear()
   dbMockState.plusEnabled = true
@@ -87,7 +90,7 @@ mock.module("../../lib/db.ts", {
     checkAndIncrementApiRateLimit: async () => false,
     hasAcceptedCurrent: async (userId: string) => !dbMockState.acceptanceRequiredUserIds.has(userId),
     canTargetUser: async (a: string, b: string) => [...dbMockState.friendships.values()].some((pair) => pair.includes(a) && pair.includes(b)) || dbMockState.incomingRequests.some((r) => r.senderId === b),
-    getPublicProfile: async (userId: string) => ({ username: dbMockState.usernames.get(userId) ?? null, profilePhoto: null, bio: "", posts: [] }),
+    getPublicProfile: async (userId: string) => ({ username: dbMockState.usernames.get(userId) ?? null, profilePhoto: dbMockState.photos.get(userId) ?? null, bio: "", posts: [] }),
     hasRizzPlus: async () => dbMockState.plusEnabled,
     getAccountGender: async (id: string) => dbMockState.genders.get(id) ?? null,
     claimAccountGender: async (id: string, gender: "male" | "female") => {
@@ -135,8 +138,8 @@ mock.module("../../lib/db.ts", {
       // pre-existing test that never touches `friendships`.
       const result: { friendshipId: string; userId: string; username: string | null; profilePhoto: string | null; since: number }[] = []
       for (const [friendshipId, pair] of dbMockState.friendships) {
-        if (pair[0] === userId) result.push({ friendshipId, userId: pair[1], username: pair[1], profilePhoto: null, since: 0 })
-        else if (pair[1] === userId) result.push({ friendshipId, userId: pair[0], username: pair[0], profilePhoto: null, since: 0 })
+        if (pair[0] === userId) result.push({ friendshipId, userId: pair[1], username: pair[1], profilePhoto: dbMockState.photos.get(pair[1]) ?? null, since: 0 })
+        else if (pair[1] === userId) result.push({ friendshipId, userId: pair[0], username: pair[0], profilePhoto: dbMockState.photos.get(pair[0]) ?? null, since: 0 })
       }
       return result
     },

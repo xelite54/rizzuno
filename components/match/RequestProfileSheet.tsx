@@ -53,8 +53,8 @@ export function RequestProfileSheet({ request, onAccept, onDecline, onReport, on
             </button>
           </div>
 
-          <div className="flex flex-1 flex-col items-center overflow-y-auto px-6 py-10 text-center">
-            <ProfileAvatar key={request.id} photo={resolveProfilePhoto(profile)} identity={request.displayName} />
+          <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
+            <ProfileAvatar key={request.id} photo={resolveProfilePhoto(profile, request.profilePhoto)} identity={request.displayName} username={request.username || null} />
             {/* The "•••" trigger sits absolutely off the name (see the
                 wrapper below) rather than in a shared flex row with it — a
                 row would size to name+button together, pulling the name

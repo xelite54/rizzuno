@@ -83,7 +83,7 @@ function publishInvitations(state: ConnectionState) {
     .map((invite) => {
       const incoming = invite.recipient === state
       const other = incoming ? invite.sender : invite.recipient
-      return { id: invite.id, userId: other.userId, username: other.username ?? other.handle, expiresAt: invite.expiresAt, direction: incoming ? "incoming" : "outgoing" }
+      return { id: invite.id, userId: other.userId, username: other.username ?? other.handle, profilePhoto: other.profilePhoto ?? null, expiresAt: invite.expiresAt, direction: incoming ? "incoming" : "outgoing" }
     }) })
 }
 
@@ -362,9 +362,10 @@ async function sendFriendsSnapshot(state: ConnectionState) {
       id: r.requestId,
       senderId: r.senderId,
       username: r.username,
+      profilePhoto: r.profilePhoto,
       createdAt: r.createdAt,
     })),
-    requestsSent: requestsSent.map((r) => ({ id: r.requestId, recipientId: r.recipientId, createdAt: r.createdAt })),
+    requestsSent: requestsSent.map((r) => ({ id: r.requestId, recipientId: r.recipientId, username: r.username, profilePhoto: r.profilePhoto, createdAt: r.createdAt })),
     blocked: blocked.map((b) => ({ userId: b.userId, username: b.username })),
   })
 }
@@ -405,8 +406,15 @@ async function refreshSnapshotIfOnline(userId: string) {
  * already has the app open.
  */
 async function notifyFriendsOfProfileChange(userId: string) {
-  const friends = await listFriends(userId)
-  await Promise.all(friends.map((f) => refreshSnapshotIfOnline(f.userId)))
+  // Pending requests in either direction show this account's photo too.
+  const [friends, received, sent] = await Promise.all([listFriends(userId), listPendingRequestsReceived(userId), listPendingRequestsSent(userId)])
+  const affected = new Set([...friends.map((f) => f.userId), ...received.map((r) => r.senderId), ...sent.map((r) => r.recipientId)])
+  await Promise.all([...affected].map((id) => refreshSnapshotIfOnline(id)))
+  // Open match invitations carry the photo as well.
+  for (const invite of friendInvitations.values()) {
+    if (invite.sender.userId === userId) publishInvitations(invite.recipient)
+    else if (invite.recipient.userId === userId) publishInvitations(invite.sender)
+  }
 }
 
 /**
@@ -1526,7 +1534,9 @@ export function createRizzunoWebSocketServer() {
           // requeue above, this isn't about matching at all, just keeping
           // an already-open Friends list/chat header current. See
           // notifyFriendsOfProfileChange's own doc comment.
-          if (nextUsername !== previousUsername || (message.profilePhoto !== undefined && message.profilePhoto !== previousProfilePhoto)) {
+          // Compared against the value just re-read from the database, never the
+          // client-sent one — the client's copy is only a change signal.
+          if (nextUsername !== previousUsername || state.profilePhoto !== previousProfilePhoto) {
             const { userId, displayId } = state
             notifyFriendsOfProfileChange(userId).catch((err) =>
               log.error("ws-server: notifying friends of a profile change failed", { displayId, ...describeErr(err) })

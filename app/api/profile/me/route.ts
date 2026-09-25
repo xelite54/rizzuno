@@ -144,7 +144,9 @@ async function handlePUT(request: Request) {
       catch { return NextResponse.json({ error: "image_storage_unavailable" }, { status: 503 }) }
     }
     await updateOwnProfile(userId, updates)
-    return NextResponse.json({ ok: true })
+    // The stored reference (/api/media/…) — what everyone else is served —
+    // so the client keeps that, not the raw upload it sent.
+    return NextResponse.json(updates.profilePhoto !== undefined ? { ok: true, profilePhoto: updates.profilePhoto } : { ok: true })
   } catch (err) {
     const details = describeDbError(err)
     log.error("profile/me: PUT failed", { userId, ...details })

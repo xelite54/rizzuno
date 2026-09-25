@@ -987,3 +987,37 @@ test("already-open sockets cannot continue matching after deletion, suspension o
     } finally { await server.close() }
   }
 })
+
+test("a profile photo change reaches online friends and the current peer from the stored value", async () => {
+  resetDbMockState()
+  const server = await startTestServer()
+  try {
+    const aId = uid("photo-a"), bId = uid("photo-b")
+    const stale = "/api/media/11111111-1111-4111-8111-111111111111.webp"
+    const fresh = "/api/media/22222222-2222-4222-8222-222222222222.webp"
+    dbMockState.photos.set(aId, stale)
+    dbMockState.friendships.set("friendship-photo", [aId, bId])
+    const a = await connectAndHello(server.url, aId, { gender: "male", profilePhoto: stale })
+    const b = await connectAndHello(server.url, bId, { gender: "female" })
+    const initial = await b.waitForType("friends-snapshot")
+    assert.equal(initial.friends[0].profilePhoto, stale)
+    a.send({ type: "find" }); b.send({ type: "find" })
+    assert.equal((await b.waitForType("matched")).peer.profilePhoto, stale)
+
+    // The HTTP save has already stored the new reference. Even a client
+    // whose own copy still equals the old value must trigger the update:
+    // the server compares database values, never the client's.
+    dbMockState.photos.set(aId, fresh)
+    a.send({ type: "profile-update", revision: 1, profilePhoto: stale })
+    assert.equal((await b.waitForType("peer-updated")).peer.profilePhoto, fresh)
+    const snapshot = await b.waitForType("friends-snapshot")
+    assert.equal(snapshot.friends[0].profilePhoto, fresh)
+
+    // Removing the photo propagates as null (the initial fallback).
+    dbMockState.photos.delete(aId)
+    a.send({ type: "profile-update", revision: 2, profilePhoto: null })
+    assert.equal((await b.waitForType("peer-updated")).peer.profilePhoto, null)
+    assert.equal((await b.waitForType("friends-snapshot")).friends[0].profilePhoto, null)
+    a.close(); b.close()
+  } finally { await server.close() }
+})

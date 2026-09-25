@@ -1,4 +1,6 @@
 "use client"
+import { realtimePhotoSignal } from "@/lib/publicProfile"
+import { primeCurrentPhoto } from "@/lib/currentPhotos"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
@@ -1068,7 +1070,7 @@ export function useMatchmaking(
       // A ticket is not proof of WebSocket admission. Only ready clears restrictions.
       const username = latestUsernameRef.current
       const gender = latestGenderRef.current
-      const profilePhoto = latestProfilePhotoRef.current
+      const profilePhoto = realtimePhotoSignal(latestProfilePhotoRef.current)
       profileRevisionRef.current = 0
       lastSentProfileRef.current = { username: username || undefined, gender, profilePhoto }
       console.log("matchmaking: sending hello")
@@ -1119,7 +1121,7 @@ export function useMatchmaking(
   // same snapshot this effect would otherwise see as "new".
   useEffect(() => {
     if (!realtimeReady) return
-    const current = { username: myUsername || undefined, gender: myGender, profilePhoto: myProfilePhoto }
+    const current = { username: myUsername || undefined, gender: myGender, profilePhoto: realtimePhotoSignal(myProfilePhoto) }
     const last = lastSentProfileRef.current
     if (last && last.username === current.username && last.gender === current.gender && last.profilePhoto === current.profilePhoto) {
       return
@@ -1134,6 +1136,7 @@ export function useMatchmaking(
 
   useEffect(() => {
     return subscribe((message: ServerMessage) => {
+      primePhotosFromServer(message)
       switch (message.type) {
         case "ready":
           helloReadyRef.current = true
@@ -1866,5 +1869,27 @@ export function useMatchmaking(
     markFriendChatRead,
     peerFriendTyping,
     notifyFriendTyping,
+  }
+}
+
+/**
+ * Realtime payloads carry photos the server just read from
+ * `users.profile_photo`; record them so every avatar of that person
+ * (lists, toasts, badges, history) shows the same current photo.
+ */
+function primePhotosFromServer(message: ServerMessage) {
+  switch (message.type) {
+    case "matched":
+    case "peer-updated":
+      if (message.peer.username) primeCurrentPhoto(message.peer.username, message.peer.profilePhoto ?? null)
+      break
+    case "match-invitations":
+      for (const invite of message.invitations) primeCurrentPhoto(invite.username, invite.profilePhoto ?? null)
+      break
+    case "friends-snapshot":
+      for (const friend of message.friends) if (friend.username) primeCurrentPhoto(friend.username, friend.profilePhoto)
+      for (const request of message.requestsReceived) if (request.username) primeCurrentPhoto(request.username, request.profilePhoto ?? null)
+      for (const request of message.requestsSent) if (request.username) primeCurrentPhoto(request.username, request.profilePhoto ?? null)
+      break
   }
 }

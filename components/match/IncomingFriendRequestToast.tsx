@@ -1,5 +1,6 @@
 "use client"
 
+import { UserAvatar } from "@/components/UserAvatar"
 import { AnimatePresence, motion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_SLOW } from "@/lib/motion"
@@ -42,9 +43,9 @@ export function IncomingFriendRequestToast({
               type="button"
               onClick={onViewProfile}
               aria-label={`View ${request.displayName}'s profile`}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-2 text-[14px] font-semibold text-accent-foreground"
+              className="shrink-0 rounded-full"
             >
-              {request.displayName.charAt(0)}
+              <UserAvatar name={request.displayName} username={request.username || null} photo={request.profilePhoto} className="h-10 w-10 text-[14px]" />
             </button>
             <div className="min-w-0 flex-1">
               <button type="button" onClick={onViewProfile} className="block max-w-full text-left">

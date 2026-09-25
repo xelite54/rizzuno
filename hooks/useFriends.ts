@@ -34,5 +34,6 @@ export type DemoFriend = {
   /** Real, server-computed unread-message count for this friend (see lib/db.ts's countUnreadFriendMessages()) — not a client-local counter. See FriendSummary's own doc comment in lib/signaling/protocol.ts. */
   unreadCount: number
 }
-export type PendingRequest = { id: string; senderId: string; displayName: string; username: string }
+/** `profilePhoto` is the sender's current photo from the latest friends-snapshot (live-joined server-side). */
+export type PendingRequest = { id: string; senderId: string; displayName: string; username: string; profilePhoto: string | null }
 export type BlockedUser = { id: string; displayName: string }

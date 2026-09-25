@@ -1,4 +1,5 @@
 "use client"
+import { UserAvatar } from "@/components/UserAvatar"
 import panelStyles from "./SocialPanel.module.css"
 import styles from "./MyProfileSheet.module.css"
 
@@ -848,14 +849,7 @@ export function MyProfileSheet({
                           aria-label={`View ${identity}'s profile`}
                           className="flex cursor-pointer items-center gap-3 min-h-12 rounded-xl px-3 py-3 transition hover:bg-surface-2"
                         >
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-2 text-[13px] font-semibold text-accent-foreground">
-                            {person.profilePhoto ? (
-                              // eslint-disable-next-line @next/next/no-img-element -- local/data-URL profile photo, not a static asset
-                              <img src={person.profilePhoto} alt="" className="h-full w-full object-cover" />
-                            ) : (
-                              identity.charAt(0).toUpperCase()
-                            )}
-                          </span>
+                          <UserAvatar name={identity} username={person.username || null} photo={person.profilePhoto} className="h-10 w-10 text-[13px]" />
                           <span className="min-w-0 flex-1">
                             <span className="truncate text-[14px] font-medium text-foreground">{identity}</span>
                           </span>

@@ -1,5 +1,6 @@
 "use client"
 
+import { UserAvatar } from "@/components/UserAvatar"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
@@ -136,12 +137,7 @@ export function MatchChatPanel({
             className="fixed bottom-16 right-3 z-50 flex h-[480px] max-h-[70dvh] w-[380px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-3xl border border-white/10 bg-surface/95 text-foreground shadow-2xl shadow-black/40 backdrop-blur-xl"
           >
             <div className="flex h-16 shrink-0 items-center gap-3 border-b border-white/5 px-5">
-              <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-accent-2 text-[12px] font-semibold text-accent-foreground">
-                {peer?.profilePhoto ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- user-provided profile image
-                  <img src={peer.profilePhoto} alt="" className="h-full w-full object-cover" />
-                ) : (peer?.username || peer?.handle || "?").charAt(0).toUpperCase()}
-              </span>
+              <UserAvatar name={peer?.username || peer?.handle || "?"} username={peer?.username ?? null} photo={peer?.profilePhoto} className="h-10 w-10 text-[12px]" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[14px] font-medium text-foreground">{peer ? (peer.username ?? peer.handle) : "Chat"}</p>
 
