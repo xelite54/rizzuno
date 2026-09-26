@@ -66,7 +66,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - uses: browser-actions/setup-chrome@v1
+      - uses: browser-actions/setup-chrome@v2
         id: chrome
         with:
           chrome-version: '154.0.8037.57' # Chrome for Testing stable, reviewed 2026-09-24
