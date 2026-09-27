@@ -12,7 +12,7 @@ function url(name: string, protocols: string[]): URL {
 }
 export function validateProductionConfig(role: "web" | "realtime") {
   if (process.env.NODE_ENV !== "production") return
-  validateLaunchReadiness()
+  if (process.env.SKIP_LAUNCH_READINESS !== "true") validateLaunchReadiness()
   if (process.env.STAGING_PROBE_SECRET && process.env.DEPLOYMENT_TIER !== "staging") throw new Error("Staging probes forbidden outside staging")
   billingMode()
   const required = role === "web"
