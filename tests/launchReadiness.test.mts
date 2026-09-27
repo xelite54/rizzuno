@@ -33,6 +33,28 @@ test("launch gate rejects missing operator decisions, unregistered US process an
   finally { if(before===undefined)delete process.env.VERCEL; else process.env.VERCEL=before }
   assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_COUNTRIES:"US,*"}))
 })
+test("exact readiness override bypasses country and region checks even with missing or invalid configuration", () => {
+  for (const config of [{}, {SUPPORTED_COUNTRIES:"US",SUPPORTED_US_REGIONS:"NY"}, {SUPPORTED_COUNTRIES:"invalid",SUPPORTED_US_REGIONS:"invalid"}]) {
+    const env = {...config,NODE_ENV:"production",SKIP_LAUNCH_READINESS:"true"}
+    for (const country of [null,"US","CA"]) {
+      assert.equal(countryAllowed(country,env),true)
+      for (const region of [null,"NY","TX"]) assert.equal(locationAllowed(country,region,env),true)
+    }
+  }
+})
+test("other readiness override values preserve country and state restrictions", () => {
+  for (const flag of [undefined,"false","TRUE","1"," true ",""]) {
+    const env = {NODE_ENV:"production",SUPPORTED_COUNTRIES:"US",SUPPORTED_US_REGIONS:"NY",SKIP_LAUNCH_READINESS:flag}
+    assert.equal(countryAllowed(null,env),false)
+    assert.equal(countryAllowed("CA",env),false)
+    assert.equal(countryAllowed("US",env),true)
+    assert.equal(locationAllowed("US",null,env),false)
+    assert.equal(locationAllowed("US","TX",env),false)
+    assert.equal(locationAllowed("US","NY",env),true)
+    assert.throws(() => countryAllowed("US",{...env,SUPPORTED_COUNTRIES:""}))
+    assert.throws(() => locationAllowed("US","NY",{...env,SUPPORTED_US_REGIONS:"invalid"}))
+  }
+})
 test("report text snapshot rejects future/old timestamps and caps count and content", () => {
   const now = 1_000_000
   const result = boundedReportChat(Array.from({length:30},(_,i)=>({senderId:"a",text:"x".repeat(800),timestamp:now-i})),now)

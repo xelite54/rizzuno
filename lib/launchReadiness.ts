@@ -8,6 +8,7 @@ export function supportedCountries(env: Record<string, string | undefined> = pro
   return [...new Set(values)]
 }
 export function countryAllowed(country: string | null, env: Record<string, string | undefined> = process.env) {
+  if (env.SKIP_LAUNCH_READINESS === "true") return true
   if (env.NODE_ENV !== "production" && !env.SUPPORTED_COUNTRIES) return true
   return country !== null && supportedCountries(env).includes(country)
 }
@@ -19,6 +20,7 @@ export function supportedUsRegions(env: Record<string, string | undefined> = pro
   return [...new Set(values)]
 }
 export function locationAllowed(country: string | null, usRegion: string | null, env: Record<string, string | undefined> = process.env) {
+  if (env.SKIP_LAUNCH_READINESS === "true") return true
   if (!countryAllowed(country, env)) return false
   const regions = supportedUsRegions(env)
   if (country !== "US") return true
