@@ -92,6 +92,7 @@ Object.assign(window, { homepage: {
   refreshSession: () => refreshSession(),
   signOut: () => signOut({ redirect: false }),
   reconnect: () => sockets.filter(s => s.readyState === WebSocket.OPEN).forEach(s => s.close()),
+  sendRaw: (message: unknown) => sockets.filter(s => s.readyState === WebSocket.OPEN).forEach(s => s.send(JSON.stringify(message))),
   camera: (available: boolean) => {
     cameraAvailable = available
     if (!available) {

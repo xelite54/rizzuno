@@ -14,8 +14,7 @@ import { RizzPlusBadge } from "@/components/RizzPlusBadge"
 import Link from "next/link"
 import { EASE_OUT, DURATION_BASE } from "@/lib/motion"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
-import { PeerProfileSheet } from "./PeerProfileSheet"
-import type { FriendState } from "./FriendButton"
+import { useUserProfile } from "@/components/profile/UserProfileProvider"
 import type { PeerProfile } from "@/hooks/useMatchmaking"
 import { ImageModerationRejectedError, type Post, type Gender } from "@/hooks/useMyProfile"
 import type { BlockedUser } from "@/hooks/useFriends"
@@ -188,12 +187,6 @@ export function MyProfileSheet({
   function handleXClick() {
     if (view === "profile") handleClose()
     else goBack()
-  }
-
-  /** Maps a displayId's raw session outcome ("failed" included) down to the three states PeerProfileSheet's FriendButton actually understands — a failed attempt should just look like "none" there (retryable via the same Add button), whereas the History row list below shows "Try again" explicitly instead of collapsing it. */
-  function friendStateFor(displayId: string): FriendState {
-    const action = friendActionState.get(displayId)
-    return action === "friends" ? "friends" : action === "requested" ? "requested" : "none"
   }
 
   function startEditing() {
@@ -416,10 +409,13 @@ export function MyProfileSheet({
 
 
 
-  // Tapping a history row's background opens that person's full profile —
-  // separate from the row's own "Add" button, which still sends a request
-  // right from the list without opening anything.
-  const [viewingHistoryPerson, setViewingHistoryPerson] = useState<PeerProfile | null>(null)
+  // Tapping a history row's background opens that person's profile (the
+  // shared UserProfileSheet) — separate from the row's own "Add" button,
+  // which still sends a request right from the list without opening anything.
+  const { openUserProfile } = useUserProfile()
+  function openHistoryProfile(person: PeerProfile) {
+    openUserProfile({ source: "history", username: person.username ?? null, displayName: person.username || person.handle, photo: person.profilePhoto, displayId: person.displayId })
+  }
 
   return (
     <>
@@ -860,11 +856,11 @@ export function MyProfileSheet({
                           key={`${person.displayId}-${index}`}
                           role="button"
                           tabIndex={0}
-                          onClick={() => setViewingHistoryPerson(person)}
+                          onClick={() => openHistoryProfile(person)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault()
-                              setViewingHistoryPerson(person)
+                              openHistoryProfile(person)
                             }
                           }}
                           aria-label={`View ${identity}'s profile`}
@@ -943,13 +939,6 @@ export function MyProfileSheet({
       )}
     </AnimatePresence>
 
-    <PeerProfileSheet
-      peer={viewingHistoryPerson}
-      open={viewingHistoryPerson !== null}
-      friendState={viewingHistoryPerson ? friendStateFor(viewingHistoryPerson.displayId) : "none"}
-      onAddFriend={() => viewingHistoryPerson && onSendFriendRequest(viewingHistoryPerson.displayId)}
-      onClose={() => setViewingHistoryPerson(null)}
-    />
     </>
   )
 }

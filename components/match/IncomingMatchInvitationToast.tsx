@@ -12,9 +12,11 @@ type Props = {
   error: string | null
   onRespond: (id: string, accept: boolean) => void
   onDismiss: (id: string) => void
+  /** Opens the sender's profile (the shared UserProfileSheet). */
+  onViewProfile?: (invitation: MatchInvitation) => void
 }
 
-export function IncomingMatchInvitationToast({ invitation, canAccept, error, onRespond, onDismiss }: Props) {
+export function IncomingMatchInvitationToast({ invitation, canAccept, error, onRespond, onDismiss, onViewProfile }: Props) {
   const reducedMotion = useReducedMotion()
   return (
     <AnimatePresence>
@@ -30,7 +32,9 @@ export function IncomingMatchInvitationToast({ invitation, canAccept, error, onR
           className={`${panelStyles.panel} fixed right-4 top-4 z-[80] w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-surface p-4 shadow-2xl`}
         >
           <div className="flex items-start gap-3">
-            <UserAvatar name={invitation.username} username={invitation.username} photo={invitation.profilePhoto} className="h-10 w-10 text-[15px]" />
+            <button type="button" onClick={() => onViewProfile?.(invitation)} disabled={!onViewProfile} aria-label={`View ${invitation.username}'s profile`} className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2">
+              <UserAvatar name={invitation.username} username={invitation.username} photo={invitation.profilePhoto} className="h-10 w-10 text-[15px]" />
+            </button>
             <div className="min-w-0 flex-1 pt-1">
               <p className="truncate text-[14px] font-semibold text-foreground">{invitation.username}</p>
               <p className="mt-1 text-[13px] text-muted">Wants to match with you</p>

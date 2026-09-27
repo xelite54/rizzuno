@@ -16,7 +16,7 @@ type ReportButtonProps = {
 /**
  * The report flow for a profile viewed OUTSIDE a live call — a friend, a
  * pending request's sender, or a searched account (see FriendsPanel.tsx /
- * RequestProfileSheet.tsx). Mirrors SafetyMenu's in-call report exactly
+ * UserProfileSheet.tsx). Mirrors SafetyMenu's in-call report exactly
  * (same categories, same "sent" confirmation) but as an inline expand
  * rather than a dropdown, since it sits inside a profile sheet already
  * scrolled to the relevant spot rather than floating over video.

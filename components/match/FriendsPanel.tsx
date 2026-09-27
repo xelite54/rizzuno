@@ -1,21 +1,13 @@
 "use client"
-import { PublicProfilePosts } from "./PublicProfilePosts"
-import { ProfileAvatar } from "./ProfileAvatar"
-import { usePublicProfile } from "@/hooks/usePublicProfile"
-import { resolveProfilePhoto } from "@/lib/publicProfile"
-import { primeCurrentPhoto } from "@/lib/currentPhotos"
 import { UserAvatar } from "@/components/UserAvatar"
+import { useUserProfile } from "@/components/profile/UserProfileProvider"
 import { ReportButton } from "./ReportButton"
-import { ProfileActionsMenu } from "./ProfileActionsMenu"
-import { subscriptionHref } from "@/lib/upgradeNavigation"
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useRef, useState } from "react"
-import { PostGallery } from "./PostGallery"
 import type { MatchInvitation, ReportCategory } from "@/lib/signaling/protocol"
 import { containsBlockedChatContent, CHAT_BLOCKED_MESSAGE } from "@/lib/textFilter"
 import { CHAT_SEND_MIN_INTERVAL_MS, CHAT_SEND_TOO_FAST_MESSAGE } from "@/lib/chatRateLimit"
-import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "motion/react"
 import { ChevronLeftIcon, CloseIcon, DotsIcon, MailIcon, ReplyIcon, SearchIcon, SendIcon, UsersIcon } from "@/components/icons"
 import { TypingDots } from "./MatchChatPanel"
@@ -120,27 +112,7 @@ export function FriendsPanel({
   const incomingMatchInvitations = matchInvitations.filter((invite) => invite.direction === "incoming")
   const requestCount = requests.length + incomingMatchInvitations.length
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [viewingRequesterId, setViewingRequesterId] = useState<string | null>(null)
-  const [viewingFriendId, setViewingFriendId] = useState<string | null>(null)
-  // The friend's REAL profile (username/profilePhoto/bio/posts), fetched
-  // through GET /api/friends/profile/[friendshipId] the moment their
-  // profile screen opens — friends-snapshot (the `friends` prop) stays
-  // deliberately lightweight (id/userId/username/online/since) and never
-  // carries this itself; see that route's own doc comment for the
-  // server-side friendship-ownership check backing this fetch.
-  const [friendProfileStatus, setFriendProfileStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle")
-  const [friendProfile, setFriendProfile] = useState<{
-    username: string | null
-    profilePhoto: string | null
-    bio: string
-    posts: { id: string; dataUrl: string }[]
-  } | null>(null)
-  // Remove friend/Block both need a second tap to confirm before they
-  // actually happen — one for the full-screen profile, one for the row
-  // "•••" menu (they're separate surfaces, so separate confirm state).
-  // The internal "unfriend" tag itself is unchanged — only the label shown
-  // for it ("Remove friend") is what changed.
-  const [friendActionConfirm, setFriendActionConfirm] = useState<"unfriend" | "block" | null>(null)
+  // Remove friend/Block in the row "•••" menu need a second tap to confirm.
   const [rowMenuConfirm, setRowMenuConfirm] = useState<"unfriend" | "block" | null>(null)
   const [draft, setDraft] = useState("")
   // Holds whichever reason the draft is currently blocked for — content
@@ -202,19 +174,6 @@ export function FriendsPanel({
   const [searchResults, setSearchResults] = useState<SearchResultPerson[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchErrored, setSearchErrored] = useState(false)
-  const [requestError, setRequestError] = useState<string | null>(null)
-  const [sentUsernames, setSentUsernames] = useState<string[]>([])
-  const [viewingSearchResultUsername, setViewingSearchResultUsername] = useState<string | null>(null)
-  const [searchResultBlockConfirm, setSearchResultBlockConfirm] = useState(false)
-
-  // The requester's full-screen profile is portaled to <body> so it isn't
-  // constrained by this panel's own width — only render the portal once
-  // mounted client-side.
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- bridging server/client environments (document doesn't exist on the server), not mirroring existing state
-    setMounted(true)
-  }, [])
 
   // Report unread messages up to the header badge whenever they change —
   // including the initial seed, so the badge shows up before the panel is
@@ -233,9 +192,6 @@ export function FriendsPanel({
     const timer = setTimeout(() => {
       setView("list")
       setActiveId(null)
-      setViewingRequesterId(null)
-      setViewingFriendId(null)
-      setFriendActionConfirm(null)
       setRowMenuFriendId(null)
       setRowMenuConfirm(null)
       setSearchActive(false)
@@ -243,58 +199,10 @@ export function FriendsPanel({
       setSearchResults([])
       setSearchLoading(false)
       setSearchErrored(false)
-      setViewingSearchResultUsername(null)
-      setSearchResultBlockConfirm(false)
       setReplyingTo(null)
     }, 250)
     return () => clearTimeout(timer)
   }, [open])
-
-  // Fetches the friend's real profile the moment their profile screen
-  // opens — cancels/ignores a stale in-flight response the same way the
-  // search debounce effect below does, so closing and reopening a
-  // different friend's profile quickly can never have an earlier fetch
-  // land after a newer one already did.
-  useEffect(() => {
-    if (!viewingFriendId) {
-      // Reacting to an external condition (no friend profile is open) by
-      // clearing what was fetched for the last one — not mirroring
-      // existing React state.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setFriendProfileStatus("idle")
-      setFriendProfile(null)
-      return
-    }
-    let cancelled = false
-    setFriendProfileStatus("loading")
-    setFriendProfile(null)
-    fetch(`/api/friends/profile/${encodeURIComponent(viewingFriendId)}`, { cache: "no-store" })
-      .then((res) => {
-        if (!res.ok) throw new Error(`friend profile fetch failed: ${res.status}`)
-        return res.json()
-      })
-      .then((data: { username: string | null; profilePhoto: string | null; bio: string; posts: { id: string; dataUrl: string }[] }) => {
-        if (cancelled) return
-        if (!data.username) {
-          // Should be impossible — onboarding requires a username before
-          // matching (and therefore friending) ever works. Logged, not
-          // silently papered over with an invented name (see Part 5 of
-          // this fix) — genuinely missing is still shown as itself below,
-          // not as "Someone".
-          console.warn("friends panel: a confirmed friend's profile came back with no username")
-        }
-        setFriendProfile(data)
-        if (data.username) primeCurrentPhoto(data.username, data.profilePhoto)
-        setFriendProfileStatus("loaded")
-      })
-      .catch(() => {
-        if (cancelled) return
-        setFriendProfileStatus("error")
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [viewingFriendId])
 
   // Debounced search: waits SEARCH_DEBOUNCE_MS after the last keystroke
   // before actually querying, and cancels/ignores anything still in flight
@@ -419,8 +327,6 @@ export function FriendsPanel({
     onRemoveFriend(id)
     setView("list")
     setActiveId(null)
-    setViewingFriendId(null)
-    setFriendActionConfirm(null)
     setRowMenuConfirm(null)
   }
 
@@ -429,120 +335,41 @@ export function FriendsPanel({
     onBlockPerson(id, displayName)
     setView("list")
     setActiveId(null)
-    setViewingFriendId(null)
-    setViewingSearchResultUsername(null)
-    setFriendActionConfirm(null)
     setRowMenuConfirm(null)
   }
 
-  // Search results never carry a real account id client-side (see
-  // SearchResultPerson's own comment) — blocking one goes through
-  // POST /api/friends/block instead of the onBlockPerson prop (which needs
-  // a real id the way friends/requesters already have one), addressed by
-  // username, resolved server-side only. Fire-and-forget, same as
-  // onBlockPerson's own WS send above — the UI updates immediately rather
-  // than waiting on the response.
-  function handleBlockSearchResult(username: string) {
-    fetch("/api/friends/block", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username }),
-    }).catch(() => {})
-    setView("list")
-    setViewingSearchResultUsername(null)
-    setSearchResultBlockConfirm(false)
-    setSearchResults((prev) => prev.filter((person) => person.username !== username))
+  // Every "view profile" here opens the one shared profile (see
+  // components/profile/UserProfileProvider) — only the identity differs.
+  const { openUserProfile, sendFriendRequestByUsername, isRequestPending, requestError } = useUserProfile()
+  function openFriendProfile(friend: DemoFriend) {
+    openUserProfile({ source: "friend", username: friend.username || null, displayName: friend.displayName, photo: friend.profilePhoto, userId: friend.userId })
+  }
+  function openRequestProfile(request: PendingRequest) {
+    openUserProfile({ source: "request", username: request.username || null, displayName: request.displayName, photo: request.profilePhoto, userId: request.senderId })
+  }
+  function openSearchProfile(person: SearchResultPerson) {
+    openUserProfile({
+      source: "search",
+      username: person.username,
+      displayName: person.username,
+      photo: person.profilePhoto,
+      hint: { alreadyRequested: person.alreadyRequested, alreadyFriends: person.alreadyFriends },
+      // Blocking from the profile also drops them from these results.
+      onBlocked: () => setSearchResults((prev) => prev.filter((p) => p.username !== person.username)),
+    })
   }
 
-  // Fire-and-forget, same as handleBlockSearchResult above — ReportButton
-  // shows its own "sent" confirmation locally rather than waiting on this,
-  // and (unlike block) reporting doesn't end the interaction, so the
-  // profile stays open.
-  function handleReportSearchResult(username: string, category: ReportCategory) {
-    fetch("/api/friends/report", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, category }),
-    }).catch(() => {})
+  // Optimistic "Requested" with rollback on failure — shared with the
+  // profile's own Add friend (see UserProfileProvider).
+  function sendFriendRequest(username: string) {
+    void sendFriendRequestByUsername(username).then((outcome) => {
+      if (outcome === "already_friends" || outcome === "auto_accepted") {
+        setSearchResults((previous) => previous.map((person) => person.username === username ? { ...person, alreadyFriends: true } : person))
+      }
+    })
   }
-
-  function handleAcceptRequest(id: string) {
-    onAcceptRequest(id)
-    setViewingRequesterId(null)
-  }
-
-  function handleDeclineRequest(id: string) {
-    onDeclineRequest(id)
-    setViewingRequesterId(null)
-  }
-
-  const viewingRequester = requests.find((request) => request.id === viewingRequesterId) ?? null
-  const viewingFriend = friends.find((friend) => friend.id === viewingFriendId) ?? null
 
   const trimmedQuery = searchQuery.trim()
-  // searchResults already comes back case-insensitive/partial-matched and
-  // blocked-account-filtered from app/api/friends/search (see the debounced
-  // effect above) — nothing further to derive here. Stable while a result's
-  // profile is open, since the search input (the only thing that could
-  // change it) is unreachable behind that full-screen view.
-  const viewingSearchResult = searchResults.find((person) => person.username === viewingSearchResultUsername) ?? null
-  // Search rows and pending requests are snapshots; the open profile shows
-  // the server's current photo once loaded (same source as posts below).
-  const { profile: viewingRequesterProfile } = usePublicProfile(viewingRequester?.username)
-  const { profile: viewingSearchResultProfile } = usePublicProfile(viewingSearchResult?.username)
-  const viewingSearchResultPhoto = resolveProfilePhoto(viewingSearchResultProfile, viewingSearchResult?.profilePhoto)
-
-  function openSearchProfile(username: string) {
-    const friend = friends.find((person) => person.username.toLowerCase() === username.toLowerCase())
-    setSearchResultBlockConfirm(false)
-    if (friend) {
-      setViewingSearchResultUsername(null)
-      setFriendActionConfirm(null)
-      setViewingFriendId(friend.id)
-    } else {
-      setViewingSearchResultUsername(username)
-    }
-  }
-
-  // Optimistic — marks "Requested" immediately, the same instant feedback
-  // the old local-only stub had — but rolls back if the real request
-  // (POST /api/friends/request, resolved server-side from username to a
-  // real id — see that route's own comment) actually failed, so a rate
-  // limit or a since-deleted account doesn't silently claim success.
-  function sendFriendRequest(username: string) {
-    if (sentUsernames.includes(username)) return
-    setRequestError(null)
-    setSentUsernames((prev) => [...prev, username])
-    fetch("/api/friends/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username }),
-    })
-      .then(async (res) => {
-        const data = await res.json()
-        if (res.status === 402) {
-          window.location.assign(subscriptionHref("friends"))
-          return
-        }
-        if (!res.ok || data.result === "blocked") {
-          const messages: Record<string, string> = {
-            not_authenticated: "Sign in again to send a friend request.",
-            rate_limited: "Too many requests. Wait a minute and try again.",
-            not_found: "This profile is no longer available.",
-            blocked: "A friend request can’t be sent to this account.",
-            account_unavailable: "Your account can’t send requests right now.",
-          }
-          throw new Error(messages[data.error ?? data.result] ?? "Couldn’t save the friend request. Please try again.")
-        }
-        if (data.result === "already_friends" || data.result === "auto_accepted") {
-          setSearchResults((previous) => previous.map((person) => person.username === username ? { ...person, alreadyFriends: true } : person))
-        }
-      })
-      .catch((error: Error) => {
-        setSentUsernames((prev) => prev.filter((u) => u !== username))
-        setRequestError(error.message || "Couldn’t send the friend request. Please try again.")
-      })
-  }
 
   return (
     <>
@@ -642,19 +469,19 @@ export function FriendsPanel({
                       <p className="px-3 py-4 text-center text-[13px] text-muted">No one found</p>
                     ) : (
                       searchResults.map((person) => {
-                        const requested = person.alreadyRequested || sentUsernames.includes(person.username)
+                        const requested = person.alreadyRequested || isRequestPending(person.username)
                         return (
                           <div
                             key={person.username}
                             role="button"
                             tabIndex={0}
                             onClick={() => {
-                              openSearchProfile(person.username)
+                              openSearchProfile(person)
                             }}
                             onKeyDown={(event) => {
                               if (event.key === "Enter" || event.key === " ") {
                                 event.preventDefault()
-                                openSearchProfile(person.username)
+                                openSearchProfile(person)
                               }
                             }}
                             aria-label={`View ${person.username}'s profile`}
@@ -670,7 +497,7 @@ export function FriendsPanel({
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation()
-                                if (person.alreadyFriends) openSearchProfile(person.username)
+                                if (person.alreadyFriends) openSearchProfile(person)
                                 else sendFriendRequest(person.username)
                               }}
                               disabled={requested && !person.alreadyFriends}
@@ -793,8 +620,7 @@ export function FriendsPanel({
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setFriendActionConfirm(null)
-                                      setViewingFriendId(friend.id)
+                                      openFriendProfile(friend)
                                       setRowMenuFriendId(null)
                                     }}
                                     className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
@@ -846,8 +672,7 @@ export function FriendsPanel({
                   <button
                     type="button"
                     onClick={() => {
-                      setFriendActionConfirm(null)
-                      setViewingFriendId(active.id)
+                      openFriendProfile(active)
                     }}
                     className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left transition hover:bg-surface-2"
                   >
@@ -1052,11 +877,11 @@ export function FriendsPanel({
                         key={request.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setViewingRequesterId(request.id)}
+                        onClick={() => openRequestProfile(request)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault()
-                            setViewingRequesterId(request.id)
+                            openRequestProfile(request)
                           }
                         }}
                         aria-label={`View ${request.displayName}'s profile`}
@@ -1075,14 +900,14 @@ export function FriendsPanel({
                         >
                           <button
                             type="button"
-                            onClick={() => handleDeclineRequest(request.id)}
+                            onClick={(event) => { event.stopPropagation(); onDeclineRequest(request.id) }}
                             className="min-h-11 rounded-xl border border-border px-3 py-2 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             Decline
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAcceptRequest(request.id)}
+                            onClick={(event) => { event.stopPropagation(); onAcceptRequest(request.id) }}
                             className="min-h-11 rounded-xl bg-accent px-3 py-2 text-[13px] font-medium text-accent-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
                           >
                             Accept
@@ -1100,334 +925,6 @@ export function FriendsPanel({
       )}
     </AnimatePresence>
 
-    {mounted &&
-      createPortal(
-        <>
-        <AnimatePresence>
-          {viewingRequester && (
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${viewingRequester.displayName}'s profile`}
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 24 }}
-              transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-              className={`${panelStyles.panel} fixed inset-0 z-[60] flex flex-col bg-surface`}
-            >
-              <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
-                <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-                <button
-                  type="button"
-                  onClick={() => setViewingRequesterId(null)}
-                  aria-label="Close"
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                >
-                  <CloseIcon className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
-                <ProfileAvatar key={viewingRequester.id} photo={resolveProfilePhoto(viewingRequesterProfile, viewingRequester.profilePhoto)} identity={viewingRequester.displayName} username={viewingRequester.username || null} />
-                {/* The "•••" trigger is positioned absolutely off the name
-                    itself (see the wrapper below) rather than sharing a flex
-                    row with it — a row would size to name+button together,
-                    pulling the name off-center from the avatar above it. */}
-                <div className="relative mt-4">
-                  <p className="text-[18px] font-semibold text-foreground">{viewingRequester.displayName}</p>
-                  <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
-                    <ProfileActionsMenu ariaLabel={`More options for ${viewingRequester.displayName}`} align="center" compact>
-                      {(closeMenu) => (
-                        <ReportButton
-                          onReport={(category) => onReportPerson(viewingRequester.senderId, category)}
-                          onSubmitted={() => setTimeout(closeMenu, 1100)}
-                          triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                        />
-                      )}
-                    </ProfileActionsMenu>
-                  </div>
-                </div>
-                <p className="mt-2 text-[12px] text-muted">Wants to be friends</p>
-
-                <div className="mt-6 flex w-full max-w-xs gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleDeclineRequest(viewingRequester.id)}
-                    className="flex-1 rounded-lg border border-border px-4 py-2.5 text-[13px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                  >
-                    Decline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAcceptRequest(viewingRequester.id)}
-                    className="flex-1 rounded-lg bg-accent px-4 py-2.5 text-[13px] font-medium text-accent-foreground transition hover:brightness-110"
-                  >
-                    Accept
-                  </button>
-                </div>
-
-                <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
-                  <PublicProfilePosts key={viewingRequester.username} username={viewingRequester.username} />
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {viewingFriend && (() => {
-            // Prefer the freshly fetched real profile the moment it's in —
-            // falls back to the lightweight snapshot's own displayName only
-            // for the (non-visible-name) aria-label/confirm-copy while that
-            // fetch is still loading, never as a permanent substitute.
-            const friendName = friendProfile?.username ?? viewingFriend.displayName
-            const loading = friendProfileStatus === "loading" || friendProfileStatus === "idle"
-            return (
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${friendName}'s profile`}
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 24 }}
-              transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-              className={`${panelStyles.panel} fixed inset-0 z-[60] flex flex-col bg-surface`}
-            >
-              <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
-                <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-                <button
-                  type="button"
-                  onClick={() => setViewingFriendId(null)}
-                  aria-label="Close"
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                >
-                  <CloseIcon className="h-4 w-4" />
-                </button>
-              </div>
-
-              {/* The body is the scroll container: min-h-0 lets it shrink
-                  below its content inside the fixed flex column, so the
-                  header stays put and posts stay reachable. */}
-              <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
-                {loading ? (
-                  <>
-                    <span className="h-24 w-24 shrink-0 animate-pulse rounded-full bg-surface-2" aria-hidden="true" />
-                    <span className="mt-4 h-5 w-32 animate-pulse rounded bg-surface-2" aria-hidden="true" />
-                  </>
-                ) : (
-                  <>
-                    <span className="relative flex h-24 w-24 shrink-0">
-                      <ProfileAvatar key={viewingFriend.id} photo={resolveProfilePhoto(friendProfile, viewingFriend.profilePhoto)} identity={friendName} username={friendProfile?.username ?? (viewingFriend.username || null)} />
-                      {/* Presence dot, not a text label — shown only when
-                          actually online, the same convention Instagram/etc.
-                          use on a profile photo (silence means not online,
-                          rather than a separate "Offline" state to announce). */}
-                      {viewingFriend.online && (
-                        <span className="absolute bottom-0.5 left-0.5 h-4 w-4 rounded-full border-2 border-surface bg-online" />
-                      )}
-                    </span>
-                    {/* The "•••" trigger sits absolutely off the name (see
-                        the wrapper below) rather than in a shared flex row
-                        with it — a row would size to name+button together,
-                        pulling the name off-center from the avatar above. */}
-                    <div className="relative mt-4">
-                      <p className="text-[18px] font-semibold text-foreground">
-                        {friendProfile?.username ?? friendName}
-                      </p>
-                      <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
-                        <ProfileActionsMenu ariaLabel={`More options for ${friendName}`} align="center" compact onClose={() => setFriendActionConfirm(null)}>
-                          {(closeMenu) =>
-                            friendActionConfirm ? (
-                              <div className="px-2 py-1.5">
-                                <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
-                                  {friendActionConfirm === "unfriend"
-                                    ? `Remove ${friendName} as a friend?`
-                                    : `Block ${friendName}? They won't be able to contact you.`}
-                                </p>
-                                <div className="flex gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setFriendActionConfirm(null)}
-                                    className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      friendActionConfirm === "block"
-                                        ? handleBlockPerson(viewingFriend.userId, friendName)
-                                        : handleRemoveFriend(viewingFriend.id)
-                                    }
-                                    className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
-                                  >
-                                    {friendActionConfirm === "unfriend" ? "Remove friend" : "Block"}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex flex-col">
-                                <button
-                                  type="button"
-                                  onClick={() => setFriendActionConfirm("unfriend")}
-                                  className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
-                                >
-                                  Remove friend
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setFriendActionConfirm("block")}
-                                  className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                                >
-                                  Block
-                                </button>
-                                <ReportButton
-                                  onReport={(category) => onReportPerson(viewingFriend.userId, category)}
-                                  onSubmitted={() => setTimeout(closeMenu, 1100)}
-                                  triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                                />
-                              </div>
-                            )
-                          }
-                        </ProfileActionsMenu>
-                      </div>
-                    </div>
-                    {friendProfile?.bio && (
-                      <p className="mt-1.5 max-w-xs text-[13px] leading-relaxed text-muted">{friendProfile.bio}</p>
-                    )}
-                    {friendProfileStatus === "error" && (
-                      <p className="mt-1.5 text-[12px] text-danger">Couldn&apos;t load this profile — try again.</p>
-                    )}
-                  </>
-                )}
-
-                <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
-                  {loading ? (
-                    <div className="grid grid-cols-3 gap-3">
-                      {[0, 1, 2].map((i) => (
-                        <span key={i} className="aspect-square animate-pulse rounded-xl bg-surface-2" aria-hidden="true" />
-                      ))}
-                    </div>
-                  ) : friendProfile && friendProfile.posts.length > 0 ? (
-                    <PostGallery key={viewingFriend.id} posts={friendProfile.posts} owner={friendProfile.username ?? friendName} />
-                  ) : (
-                    <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-            )
-          })()}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {viewingSearchResult && (
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${viewingSearchResult.username}'s profile`}
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 24 }}
-              transition={{ type: "tween", duration: DURATION_BASE, ease: EASE_OUT }}
-              className={`${panelStyles.panel} fixed inset-0 z-[60] flex flex-col bg-surface`}
-            >
-              <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border px-4">
-                <span className="flex-1 text-[15px] font-semibold text-foreground">Profile</span>
-                <button
-                  type="button"
-                  onClick={() => setViewingSearchResultUsername(null)}
-                  aria-label="Close"
-                  className="flex h-11 w-11 items-center justify-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-2"
-                >
-                  <CloseIcon className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto overscroll-contain px-6 py-10 text-center">
-                <ProfileAvatar key={viewingSearchResult.username} photo={viewingSearchResultPhoto} identity={viewingSearchResult.username} username={viewingSearchResult.username} />
-                {/* The "•••" trigger sits absolutely off the username (see
-                    the wrapper below) rather than in a shared flex row with
-                    it — a row would size to name+button together, pulling
-                    the username off-center from the avatar above it. */}
-                <div className="relative mt-4">
-                  <p className="text-[18px] font-semibold text-foreground">{viewingSearchResult.username}</p>
-                  <div className="absolute left-full top-1/2 ml-1 -translate-y-1/2">
-                    <ProfileActionsMenu ariaLabel={`More options for ${viewingSearchResult.username}`} align="center" compact onClose={() => setSearchResultBlockConfirm(false)}>
-                      {(closeMenu) =>
-                        searchResultBlockConfirm ? (
-                          <div className="px-2 py-1.5">
-                            <p className="mb-2 px-1 text-[12px] leading-snug text-muted">
-                              Block {viewingSearchResult.username}? They won&apos;t be able to contact you, and won&apos;t
-                              show up in search.
-                            </p>
-                            <div className="flex gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => setSearchResultBlockConfirm(false)}
-                                className="flex-1 rounded-lg border border-border py-1.5 text-[12px] font-medium text-muted transition hover:bg-surface-2 hover:text-foreground"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleBlockSearchResult(viewingSearchResult.username)}
-                                className="flex-1 rounded-lg bg-danger py-1.5 text-[12px] font-medium text-accent-foreground transition hover:brightness-110"
-                              >
-                                Block
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col">
-                            <button
-                              type="button"
-                              onClick={() => setSearchResultBlockConfirm(true)}
-                              className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                            >
-                              Block
-                            </button>
-                            <ReportButton
-                              onReport={(category) => handleReportSearchResult(viewingSearchResult.username, category)}
-                              onSubmitted={() => setTimeout(closeMenu, 1100)}
-                              triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                            />
-                          </div>
-                        )
-                      }
-                    </ProfileActionsMenu>
-                  </div>
-                </div>
-
-                <div className="mt-6 w-full max-w-xs">
-                  <button
-                    type="button"
-                    onClick={() => viewingSearchResult.alreadyFriends ? openSearchProfile(viewingSearchResult.username) : sendFriendRequest(viewingSearchResult.username)}
-                    disabled={
-                      viewingSearchResult.alreadyFriends
-                        ? !friends.some((friend) => friend.username === viewingSearchResult.username)
-                        : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
-                    }
-                    className="h-11 w-full rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background transition hover:opacity-90 disabled:opacity-50"
-                  >
-                    {viewingSearchResult.alreadyFriends
-                      ? "View profile"
-                      : viewingSearchResult.alreadyRequested || sentUsernames.includes(viewingSearchResult.username)
-                        ? "Requested"
-                        : "Add friend"}
-                  </button>
-                </div>
-
-                <div className="mt-8 w-full max-w-lg border-t border-border pt-8">
-                  <PublicProfilePosts key={viewingSearchResult.username} username={viewingSearchResult.username} />
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        </>,
-        document.body
-      )}
     </>
   )
 }

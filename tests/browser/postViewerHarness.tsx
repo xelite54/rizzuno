@@ -1,9 +1,10 @@
-// Renders the real other-user post grids (PostGallery for friend profiles,
-// PublicProfilePosts for search/request/peer profiles) so the shared
-// PostViewer can be driven by real Chrome input events.
+// Renders the real other-user post grids — PostGallery on its own, and the
+// shared UserProfileSheet every profile surface opens — so the shared
+// PostViewer can be driven by real Chrome input events. `?surface=sheet`
+// picks the profile sheet (it's full-screen, so one surface per page).
 import { createRoot } from "react-dom/client"
 import { PostGallery } from "../../components/match/PostGallery"
-import { PublicProfilePosts } from "../../components/match/PublicProfilePosts"
+import { UserProfileSheet } from "../../components/profile/UserProfileSheet"
 
 const colors = ["#d33", "#3a3", "#33d", "#dd3", "#d3d"]
 export const fixturePosts = colors.map((color, index) => ({
@@ -12,10 +13,10 @@ export const fixturePosts = colors.map((color, index) => ({
 }))
 
 function Harness() {
-  return <div>
-    <section id="friend"><PostGallery posts={fixturePosts} owner="friendly" /></section>
-    <section id="public"><PublicProfilePosts username="publicuser" /></section>
-  </div>
+  if (new URLSearchParams(location.search).get("surface") === "sheet") {
+    return <UserProfileSheet target={{ source: "search", username: "publicuser", displayName: "publicuser" }} relationship={{ kind: "stranger" }} onClose={() => {}} />
+  }
+  return <section id="friend"><PostGallery posts={fixturePosts} owner="friendly" /></section>
 }
 
 function snapshot() {

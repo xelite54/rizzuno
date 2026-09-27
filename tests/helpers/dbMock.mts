@@ -16,7 +16,7 @@ export const dbMockState = {
   usernames: new Map<string, string>(),
   /** Stored `users.profile_photo` per account id (absent = null). */
   photos: new Map<string, string>(),
-  incomingRequests: [] as { requestId: string; senderId: string; username: string; createdAt: number }[],
+  incomingRequests: [] as { requestId: string; senderId: string; username: string; profilePhoto?: string | null; createdAt: number }[],
   genders: new Map<string, "male" | "female">(),
   plusEnabled: true,
   bannedUserIds: new Set<string>(),

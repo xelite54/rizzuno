@@ -9,7 +9,7 @@ import { retainRealtime } from "../../lib/realtimeLifecycle"
 import { SelfPanel } from "../../components/match/SelfPanel"
 import { SwipeStage } from "../../components/match/SwipeStage"
 import { MatchChatPanel } from "../../components/match/MatchChatPanel"
-import { PeerProfileSheet } from "../../components/match/PeerProfileSheet"
+import { UserProfileSheet } from "../../components/profile/UserProfileSheet"
 import { CompactChat } from "../../components/match/CompactChat"
 
 const peers: RTCPeerConnection[] = []
@@ -137,7 +137,7 @@ function App() {
     <div style={{ transform: "translateX(0)", overflow: "hidden", width: 96, height: 128 }}>
       <MatchChatPanel key={match.roomId ?? "no-room"} open={chatOpen} onClose={() => setChatOpen(false)} peer={match.peer} messages={match.messages} disabled={!match.canMatchChat} peerTyping={match.peerTyping} onSend={match.sendChat} onNotifyTyping={match.notifyTyping} />
     </div>
-    <PeerProfileSheet peer={match.peer} open={profileOpen} onClose={() => setProfileOpen(false)} friendState="none" onAddFriend={() => {}} />
+    <UserProfileSheet target={profileOpen && match.peer ? { source: "match", username: match.peer.username ?? null, displayName: match.peer.username ?? match.peer.handle, photo: match.peer.profilePhoto } : null} relationship={{ kind: "stranger" }} onClose={() => setProfileOpen(false)} onAddFriend={() => {}} />
   </main>
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>)

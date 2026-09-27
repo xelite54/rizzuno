@@ -19,14 +19,13 @@ import { ControlBar } from "./ControlBar"
 import { FriendsPanel } from "./FriendsPanel"
 import { IncomingFriendRequestToast } from "./IncomingFriendRequestToast"
 import { IncomingMatchInvitationToast } from "./IncomingMatchInvitationToast"
-import { RequestProfileSheet } from "./RequestProfileSheet"
 import { SignInLanding } from "./SignInLanding"
 import { AgeGate } from "./AgeGate"
 import { LegalStatusError } from "./LegalStatusError"
 import { AccountRestricted } from "./AccountRestricted"
 import { ChooseUsername } from "./ChooseUsername"
 import { ChooseGender } from "./ChooseGender"
-import { PeerProfileSheet } from "./PeerProfileSheet"
+import { UserProfileProvider, useUserProfileTarget, type OpenUserProfileArgs } from "@/components/profile/UserProfileProvider"
 import { ActiveOnAnotherDevice } from "./ActiveOnAnotherDevice"
 import { MatchChatPanel } from "./MatchChatPanel"
 import { MyProfileSheet } from "./MyProfileSheet"
@@ -186,6 +185,7 @@ export function MatchStage() {
     unblockUser,
     friends: rawFriends,
     friendRequestsReceived: rawFriendRequestsReceived,
+    friendRequestsSent: rawFriendRequestsSent,
     blockedUsers: rawBlockedUsers,
     friendActionState,
     friendToastRequestId,
@@ -424,12 +424,6 @@ export function MatchStage() {
   const [unreadMessages, setUnreadMessages] = useState(0)
   const friendsNotifications = requests.length + unreadMessages + matchInvitations.filter((invite) => invite.direction === "incoming").length
   const toastRequest = requests.find((request) => request.id === friendToastRequestId) ?? null
-  // Set when "View profile" is tapped on the live toast — shows the request's
-  // full-screen profile (Decline/Accept) directly, separate from opening the
-  // whole Friends panel. Captured as its own value (not derived from the
-  // toast's own state) so the toast's independent auto-dismiss timer can't
-  // yank this away mid-read.
-  const [viewingToastRequest, setViewingToastRequest] = useState<PendingRequest | null>(null)
 
   const [friendsOpen, setFriendsOpen] = useState(false)
 
@@ -460,7 +454,15 @@ export function MatchStage() {
     block()
   }
 
-  const [profileOpen, setProfileOpen] = useState(false)
+  // The one other-user profile (see components/profile/UserProfileProvider):
+  // MatchStage holds which profile is open so its own surfaces can open it;
+  // everything rendered beneath uses useUserProfile().
+  const { target: profileTarget, setTarget: setProfileTarget } = useUserProfileTarget()
+  const openUserProfile = (args: OpenUserProfileArgs) => setProfileTarget(args)
+  function openPeerProfile() {
+    if (!displayedPeer) return
+    openUserProfile({ source: "match", username: displayedPeer.username ?? null, displayName: displayedPeer.username ?? displayedPeer.handle, photo: displayedPeer.profilePhoto, displayId: displayedPeer.displayId })
+  }
   const [chatOpen, setChatOpen] = useState(false)
   // Live match chat isn't persisted (see useMatchmaking's `messages`) so
   // there's no server-computed unread count the way friend chat has one —
@@ -509,14 +511,30 @@ export function MatchStage() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFriendsOpen(false)
       setMyProfileOpen(false)
-      setProfileOpen(false)
+      setProfileTarget(null)
     }
-  }, [roomId])
+  }, [roomId, setProfileTarget])
 
   // Availability can change; the controls' place in the React tree cannot.
   const accountControlsEnabled = signedIn && legalAccepted && onboarded && !restriction
 
   return (
+    <UserProfileProvider
+      target={profileTarget}
+      setTarget={setProfileTarget}
+      friends={friends}
+      requests={requests}
+      sentRequests={rawFriendRequestsSent}
+      friendActionState={friendActionState}
+      currentPeerDisplayId={peer?.displayId ?? null}
+      sendFriendRequestTo={sendFriendRequestTo}
+      respondToFriendRequest={respondToFriendRequest}
+      unfriend={unfriend}
+      blockAccount={blockFriendAccount}
+      reportAccount={reportUser}
+      blockCurrentPeer={handleBlockPeer}
+      reportCurrentPeer={report}
+    >
     <div className={`relative flex h-dvh w-dvw flex-col overflow-hidden ${useHomeSplit ? "bg-home-glow" : "bg-background"}`}>
       <main data-layout={layout} className={`relative z-10 min-h-0 flex-1 ${styles.stageLayout}`}>
         {/* CSS reorders the same video panels on phones and tablets, so
@@ -582,7 +600,7 @@ export function MatchStage() {
                 peerMicEnabled={peerMicEnabled}
                 friendState={friendState}
                 onAddFriend={handleAddFriend}
-                onViewProfile={() => setProfileOpen(true)}
+                onViewProfile={openPeerProfile}
                 remoteStream={remoteStream}
                 roomId={roomId}
                 onRemoteVideoPlaying={reportRemoteVideoPlaying}
@@ -594,7 +612,7 @@ export function MatchStage() {
               />
               <SafetyMenu
                 disabled={!hasMatchedPeer}
-                onViewProfile={() => setProfileOpen(true)}
+                onViewProfile={openPeerProfile}
                 onReport={report}
                 onBlock={handleBlockPeer}
               />
@@ -688,7 +706,7 @@ export function MatchStage() {
             onAccept={(id) => respondToFriendRequest(id, true)}
             onDecline={(id) => respondToFriendRequest(id, false)}
             onDismiss={dismissFriendToast}
-            onViewProfile={() => setViewingToastRequest(toastRequest)}
+            onViewProfile={() => toastRequest && openUserProfile({ source: "request", username: toastRequest.username || null, displayName: toastRequest.displayName, photo: toastRequest.profilePhoto, userId: toastRequest.senderId })}
           />
           <IncomingMatchInvitationToast
             invitation={incomingMatchInvitation}
@@ -696,29 +714,10 @@ export function MatchStage() {
             error={matchInviteError}
             onRespond={respondToMatchInvitation}
             onDismiss={(id) => setDismissedMatchInvitations((previous) => new Set([...previous, id]))}
-          />
-          <RequestProfileSheet
-            request={viewingToastRequest}
-            onAccept={(id) => {
-              respondToFriendRequest(id, true)
-              setViewingToastRequest(null)
-            }}
-            onDecline={(id) => {
-              respondToFriendRequest(id, false)
-              setViewingToastRequest(null)
-            }}
-            onReport={(userId, category) => reportUser(userId, category)}
-            onClose={() => setViewingToastRequest(null)}
+            onViewProfile={(invite) => openUserProfile({ source: "invitation", username: invite.username, displayName: invite.username, photo: invite.profilePhoto, userId: invite.userId })}
           />
         </>
       )}
-      <PeerProfileSheet
-        peer={displayedPeer}
-        open={profileOpen}
-        friendState={friendState}
-        onAddFriend={handleAddFriend}
-        onClose={() => setProfileOpen(false)}
-      />
       <MyProfileSheet
         profileReady={myProfile.profileHydrated}
         handle={myProfile.handle}
@@ -743,5 +742,6 @@ export function MatchStage() {
         onRemovePost={myProfile.removePost}
       />
     </div>
+    </UserProfileProvider>
   )
 }

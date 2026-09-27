@@ -99,12 +99,10 @@ try {
   for (const viewport of [{ name: "desktop", width: 1280, height: 800, mobile: false }, { name: "mobile", width: 390, height: 844, mobile: true }]) {
     await call("Emulation.setDeviceMetricsOverride", { width: viewport.width, height: viewport.height, deviceScaleFactor: 1, mobile: viewport.mobile })
     await call("Emulation.setTouchEmulationEnabled", { enabled: viewport.mobile, maxTouchPoints: 5 })
-    await call("Page.navigate", { url: origin })
-    await until("page loaded", () => true).catch(() => {})
-    await evaluate(`new Promise(r => { const t = setInterval(() => { if (document.querySelectorAll("#public .grid > button").length === 5) { clearInterval(t); r(true) } }, 25) })`)
-
-    for (const surface of ["#friend", "#public"]) {
-      const where = `${viewport.name} ${surface}`
+    for (const [surface, query] of [["#friend", ""], ["[data-user-profile-sheet]", "?surface=sheet"]]) {
+      await call("Page.navigate", { url: origin + query })
+      await evaluate(`new Promise(r => { const t = setInterval(() => { if (document.querySelectorAll(${JSON.stringify(surface + " .grid > button")}).length === 5) { clearInterval(t); r(true) } }, 25) })`)
+      const where = `${viewport.name} ${surface === "#friend" ? "gallery" : "profile sheet"}`
       // Open the middle post.
       await click(`${surface} .grid > button:nth-child(3)`)
       let s = await until(`${where}: middle post opens`, photo(3))

@@ -11,7 +11,7 @@
  * never reached anyone (see FRIENDS_ENABLED's history in
  * lib/featureFlags.ts). It's now just the shared shapes MatchStage.tsx maps
  * real server data into, so FriendsPanel.tsx / IncomingFriendRequestToast.tsx
- * / RequestProfileSheet.tsx / MyProfileSheet.tsx — which only ever cared
+ * / UserProfileSheet.tsx / MyProfileSheet.tsx — which only ever cared
  * about these field names, not where the data came from — needed close to
  * no changes.
  */

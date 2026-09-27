@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p tests/browser/tsconfig.json",
     "security:check": "npm audit --audit-level=high",
     "test:staging:ws": "node --import tsx tests/load/staging.mts",
-    "test:postviewer:browser": "node --import tsx tests/browser/runPostViewer.mts"
+    "test:postviewer:browser": "node --import tsx tests/browser/runPostViewer.mts",
+    "test:profiles:browser": "node --import tsx --experimental-test-module-mocks tests/browser/runProfileSurfaces.mts"
   },
   "dependencies": {
     "image-size": "2.0.4",
