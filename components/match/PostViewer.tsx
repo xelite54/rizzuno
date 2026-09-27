@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { motion, useReducedMotion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion } from "motion/react"
 import { CloseIcon } from "@/components/icons"
 
 export type ViewerPost = { id: string; dataUrl: string }
@@ -90,6 +90,10 @@ export function PostViewer({ posts, index, owner, onIndexChange, onClose }: {
   const closeRef = useRef<HTMLButtonElement>(null)
   const [closing, setClosing] = useState(false)
   const reduceMotion = useReducedMotion()
+  // Slide direction for the post transition: 1 = forward (from the right), -1 = back.
+  const [shown, setShown] = useState({ index, direction: 1 })
+  if (shown.index !== index) setShown({ index, direction: index > shown.index ? 1 : -1 })
+  const direction = shown.direction
   const post = posts[index]
   const total = posts.length
   const previous = neighborIndex(index, total, -1)
@@ -145,20 +149,29 @@ export function PostViewer({ posts, index, owner, onIndexChange, onClose }: {
         </header>
         {/* Clicking the empty area around the image closes; the image, arrows and swipes don't. */}
         <div
-          className="relative mx-auto flex min-h-0 w-full max-w-6xl flex-1 touch-pan-y items-center justify-center"
+          className="relative mx-auto flex min-h-0 w-full max-w-6xl flex-1 touch-pan-y overflow-hidden items-center justify-center"
           onClick={(event) => { if (!swipe.wasSwipe() && event.target === event.currentTarget) close() }}
           {...swipe.handlers}
         >
-          <motion.figure
-            key={post.id}
-            initial={{ opacity: reduceMotion ? 1 : 0.4 }}
-            animate={{ opacity: 1, scale: closing && !reduceMotion ? 0.985 : 1 }}
-            transition={{ duration: reduceMotion ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="pointer-events-none flex h-full w-full items-center justify-center"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- authorized profile-post image */}
-            <img src={post.dataUrl} alt={`Photo ${number} posted by ${owner}`} className="pointer-events-auto max-h-full max-w-full object-contain" onClick={(event) => event.stopPropagation()} />
-          </motion.figure>
+          <AnimatePresence initial={false} custom={direction}>
+            <motion.figure
+              key={post.id}
+              custom={direction}
+              variants={{
+                enter: (dir: number) => ({ x: reduceMotion ? 0 : `${dir * 100}%`, opacity: reduceMotion ? 1 : 0 }),
+                center: { x: 0, opacity: 1 },
+                exit: (dir: number) => ({ x: reduceMotion ? 0 : `${dir * -100}%`, opacity: 0 }),
+              }}
+              initial="enter"
+              animate={{ x: 0, opacity: 1, scale: closing && !reduceMotion ? 0.985 : 1 }}
+              exit="exit"
+              transition={{ duration: reduceMotion ? 0 : 0.32, ease: [0.22, 1, 0.36, 1] }}
+              className="pointer-events-none absolute inset-0 flex items-center justify-center"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- authorized profile-post image */}
+              <img src={post.dataUrl} alt={`Photo ${number} posted by ${owner}`} className="pointer-events-auto max-h-full max-w-full object-contain" onClick={(event) => event.stopPropagation()} />
+            </motion.figure>
+          </AnimatePresence>
           {total > 1 && (
             <>
               <PostNavArrow direction="previous" disabled={previous === null} onClick={goPrevious} className="absolute left-0 top-1/2 -translate-y-1/2 sm:left-2" />
