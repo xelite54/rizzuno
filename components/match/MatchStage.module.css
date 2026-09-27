@@ -225,3 +225,84 @@
     border-radius: 0;
   }
 }
+
+/* Phone panes run edge to edge under the notch/home indicator (viewport-fit
+   cover), so every overlay control keeps clear of the safe areas. */
+@media (max-width: 767px), (max-height: 500px) and (pointer: coarse) {
+  .personalTools {
+    top: max(8px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+  }
+
+  .mediaControls {
+    right: max(4px, env(safe-area-inset-right));
+  }
+
+  .stopButton {
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: max(10px, env(safe-area-inset-left));
+  }
+
+  .stopButton.callStop {
+    right: max(10px, env(safe-area-inset-right));
+  }
+
+  .peerMicStatus {
+    bottom: calc(46px + max(10px, env(safe-area-inset-bottom)));
+  }
+}
+
+/* Homepage Friends + My Profile: same pill, scaled up ~11% as a whole
+   (frame padding, gap, button size, icon and initial all together). */
+.homeTools {
+  gap: 5px;
+  padding: 5px;
+}
+
+.homeTools button {
+  width: 40px;
+  height: 40px;
+  font-size: 14px;
+}
+
+.homeTools button svg {
+  width: 20px;
+  height: 20px;
+}
+
+@media (max-width: 1199px), (hover: none) and (pointer: coarse) {
+  .personalToolsAppearance.homeTools {
+    gap: 3px;
+    padding: 3.5px;
+  }
+
+  .personalToolsAppearance.homeTools button {
+    width: 29px;
+    height: 29px;
+    min-width: 29px;
+    min-height: 29px;
+    font-size: 11px;
+  }
+
+  .personalToolsAppearance.homeTools button svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+/* Landscape phones: stacked halves would be ~200px tall strips, so split
+   50/50 side by side instead (still one pane per camera, same components). */
+@media (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .stageLayout,
+  .stageLayout[data-layout="home"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+    padding: 0;
+  }
+
+  .stageLayout > .selfFrame,
+  .stageLayout[data-layout="home"] > .selfFrame { grid-column: 1; grid-row: 1; }
+  .stageLayout > .peerPanel,
+  .stageLayout[data-layout="home"] > .peerPanel { grid-column: 2; grid-row: 1; }
+}

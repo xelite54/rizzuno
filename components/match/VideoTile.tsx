@@ -21,6 +21,60 @@ type VideoTileProps = {
   onPlaybackReady?: (report: PeerPlaybackReport) => void
 })
 
+/** Phone portrait, plus phone landscape (short coarse screens). Matches MatchStage.module.css's stacked phone layout. */
+const PHONE_FRAMING_QUERY = "(max-width: 767px), (max-height: 500px) and (pointer: coarse)"
+/** Most a phone pane may zoom past "contain" toward "cover" before it letterboxes instead of cropping further. */
+const MAX_PHONE_ZOOM = 1.35
+/** Vertical anchor for crops: faces sit in the upper part of a selfie frame, so crop mostly from the bottom. */
+const FACE_ANCHOR_Y = "35%"
+
+/**
+ * Zoom applied on top of `object-fit: contain` so the stream fills its pane
+ * like `cover` when the aspect ratios are close, but never crops more than
+ * MAX_PHONE_ZOOM would (e.g. a 16:9 desktop webcam in a near-square phone pane).
+ */
+export function phoneFrameZoom(paneWidth: number, paneHeight: number, videoWidth: number, videoHeight: number): number {
+  if (paneWidth <= 0 || paneHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return 1
+  const paneAspect = paneWidth / paneHeight
+  const videoAspect = videoWidth / videoHeight
+  const coverOverContain = Math.max(paneAspect / videoAspect, videoAspect / paneAspect)
+  return Math.min(coverOverContain, MAX_PHONE_ZOOM)
+}
+
+type PhoneFraming = { zoom: number; anchorY: string }
+
+/** Returns the phone framing for this <video>, or null off phones (desktop keeps plain object-cover). */
+function usePhoneFraming(videoRef: React.RefObject<HTMLVideoElement | null>): PhoneFraming | null {
+  const [framing, setFraming] = useState<PhoneFraming | null>(null)
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || typeof window.matchMedia !== "function") return
+    const query = window.matchMedia(PHONE_FRAMING_QUERY)
+    const update = () => {
+      if (!query.matches) { setFraming(null); return }
+      const { clientWidth, clientHeight, videoWidth, videoHeight } = video
+      const zoom = phoneFrameZoom(clientWidth, clientHeight, videoWidth, videoHeight)
+      // Only a stream taller than its pane is cropped vertically; wider ones stay centered.
+      const anchorY = videoWidth * clientHeight < videoHeight * clientWidth ? FACE_ANCHOR_Y : "50%"
+      setFraming(previous => previous?.zoom === zoom && previous.anchorY === anchorY ? previous : { zoom, anchorY })
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(video)
+    // `resize` fires when the stream's dimensions change (rotation, peer switching cameras).
+    video.addEventListener("resize", update)
+    video.addEventListener("loadedmetadata", update)
+    query.addEventListener("change", update)
+    return () => {
+      observer.disconnect()
+      video.removeEventListener("resize", update)
+      video.removeEventListener("loadedmetadata", update)
+      query.removeEventListener("change", update)
+    }
+  }, [videoRef])
+  return framing
+}
+
 export function VideoTile(props: VideoTileProps) {
   const { role, mirrored, className, roomId, onPlaybackReady } = props
   const stream = role === "self" ? props.localStream : props.remoteStream
@@ -28,6 +82,7 @@ export function VideoTile(props: VideoTileProps) {
   const enableAudioRef = useRef<(() => void) | null>(null)
   const [blockedStream, setBlockedStream] = useState<MediaStream | null>(null)
   const audioBlocked = stream !== null && blockedStream === stream
+  const phoneFraming = usePhoneFraming(videoRef)
 
   useEffect(() => {
     const element = videoRef.current
@@ -169,7 +224,13 @@ export function VideoTile(props: VideoTileProps) {
 
   return <>
     <video ref={videoRef} data-video-role={role} autoPlay playsInline muted={role === "self"}
-      className={`h-full w-full object-cover ${mirrored ? "-scale-x-100" : ""} ${className ?? ""}`} />
+      style={phoneFraming === null ? undefined : {
+        objectFit: "contain",
+        transformOrigin: `50% ${phoneFraming.anchorY}`,
+        // Mirroring folds into this transform: Tailwind's -scale-x-100 uses the separate `scale` property and would compound.
+        transform: `scale(${mirrored ? -phoneFraming.zoom : phoneFraming.zoom}, ${phoneFraming.zoom})`,
+      }}
+      className={`h-full w-full object-cover ${mirrored && phoneFraming === null ? "-scale-x-100" : ""} ${className ?? ""}`} />
     {role === "peer" && stream && audioBlocked && <button type="button"
       className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/70 px-4 py-2 text-sm text-white"
       onPointerDown={event => event.stopPropagation()}
