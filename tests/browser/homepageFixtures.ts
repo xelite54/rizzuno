@@ -40,7 +40,7 @@ export function useMatchmaking() {
     roomId: state === "matched" ? `room-${revision}` : null, callExpiresAt: null, peer: state === "matched" ? peer : null,
     restriction: state === "restricted" ? { reason: "connection_failed" } : null,
     canMatchChat: state === "matched", peerMicEnabled: true, peerTyping: false, remoteStream: null,
-    onlineCount: revision, messages: [], history: [], friends: [], friendRequestsReceived: [], blockedUsers: [], matchInvitations: [],
+    onlineCount: revision, messages: [], history: [], friends: [], friendRequestsReceived: [], friendRequestsSent: [], blockedUsers: [], matchInvitations: [],
     friendActionState: new Map(), friendMessages: new Map(), peerFriendTyping: new Map(), friendToastRequestId: null, matchInviteError: null,
     reportRemoteVideoPlaying: noop, findMatch: noop, resumeMatching: noop, leaveQueueOnly: noop, skip: noop, pauseMatching: noop, sendChat: noop, notifyTyping: noop, report: noop, block: noop, unblockUser: noop, sendFriendRequestTo: noop, respondToFriendRequest: noop, unfriend: noop, blockFriendAccount: noop, reportUser: noop, dismissFriendToast: noop, inviteFriendToMatch: noop, respondToMatchInvitation: noop, sendFriendChatMessage: noop, markFriendChatRead: noop, notifyFriendTyping: noop,
   }

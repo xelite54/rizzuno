@@ -184,22 +184,44 @@
 .stageLayout[data-layout="home"] > .peerPanel { border: 0; border-radius: 0; }
 
 @media (max-width: 767px) {
-  .stageLayout[data-layout="home"] { display: block; }
+  /* All phone states share the same geometry, including the controls layer.
+     Keep the camera mounted as onboarding gives way to a live match. */
+  .stageLayout,
+  .stageLayout[data-layout="home"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
+  }
+
+  .stageLayout > .selfFrame,
   .stageLayout[data-layout="home"] > .selfFrame {
-    position: absolute;
-    left: 16px;
-    top: max(5rem, calc(env(safe-area-inset-top) + 4rem));
-    width: min(62vw, 240px);
-    aspect-ratio: 3 / 4;
-    z-index: 20;
+    grid-column: 1;
+    grid-row: 1;
   }
-  .stageLayout[data-layout="home"] > .selfPanel {
-    border: 1px solid rgb(255 255 255 / 0.15);
-    border-radius: 16px;
-    box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+
+  .stageLayout > .peerPanel,
+  .stageLayout[data-layout="home"] > .peerPanel {
+    grid-column: 1;
+    grid-row: 2;
   }
-  .stageLayout[data-layout="home"] > .peerPanel { height: 100%; }
-}
-@media (min-width: 640px) and (max-width: 767px) {
-  .stageLayout[data-layout="home"] > .selfFrame { left: 24px; top: 96px; width: 208px; }
+
+  .selfPanel,
+  .peerPanel {
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* Onboarding may exceed half a short viewport. Scroll its content without
+     allowing it to grow the grid or cover the camera and its controls. */
+  .peerPanel > :only-child {
+    max-height: 100%;
+    overflow-y: auto;
+    justify-content: safe center;
+  }
+
+  .selfPanel > :first-child,
+  .peerPanel > :first-child {
+    border-radius: 0;
+  }
 }

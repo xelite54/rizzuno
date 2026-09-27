@@ -20,6 +20,7 @@ const server = createServer((req, res) => {
   if (req.url === "/harness.js") { res.setHeader("Content-Type", "text/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
   else if (req.url === "/harness.css") { res.setHeader("Content-Type", "text/css"); res.end(css) }
   else if (req.url === "/blank") res.end("<html><body></body></html>")
+  else if (req.url === "/api/eligibility") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ eligible: false, checked: false })) }
   else { res.setHeader("Content-Type", "text/html"); res.end('<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/harness.css"></head><body><div id="root"></div><script src="/harness.js"></script></body></html>') }
 })
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
@@ -90,6 +91,20 @@ try {
     assert.deepEqual(browser.errors, [], "browser console/runtime errors")
     assert.deepEqual(snapshot.failures, [], `persistent controls in ${scenario}`)
     assert.equal(snapshot.mounts, 1, "homepage remounted")
+    const geometry = await browser.evaluate(`(() => {
+      const stage = document.querySelector('main[data-layout]');
+      const [self, peer] = stage.children;
+      const rect = node => { const r = node.getBoundingClientRect(); return { x:r.x, y:r.y, width:r.width, height:r.height }; };
+      return { width:innerWidth, stage:rect(stage), self:rect(self), peer:rect(peer) };
+    })()`)
+    if (geometry.width < 768) {
+      assert.equal(geometry.self.y, geometry.stage.y, `camera on top in ${scenario}`)
+      assert.equal(geometry.self.width, geometry.stage.width, "camera fills mobile width")
+      assert.equal(geometry.peer.width, geometry.stage.width, "peer fills mobile width")
+      assert.ok(Math.abs(geometry.self.height - geometry.stage.height / 2) < 1, "camera gets exactly half the stage")
+      assert.ok(Math.abs(geometry.peer.height - geometry.stage.height / 2) < 1, "peer gets exactly half the stage")
+      assert.ok(Math.abs(geometry.peer.y - geometry.self.y - geometry.self.height) < 1, "no mobile gap or overlap")
+    }
     if ((scenario === "initial-loading" && cycle === 0) || scenario === "signed-out") assert.equal(snapshot.disabled[2], true, "profile needs an authenticated account")
     cycle++
     if (cycle % scenarios.length === 0) console.log(`HOMEPAGE: ${Date.now() - start}ms, ${snapshot.frames} frame/DOM samples, all controls retain original DOM nodes`)
@@ -97,11 +112,47 @@ try {
   results.elapsedMs = Date.now() - start
   results.coverage = [...coverage]
   results.consoleErrors = browser.errors
-  results.status = "passed"
   await browser.evaluate("window.homepage.stop(); window.homepage.set('idle')")
   await delay(100)
   const screenshot = await browser.call("Page.captureScreenshot", { format: "png" })
   await writeFile(path.join(artifactDir, "homepage.png"), Buffer.from(screenshot.data, "base64"))
+  for (const [width, height] of [[375, 667], [390, 844], [767, 600], [768, 1024], [1024, 768], [1440, 900]]) {
+    await browser.call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 768 })
+    await browser.evaluate("window.homepage.set('signed-out')")
+    await delay(100)
+    const geometry = await browser.evaluate(`(() => {
+      const stage = document.querySelector('main[data-layout]');
+      const [self, peer] = stage.children;
+      const rect = node => { const r = node.getBoundingClientRect(); return { x:r.x, y:r.y, width:r.width, height:r.height }; };
+      return { stage:rect(stage), self:rect(self), peer:rect(peer) };
+    })()`)
+    if (width < 768) {
+      assert.equal(geometry.self.y, 0, "mobile homepage camera starts at the top")
+      assert.equal(geometry.self.height, height / 2, "mobile homepage camera half")
+      assert.equal(geometry.peer.y, height / 2, "mobile homepage content starts at midpoint")
+      assert.equal(geometry.peer.height, height / 2, "mobile homepage content half")
+      const form = await browser.evaluate(`(() => {
+        const input = document.querySelector('input[name="dateOfBirth"]');
+        const panel = input.parentElement.parentElement.parentElement;
+        panel.scrollTop = 0;
+        const startVisible = panel.getBoundingClientRect().top <= panel.firstElementChild.getBoundingClientRect().top;
+        panel.scrollTop = panel.scrollHeight;
+        const last = panel.lastElementChild.getBoundingClientRect();
+        return { startVisible, endVisible:last.bottom <= panel.getBoundingClientRect().bottom + 1 };
+      })()`)
+      assert.equal(form.startVisible, true, "onboarding starts within its scroll area")
+      assert.equal(form.endVisible, true, "onboarding legal links remain reachable")
+    } else {
+      assert.equal(geometry.self.x, 0, "tablet/desktop home keeps camera on the left")
+      assert.ok(Math.abs(geometry.self.width - width * .42) < 1, "tablet/desktop home keeps 42/58 split")
+      assert.equal(geometry.peer.height, height, "tablet/desktop home remains full height")
+    }
+    if (width === 390) {
+      const image = await browser.call("Page.captureScreenshot", { format: "png" })
+      await writeFile(path.join(artifactDir, "homepage-mobile.png"), Buffer.from(image.data, "base64"))
+    }
+  }
+  results.status = "passed"
   console.log(`HOMEPAGE: passed; evidence ${artifactDir}`)
 } finally {
   results.consoleErrors = browser.errors
