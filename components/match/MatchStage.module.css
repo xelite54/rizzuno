@@ -252,41 +252,41 @@
   }
 }
 
-/* Homepage Friends + My Profile: same pill, scaled up ~11% as a whole
+/* Homepage Friends + My Profile: same pill, scaled up as a whole
    (frame padding, gap, button size, icon and initial all together). */
 .homeTools {
-  gap: 5px;
-  padding: 5px;
+  gap: 6px;
+  padding: 6px;
 }
 
 .homeTools button {
-  width: 40px;
-  height: 40px;
-  font-size: 14px;
+  width: 52px;
+  height: 52px;
+  font-size: 18px;
 }
 
 .homeTools button svg {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
 }
 
 @media (max-width: 1199px), (hover: none) and (pointer: coarse) {
   .personalToolsAppearance.homeTools {
-    gap: 3px;
-    padding: 3.5px;
+    gap: 4px;
+    padding: 5px;
   }
 
   .personalToolsAppearance.homeTools button {
-    width: 29px;
-    height: 29px;
-    min-width: 29px;
-    min-height: 29px;
-    font-size: 11px;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 15px;
   }
 
   .personalToolsAppearance.homeTools button svg {
-    width: 16px;
-    height: 16px;
+    width: 20px;
+    height: 20px;
   }
 }
 

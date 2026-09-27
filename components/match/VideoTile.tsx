@@ -33,18 +33,18 @@ const FACE_ANCHOR_Y = "35%"
  * like `cover` when the aspect ratios are close, but never crops more than
  * MAX_PHONE_ZOOM would (e.g. a 16:9 desktop webcam in a near-square phone pane).
  */
-export function phoneFrameZoom(paneWidth: number, paneHeight: number, videoWidth: number, videoHeight: number): number {
+export function phoneFrameZoom(paneWidth: number, paneHeight: number, videoWidth: number, videoHeight: number, maxZoom = MAX_PHONE_ZOOM): number {
   if (paneWidth <= 0 || paneHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return 1
   const paneAspect = paneWidth / paneHeight
   const videoAspect = videoWidth / videoHeight
   const coverOverContain = Math.max(paneAspect / videoAspect, videoAspect / paneAspect)
-  return Math.min(coverOverContain, MAX_PHONE_ZOOM)
+  return Math.min(coverOverContain, maxZoom)
 }
 
 type PhoneFraming = { zoom: number; anchorY: string }
 
 /** Returns the phone framing for this <video>, or null off phones (desktop keeps plain object-cover). */
-function usePhoneFraming(videoRef: React.RefObject<HTMLVideoElement | null>): PhoneFraming | null {
+function usePhoneFraming(videoRef: React.RefObject<HTMLVideoElement | null>, maxZoom: number): PhoneFraming | null {
   const [framing, setFraming] = useState<PhoneFraming | null>(null)
   useEffect(() => {
     const video = videoRef.current
@@ -53,7 +53,7 @@ function usePhoneFraming(videoRef: React.RefObject<HTMLVideoElement | null>): Ph
     const update = () => {
       if (!query.matches) { setFraming(null); return }
       const { clientWidth, clientHeight, videoWidth, videoHeight } = video
-      const zoom = phoneFrameZoom(clientWidth, clientHeight, videoWidth, videoHeight)
+      const zoom = phoneFrameZoom(clientWidth, clientHeight, videoWidth, videoHeight, maxZoom)
       // Only a stream taller than its pane is cropped vertically; wider ones stay centered.
       const anchorY = videoWidth * clientHeight < videoHeight * clientWidth ? FACE_ANCHOR_Y : "50%"
       setFraming(previous => previous?.zoom === zoom && previous.anchorY === anchorY ? previous : { zoom, anchorY })
@@ -71,7 +71,7 @@ function usePhoneFraming(videoRef: React.RefObject<HTMLVideoElement | null>): Ph
       video.removeEventListener("loadedmetadata", update)
       query.removeEventListener("change", update)
     }
-  }, [videoRef])
+  }, [videoRef, maxZoom])
   return framing
 }
 
@@ -82,7 +82,8 @@ export function VideoTile(props: VideoTileProps) {
   const enableAudioRef = useRef<(() => void) | null>(null)
   const [blockedStream, setBlockedStream] = useState<MediaStream | null>(null)
   const audioBlocked = stream !== null && blockedStream === stream
-  const phoneFraming = usePhoneFraming(videoRef)
+  // Your own camera always fills its pane (full cover, face-anchored); the peer's is capped to avoid over-cropping them.
+  const phoneFraming = usePhoneFraming(videoRef, role === "self" ? Infinity : MAX_PHONE_ZOOM)
 
   useEffect(() => {
     const element = videoRef.current
