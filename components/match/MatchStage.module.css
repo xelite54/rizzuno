@@ -252,25 +252,10 @@
   }
 }
 
-/* Homepage Friends + My Profile: same pill, scaled up as a whole
-   (frame padding, gap, button size, icon and initial all together). */
-.homeTools {
-  gap: 6px;
-  padding: 6px;
-}
-
-.homeTools button {
-  width: 52px;
-  height: 52px;
-  font-size: 18px;
-}
-
-.homeTools button svg {
-  width: 26px;
-  height: 26px;
-}
-
-@media (max-width: 1199px), (hover: none) and (pointer: coarse) {
+/* Homepage Friends + My Profile on phones only: same pill, scaled up as a
+   whole (frame padding, gap, button size, icon and initial all together).
+   Desktop and tablets keep the default personalToolsAppearance sizes. */
+@media (max-width: 767px), (max-height: 500px) and (pointer: coarse) {
   .personalToolsAppearance.homeTools {
     gap: 4px;
     padding: 5px;
