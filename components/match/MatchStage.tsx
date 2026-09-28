@@ -188,7 +188,7 @@ export function MatchStage() {
     friendRequestsSent: rawFriendRequestsSent,
     blockedUsers: rawBlockedUsers,
     friendActionState,
-    friendToastRequestId,
+    friendToastRequestIds,
     sendFriendRequestTo,
     respondToFriendRequest,
     unfriend,
@@ -423,7 +423,7 @@ export function MatchStage() {
 
   const [unreadMessages, setUnreadMessages] = useState(0)
   const friendsNotifications = requests.length + unreadMessages + matchInvitations.filter((invite) => invite.direction === "incoming").length
-  const toastRequest = requests.find((request) => request.id === friendToastRequestId) ?? null
+  const toastRequests = friendToastRequestIds.flatMap((id) => requests.filter((request) => request.id === id))
 
   const [friendsOpen, setFriendsOpen] = useState(false)
 
@@ -702,11 +702,11 @@ export function MatchStage() {
             onNotifyFriendTyping={notifyFriendTyping}
           />
           <IncomingFriendRequestToast
-            request={incomingMatchInvitation ? null : toastRequest}
+            requests={incomingMatchInvitation ? [] : toastRequests}
             onAccept={(id) => respondToFriendRequest(id, true)}
             onDecline={(id) => respondToFriendRequest(id, false)}
             onDismiss={dismissFriendToast}
-            onViewProfile={() => toastRequest && openUserProfile({ source: "request", username: toastRequest.username || null, displayName: toastRequest.displayName, photo: toastRequest.profilePhoto, userId: toastRequest.senderId })}
+            onViewProfile={(request) => openUserProfile({ source: "request", username: request.username || null, displayName: request.displayName, photo: request.profilePhoto, userId: request.senderId })}
           />
           <IncomingMatchInvitationToast
             invitation={incomingMatchInvitation}

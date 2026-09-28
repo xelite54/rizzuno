@@ -5,6 +5,7 @@ import { subscriptionHref } from "@/lib/upgradeNavigation"
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { friendsCacheKey, parseFriendsCache } from "@/lib/friendsCache"
+import { MAX_FRIEND_REQUEST_TOASTS, takeUnnotifiedFriendRequests } from "@/lib/friendRequestNotifications"
 import { matchHistoryKey, blockedUsersKey, parseMatchHistory, parseBlockedUsers, rememberMatch } from "@/lib/profileActivityCache"
 import { useSignalingSocket } from "./useSignalingSocket"
 import type { PeerPlaybackReport } from "@/lib/peerPlayback"
@@ -465,12 +466,12 @@ export function useMatchmaking(
   // shown for the current match and the "Add"/"Requested" state on a
   // History row, both of which only ever know a displayId, never a real id.
   const [friendActionState, setFriendActionState] = useState<Map<string, FriendRequestOutcome>>(new Map())
-  // The most recently *newly arrived* incoming request this session — for
-  // the live in-call toast. Detected by diffing consecutive snapshots
-  // (below), not a separate push event, so the toast and the Friends
-  // panel's inbox can never disagree about what's actually pending.
-  const [friendToastRequestId, setFriendToastRequestId] = useState<string | null>(null)
-  const previousReceivedIds = useRef<Set<string>>(new Set())
+  // Incoming requests currently popped up as toasts (at most
+  // MAX_FRIEND_REQUEST_TOASTS). Each request pops up once, ever, per account:
+  // ids already notified are remembered in localStorage (see
+  // lib/friendRequestNotifications.ts). Anything beyond the limit, and
+  // anything already notified, lives only in the Friends panel's inbox.
+  const [friendToastRequestIds, setFriendToastRequestIds] = useState<string[]>([])
 
   const sendSignal = useCallback(
     (room: string, data: RtcSignal) => send({ type: "signal", roomId: room, data }),
@@ -814,9 +815,9 @@ export function useMatchmaking(
   const respondToFriendRequest = useCallback(
     (requestId: string, accept: boolean) => {
       send({ type: "friend-respond", requestId, accept })
-      if (friendToastRequestId === requestId) setFriendToastRequestId(null)
+      setFriendToastRequestIds((prev) => prev.filter((id) => id !== requestId))
     },
-    [send, friendToastRequestId]
+    [send]
   )
 
   const unfriend = useCallback(
@@ -842,7 +843,7 @@ export function useMatchmaking(
     [send]
   )
 
-  const dismissFriendToast = useCallback(() => setFriendToastRequestId(null), [])
+  const dismissFriendToast = useCallback((requestId: string) => setFriendToastRequestIds((prev) => prev.filter((id) => id !== requestId)), [])
 
   /**
    * Sends a real, persisted friend-chat message over this same socket (see
@@ -1558,16 +1559,19 @@ export function useMatchmaking(
             try { localStorage.setItem(blockedUsersKey(accountId), JSON.stringify(message.blocked)) }
             catch { /* The database remains authoritative if caching fails. */ }
           }
-          // Diff against the previous snapshot's received-request ids so
-          // the live toast only ever fires for one that's genuinely new —
-          // not on every routine snapshot refresh (e.g. after unrelated
-          // friends actions) that happens to still include an
-          // already-seen, still-pending request.
-          const newIds = message.requestsReceived.map((r) => r.id)
-          const newlyArrived = message.requestsReceived.find((r) => !previousReceivedIds.current.has(r.id))
-          previousReceivedIds.current = new Set(newIds)
           setFriendRequestsReceived(message.requestsReceived)
-          if (newlyArrived) setFriendToastRequestId(newlyArrived.id)
+          if (accountId) {
+            // One-time toasts: only requests never notified before on this
+            // account pop up, capped at MAX_FRIEND_REQUEST_TOASTS on screen;
+            // every new one (shown or not) is marked notified right away.
+            const pendingIds = message.requestsReceived.map((r) => r.id)
+            const fresh = takeUnnotifiedFriendRequests(accountId, pendingIds)
+            // Drop toasts whose request is no longer pending (accepted elsewhere, withdrawn).
+            setFriendToastRequestIds((prev) => {
+              const still = prev.filter((id) => pendingIds.includes(id))
+              return [...still, ...fresh].slice(0, MAX_FRIEND_REQUEST_TOASTS)
+            })
+          }
           break
         }
         case "friend-request-result": {
@@ -1794,8 +1798,7 @@ export function useMatchmaking(
     // History and blocks survive temporary teardown; account changes clear
     // or restore their presentation in the layout effect above.
     setFriendActionState(new Map())
-    setFriendToastRequestId(null)
-    previousReceivedIds.current = new Set()
+    setFriendToastRequestIds([])
   }, [enabled, send, setRoomId])
 
   return {
@@ -1855,7 +1858,7 @@ export function useMatchmaking(
     friendRequestsSent,
     blockedUsers,
     friendActionState,
-    friendToastRequestId,
+    friendToastRequestIds,
     sendFriendRequestTo,
     respondToFriendRequest,
     unfriend,
