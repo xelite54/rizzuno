@@ -10,11 +10,12 @@ import { usePublicProfile } from "@/hooks/usePublicProfile"
 import { resolveProfilePhoto } from "@/lib/publicProfile"
 import type { ProfileRelationship } from "@/lib/profileRelationship"
 import type { ReportCategory } from "@/lib/signaling/protocol"
+import type { ReportTargetRef } from "@/lib/reportTargets"
 import { ProfileAvatar } from "@/components/match/ProfileAvatar"
 import { PostGallery } from "@/components/match/PostGallery"
 import { FriendButton } from "@/components/match/FriendButton"
 import { ProfileActionsMenu } from "@/components/match/ProfileActionsMenu"
-import { ReportButton } from "@/components/match/ReportButton"
+import { ReportDialog } from "@/components/report/ReportDialog"
 import { FRIENDS_ENABLED } from "@/lib/featureFlags"
 
 /** Where a profile was opened from — informational (tests, analytics); never changes what the profile shows. */
@@ -39,7 +40,10 @@ type UserProfileSheetProps = {
   onDecline?: () => void
   onRemoveFriend?: () => void
   onBlock?: () => void
-  onReport?: (category: ReportCategory) => void
+  /** What "Report" on this profile reports, and (for a live call or a friend) the context-carrying transport for ordinary reasons. */
+  report?: { target: ReportTargetRef; submitOrdinary?: (category: ReportCategory, details?: string) => Promise<void> | void }
+  /** The signed-in viewer's own username — their own posts never get report/block actions. */
+  viewerUsername?: string | null
   /** e.g. a failed friend request, shown under the actions. */
   actionError?: string | null
 }
@@ -65,15 +69,18 @@ export function UserProfileSheet(props: UserProfileSheetProps) {
   )
 }
 
-function SheetBody({ target, relationship, onClose, onAddFriend, onAccept, onDecline, onRemoveFriend, onBlock, onReport, actionError }: UserProfileSheetProps & { target: ProfileTarget }) {
+function SheetBody({ target, relationship, onClose, onAddFriend, onAccept, onDecline, onRemoveFriend, onBlock, report, viewerUsername, actionError }: UserProfileSheetProps & { target: ProfileTarget }) {
   const { profile, error, loading, retry } = usePublicProfile(target.username)
   const [confirm, setConfirm] = useState<"unfriend" | "block" | null>(null)
+  // Lives outside the dropdown so the dialog survives the menu closing.
+  const [reportOpen, setReportOpen] = useState(false)
   const name = profile?.username ?? target.username ?? target.displayName
   const unavailable = error === "Profile unavailable." || (!target.username && !loading)
   const busy = loading && !!target.username
   const isFriend = relationship.kind === "friend"
   const canRemove = isFriend && !!relationship.friendshipId && !!onRemoveFriend
-  const hasMenu = !unavailable && (canRemove || !!onBlock || !!onReport)
+  const hasMenu = !unavailable && (canRemove || !!onBlock || !!report)
+  const ownProfile = !!viewerUsername && !!(profile?.username ?? target.username) && (profile?.username ?? target.username)!.toLowerCase() === viewerUsername.toLowerCase()
 
   return (
     <motion.div
@@ -161,12 +168,10 @@ function SheetBody({ target, relationship, onClose, onAddFriend, onAccept, onDec
                               Block
                             </button>
                           )}
-                          {onReport && (
-                            <ReportButton
-                              onReport={onReport}
-                              onSubmitted={() => setTimeout(closeMenu, 1100)}
-                              triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                            />
+                          {report && (
+                            <button type="button" onClick={() => { closeMenu(); setReportOpen(true) }} className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2">
+                              Report
+                            </button>
                           )}
                         </div>
                       )
@@ -213,12 +218,13 @@ function SheetBody({ target, relationship, onClose, onAddFriend, onAccept, onDec
               ))}
             </div>
           ) : profile && profile.posts.length > 0 ? (
-            <PostGallery posts={profile.posts} owner={name} />
+            <PostGallery posts={profile.posts} owner={name} actions={ownProfile ? undefined : { onBlockOwner: onBlock }} />
           ) : (
             <div className="flex items-center justify-center py-10 text-[13px] text-muted">No posts yet</div>
           )}
         </div>
       </div>
+      {report && <ReportDialog open={reportOpen} target={report.target} submitOrdinary={report.submitOrdinary} onClose={() => setReportOpen(false)} />}
     </motion.div>
   )
 }

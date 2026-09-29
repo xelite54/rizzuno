@@ -139,7 +139,7 @@ const sheet = () => a.evaluate(`(() => {
     name: el.querySelector("p.text-\\\\[18px\\\\]")?.textContent,
     bio: [...el.querySelectorAll("p")].map(p => p.textContent).find(t => t.startsWith("Bio of")) ?? null,
     photo: photo?.getAttribute("src") ?? null,
-    posts: el.querySelectorAll(".grid > button").length,
+    posts: el.querySelectorAll(".grid [data-post-tile]").length,
     menu: !!el.querySelector('button[aria-label^="More options for"]'),
     buttons: [...el.querySelectorAll("button")].map(b => b.textContent.trim()).filter(Boolean),
   }
@@ -157,7 +157,7 @@ async function expectProfile(expected: Expect) {
   assert.equal(s.menu, true, `${expected.source}: report/block menu`)
   for (const label of expected.buttons ?? []) assert.ok(s.buttons.includes(label), `${expected.source}: shows ${label} (${s.buttons})`)
   // The shared post viewer opens from this profile too.
-  await clickSelector(a, "[data-user-profile-sheet] .grid > button:nth-child(2)")
+  await clickSelector(a, "[data-user-profile-sheet] .grid > div:nth-child(2) > [data-post-tile]")
   await until(`${expected.source} post viewer`, () => a.evaluate(`document.querySelector("dialog[open]")?.getAttribute("aria-label") ?? ""`), (label: string) => label.startsWith("Photo 2 of 3"))
   await a.evaluate(`document.querySelector('dialog[open] button[aria-label="Close photo"]').click()`)
   await until(`${expected.source} post viewer closed`, () => a.evaluate(`!document.querySelector("dialog[open]")`), Boolean)

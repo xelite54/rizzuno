@@ -679,5 +679,113 @@ export const MIGRATIONS: Migration[] = [
       REVOKE ALL ON cybertipline_cases FROM PUBLIC;
     `,
   },
+  {
+    // One reporting model, several target types. The existing `reports`
+    // table gains what exactly was reported (user, post, match or message)
+    // instead of a second generic table. Existing rows are backfilled from
+    // the columns they already have: a row with a match_id was a call report
+    // (target = that match), anything else was an account report (target =
+    // the reported account). The BEFORE INSERT default keeps any older
+    // application instance still inserting without the new columns during a
+    // rolling deploy producing the same classification, never a NULL.
+    //
+    // NCII (intimate images shared without consent) requests are a separate
+    // legal workflow: `ncii_cases` is tracked independently of the ordinary
+    // moderation queue, optionally linked to one internal `intimate_image`
+    // report row for moderation history and account enforcement/appeals.
+    // `content_removals` is the audit trail of every moderator content
+    // removal; the post's Storage object is still deleted only through the
+    // existing image_deletion_queue (queue_post_image trigger + legal holds).
+    id: "0018_unified_report_targets",
+    sql: `
+      SET LOCAL lock_timeout = '5s';
+      ALTER TABLE reports
+        ADD COLUMN target_type TEXT,
+        ADD COLUMN target_id TEXT,
+        ADD COLUMN content_reference TEXT;
+      UPDATE reports SET
+        target_type = CASE WHEN match_id IS NOT NULL THEN 'match' ELSE 'user' END,
+        target_id = COALESCE(match_id, reported_id);
 
+      CREATE FUNCTION default_report_target() RETURNS trigger LANGUAGE plpgsql AS $target$
+      BEGIN
+        IF NEW.target_type IS NULL THEN
+          NEW.target_type := CASE WHEN NEW.match_id IS NOT NULL THEN 'match' ELSE 'user' END;
+        END IF;
+        IF NEW.target_id IS NULL THEN
+          NEW.target_id := CASE WHEN NEW.target_type = 'match' THEN NEW.match_id ELSE NEW.reported_id END;
+        END IF;
+        RETURN NEW;
+      END $target$;
+      REVOKE ALL ON FUNCTION default_report_target() FROM PUBLIC;
+      CREATE TRIGGER default_report_target BEFORE INSERT ON reports FOR EACH ROW EXECUTE FUNCTION default_report_target();
+
+      ALTER TABLE reports ALTER COLUMN target_type SET NOT NULL, ALTER COLUMN target_id SET NOT NULL;
+      ALTER TABLE reports ADD CONSTRAINT reports_target_type CHECK (target_type IN ('user','post','match','message'));
+      ALTER TABLE reports ADD CONSTRAINT reports_target_consistency CHECK (
+        (target_type <> 'user' OR target_id = reported_id)
+        AND (target_type <> 'match' OR target_id = match_id)
+        AND (target_type = 'match' OR match_id IS NULL)
+        AND (content_reference IS NULL OR length(content_reference) <= 500)
+      );
+      ALTER TABLE reports DROP CONSTRAINT reports_category;
+      ALTER TABLE reports ADD CONSTRAINT reports_category
+        CHECK (category IN ('sexual_content','harassment','hate','scam','spam','underage_concern','violence','other','intimate_image'));
+      CREATE INDEX reports_target ON reports(target_type, target_id);
+      CREATE INDEX reports_reporter_target ON reports(reporter_id, target_type, target_id, created_at);
+      CREATE INDEX reports_reported_recent ON reports(reported_id, created_at DESC);
+
+      CREATE TABLE content_removals (
+        id TEXT PRIMARY KEY,
+        target_type TEXT NOT NULL CHECK (target_type IN ('post')),
+        target_id TEXT NOT NULL,
+        target_user_id TEXT NOT NULL,
+        content_reference TEXT CHECK (content_reference IS NULL OR length(content_reference) <= 500),
+        actor_id TEXT NOT NULL,
+        report_id TEXT,
+        ncii_case_id TEXT,
+        reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 500),
+        created_at BIGINT NOT NULL
+      );
+      CREATE INDEX content_removals_target_user ON content_removals(target_user_id, created_at DESC);
+      CREATE INDEX content_removals_target ON content_removals(target_type, target_id);
+
+      CREATE TABLE ncii_cases (
+        id TEXT PRIMARY KEY,
+        report_id TEXT UNIQUE REFERENCES reports(id),
+        requester_user_id TEXT NOT NULL,
+        reported_user_id TEXT NOT NULL,
+        target_type TEXT NOT NULL CHECK (target_type IN ('user','post','match','message')),
+        target_id TEXT NOT NULL,
+        content_reference TEXT CHECK (content_reference IS NULL OR length(content_reference) <= 500),
+        image_sha256 TEXT CHECK (image_sha256 IS NULL OR image_sha256 ~ '^[0-9a-f]{64}$'),
+        requester_relationship TEXT NOT NULL CHECK (requester_relationship IN ('depicted_person','authorized_representative')),
+        signature_name TEXT NOT NULL CHECK (length(signature_name) BETWEEN 2 AND 200),
+        contact TEXT NOT NULL CHECK (length(contact) BETWEEN 3 AND 320),
+        description TEXT CHECK (description IS NULL OR length(description) <= 2000),
+        good_faith_statement BOOLEAN NOT NULL CHECK (good_faith_statement),
+        status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received','removed','content_unavailable','rejected')),
+        received_at BIGINT NOT NULL,
+        removal_due_at BIGINT NOT NULL,
+        reviewer_id TEXT,
+        decided_at BIGINT,
+        decision_rationale TEXT CHECK (decision_rationale IS NULL OR length(decision_rationale) <= 2000),
+        CHECK (removal_due_at > received_at),
+        CHECK (
+          (status = 'received' AND reviewer_id IS NULL AND decided_at IS NULL AND decision_rationale IS NULL)
+          OR (status <> 'received' AND reviewer_id IS NOT NULL AND decided_at IS NOT NULL AND decision_rationale IS NOT NULL)
+        )
+      );
+      CREATE INDEX ncii_cases_queue ON ncii_cases(status, removal_due_at);
+      CREATE INDEX ncii_cases_requester_target ON ncii_cases(requester_user_id, target_type, target_id);
+
+      CREATE TRIGGER preserve_content_removals BEFORE UPDATE OR DELETE ON content_removals
+        FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      CREATE TRIGGER preserve_ncii_cases BEFORE UPDATE OR DELETE ON ncii_cases
+        FOR EACH ROW EXECUTE FUNCTION preserve_held_record();
+      ALTER TABLE content_removals ENABLE ROW LEVEL SECURITY;
+      ALTER TABLE ncii_cases ENABLE ROW LEVEL SECURITY;
+      REVOKE ALL ON content_removals, ncii_cases FROM PUBLIC;
+    `,
+  },
 ]

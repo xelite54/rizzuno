@@ -2,7 +2,7 @@
 
 import { auth } from "@/auth"
 import { isAdminEmail, isSafetyReviewer } from "@/lib/admin"
-import { getAppealForAdmin, getReport, resolveAppeal, resolveReport, type ModerationAction } from "@/lib/db"
+import { getAppealForAdmin, getReport, resolveAppeal, resolveReport, reviewNciiCase, type ModerationAction } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { revalidatePath } from "next/cache"
 
@@ -28,8 +28,10 @@ export async function resolveReportAction(formData: FormData) {
   const actionRaw = String(formData.get("action") ?? "")
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 500) || null
   const suspendDays = Number(formData.get("suspendDays") ?? 0)
+  // Content decision, independent of the account decision below.
+  const contentAction = String(formData.get("contentAction") ?? "keep")
 
-  if (!/^[0-9a-f-]{36}$/i.test(reportId) || !VALID_ACTIONS.includes(actionRaw as ModerationAction)) {
+  if (!/^[0-9a-f-]{36}$/i.test(reportId) || !VALID_ACTIONS.includes(actionRaw as ModerationAction) || !["keep", "remove"].includes(contentAction)) {
     throw new Error("Invalid input")
   }
   const action = actionRaw as ModerationAction
@@ -43,8 +45,23 @@ export async function resolveReportAction(formData: FormData) {
 
   const report = await getReport(reportId)
   if (report?.priority === "urgent" && !isSafetyReviewer(session.user.email)) throw new Error("Trained safety reviewer required")
-  await resolveReport(reportId, session!.user!.id, action, reason, suspendUntil)
+  await resolveReport(reportId, session!.user!.id, action, reason, suspendUntil, { removeContent: contentAction === "remove" })
   revalidatePath("/admin")
+}
+
+/** NCII validity review — trained safety reviewers only; removal goes through the shared content-removal path. */
+export async function reviewNciiAction(formData: FormData) {
+  const session = await auth()
+  if (!session?.user?.id || !isSafetyReviewer(session.user.email)) throw new Error("Not authorized")
+  if (await isRateLimited(`admin-ncii:${session.user.id}`, 30, 60_000)) throw new Error("Rate limited")
+  const caseId = String(formData.get("caseId") ?? "")
+  const outcome = String(formData.get("outcome") ?? "")
+  const rationale = String(formData.get("rationale") ?? "").trim()
+  if (!/^[0-9a-f-]{36}$/i.test(caseId) || !["valid_remove", "valid_unavailable", "rejected"].includes(outcome) || !rationale || rationale.length > 2000) throw new Error("Invalid NCII review")
+  if (formData.get("confirmReview") !== "yes") throw new Error("Confirm the review decision")
+  await reviewNciiCase({ caseId, actorId: session.user.id, outcome: outcome as "valid_remove" | "valid_unavailable" | "rejected", rationale })
+  revalidatePath("/admin")
+  revalidatePath(`/admin/ncii/${caseId}`)
 }
 
 export async function resolveAppealAction(formData: FormData) {

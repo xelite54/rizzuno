@@ -527,6 +527,8 @@ export function MatchStage() {
       sentRequests={rawFriendRequestsSent}
       friendActionState={friendActionState}
       currentPeerDisplayId={peer?.displayId ?? null}
+      currentRoomId={roomId}
+      viewerUsername={myProfile.username || null}
       sendFriendRequestTo={sendFriendRequestTo}
       respondToFriendRequest={respondToFriendRequest}
       unfriend={unfriend}
@@ -612,6 +614,7 @@ export function MatchStage() {
               />
               <SafetyMenu
                 disabled={!hasMatchedPeer}
+                roomId={roomId}
                 onViewProfile={openPeerProfile}
                 onReport={report}
                 onBlock={handleBlockPeer}

@@ -4,8 +4,9 @@ import { ageAssuranceCapability } from "@/lib/ageAssurance"
 import { notFound } from "next/navigation"
 import { auth } from "@/auth"
 import { isRateLimited } from "@/lib/apiRateLimit"
-import { isAdminEmail } from "@/lib/admin"
-import { listAppeals, listReports } from "@/lib/db"
+import { isAdminEmail, isSafetyReviewer } from "@/lib/admin"
+import { listAppeals, listNciiCases, listReports, type ReportQueueRow } from "@/lib/db"
+import { NCII_REPORT_CATEGORY, TARGET_LABELS } from "@/lib/reportTargets"
 import { resolveAppealAction, resolveReportAction } from "./actions"
 
 export const dynamic = "force-dynamic"
@@ -31,33 +32,66 @@ export default async function AdminPage() {
   const pending = (await listReports("pending")).filter(report=>report.reported_id!==session.user.id)
   const reviewed = (await listReports("reviewed")).filter(report=>report.reported_id!==session.user.id).slice(0, 20)
   const appeals = (await listAppeals("submitted")).filter(appeal=>appeal.userId!==session.user.id)
+  const safetyReviewer = isSafetyReviewer(session.user.email)
+  const nciiCases = safetyReviewer ? await listNciiCases(session.user.id, "open") : []
 
   return (
     <main className="mx-auto min-h-full w-full max-w-3xl bg-background px-6 py-16 text-foreground">
       <p className="text-sm">Age assurance: {ageAssuranceCapability().state} (current gate: self-attestation). Specialist illegal-content detection: {severeContentCapability().state}. Underage concerns require a trained safety reviewer. Follow the operator safety escalation runbook.</p>
       <h1 className="text-[24px] font-bold tracking-tight">Moderation queue</h1>
-      <p className="mt-1 text-[13px] text-muted">{pending.length} pending report(s).</p>
+      <p className="mt-1 text-[13px] text-muted">{pending.length} pending report(s). Content decisions (keep/remove the reported post) and account decisions are separate; removing content never applies an account penalty by itself.</p>
+
+      {safetyReviewer && (
+        <section className="mt-8">
+          <h2 className="text-[16px] font-semibold">NCII removal requests</h2>
+          <p className="mt-1 text-[13px] text-muted">{nciiCases.length} open request(s), separate from ordinary reports. Review validity and decide removal on the restricted case page; views are audited.</p>
+          <div className="mt-3 space-y-2">
+            {nciiCases.map((nciiCase) => (
+              <Link key={nciiCase.id} href={`/admin/ncii/${nciiCase.id}`} className="block rounded-lg border border-border px-3 py-2 text-[13px] hover:bg-surface-2">
+                <span className={nciiCase.overdue ? "font-semibold text-danger" : "font-semibold"}>Due {new Date(nciiCase.removalDueAt).toLocaleString()}</span>
+                {" · "}{TARGET_LABELS[nciiCase.targetType]} · @{nciiCase.reportedUsername ?? "unknown"} · received {new Date(nciiCase.receivedAt).toLocaleString()}
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="mt-8 space-y-4">
         {pending.length === 0 && <p className="text-[13px] text-muted">Nothing pending.</p>}
         {pending.map((report) => (
           <div key={report.id} className="rounded-xl border border-border bg-surface p-4">
-            <div className="text-[13px] text-muted">
-              {new Date(report.created_at).toLocaleString()} · match {report.match_id ?? "—"}
+            <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted">
+              <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-foreground">{TARGET_LABELS[report.target_type]}</span>
+              {report.category === NCII_REPORT_CATEGORY && <span className="rounded-full bg-danger px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-accent-foreground">NCII legal case</span>}
+              <span>Submitted {new Date(report.created_at).toLocaleString()}</span>
             </div>
             <div className="mt-1 text-[14px]">
-              <span className="font-semibold">{report.priority === "urgent" ? "URGENT — " : ""}{report.category}</span> — reporter{" "}
-              <code className="text-[12px]">{report.reporter_id}</code> reported{" "}
-              <code className="text-[12px]">{report.reported_id}</code>
+              <span className="font-semibold">{report.priority === "urgent" ? "URGENT — " : ""}{report.category}</span> — reported user{" "}
+              <span className="font-semibold">@{report.reported_username ?? "unknown"}</span> <code className="text-[12px]">{report.reported_id}</code>
             </div>
+            <div className="mt-1 text-[13px]">Target: {targetSummary(report)}</div>
+            <div className="text-[12px] text-muted">Reporter <code>{report.reporter_id}</code> · Previous reports {report.prior_reports} · Previous enforcement {report.prior_actions} · Previous content removals {report.prior_removals}</div>
             {report.details && <p className="mt-1 text-[13px] text-muted">&ldquo;{report.details}&rdquo;</p>}
+            {report.target_type === "post" && ["underage_concern", NCII_REPORT_CATEGORY].includes(report.category)
+              ? <p className="mt-2 text-[12px] text-muted">Preview withheld from the general queue for this category; follow the restricted safety workflow.</p>
+              : report.target_type === "post" && (report.target_available && report.post_image
+              // eslint-disable-next-line @next/next/no-img-element -- restricted admin preview of the still-existing reported post
+              ? <img src={report.post_image} alt="Reported post" className="mt-2 h-40 w-40 rounded-lg border border-border object-cover" />
+              : <p className="mt-2 text-[12px] text-muted">Post no longer available{report.content_reference ? ` (reference at report time: ${report.content_reference})` : ""}.</p>)}
+            {report.ncii_case_id && safetyReviewer && <Link className="mt-1 block text-sm underline" href={`/admin/ncii/${report.ncii_case_id}`}>Open NCII case (removal is decided there)</Link>}
 
             <Link className="underline text-sm" href={`/admin/safety/${report.id}`}>Restricted safety case and evidence</Link>
             <form action={resolveReportAction} className="mt-3 flex flex-wrap items-center gap-2">
               <input type="hidden" name="reportId" value={report.id} />
-              <select name="action" className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[13px]" defaultValue="no_action">
-                <option value="no_action">No action</option>
-                <option value="warning">Warning</option>
+              {report.target_type === "post" && report.target_available && report.category !== NCII_REPORT_CATEGORY && (
+                <select name="contentAction" aria-label="Content action" className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[13px]" defaultValue="keep">
+                  <option value="keep">Keep post</option>
+                  <option value="remove">Remove post</option>
+                </select>
+              )}
+              <select name="action" aria-label="Account action" className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[13px]" defaultValue="no_action">
+                <option value="no_action">No account action</option>
+                <option value="warning">Warn user</option>
                 <option value="restrict">Temporary restriction pending review</option>
                 <option value="suspend">Temporary suspension</option>
                 <option value="ban">Permanent ban</option>
@@ -106,10 +140,20 @@ export default async function AdminPage() {
       <div className="mt-3 space-y-2">
         {reviewed.map((report) => (
           <div key={report.id} className="rounded-lg border border-border px-3 py-2 text-[12px] text-muted">
-            {new Date(report.created_at).toLocaleString()} · {report.category} · reported {report.reported_id}
+            {new Date(report.created_at).toLocaleString()} · {TARGET_LABELS[report.target_type]} · {report.category} · reported @{report.reported_username ?? report.reported_id}
           </div>
         ))}
       </div>
     </main>
   )
+}
+
+function targetSummary(report: ReportQueueRow): string {
+  const who = `@${report.reported_username ?? "unknown"}`
+  switch (report.target_type) {
+    case "post": return `Post · ${who} · post ${report.target_id.slice(0, 8)}`
+    case "match": return `Match · room/session ${report.target_id}`
+    case "message": return `Message · ${who} · message ${report.target_id.slice(0, 8)}${report.content_reference ? ` (${report.content_reference})` : ""}`
+    default: return `User · ${who}`
+  }
 }

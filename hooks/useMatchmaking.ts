@@ -762,10 +762,14 @@ export function useMatchmaking(
     send({ type: "typing", roomId })
   }, [roomId, send])
 
+  /** Reports the live call's partner. With `expectedRoomId`, sends only while
+   * still in that same room (never to a newer partner) and returns whether it
+   * was sent, so a caller can fall back to reporting the ended match. */
   const report = useCallback(
-    (category: ReportCategory, details?: string) => {
-      if (!roomId) return
+    (category: ReportCategory, details?: string, expectedRoomId?: string): boolean => {
+      if (!roomId || (expectedRoomId !== undefined && expectedRoomId !== roomId)) return false
       send({ type: "report", roomId, category, details })
+      return true
     },
     [roomId, send]
   )

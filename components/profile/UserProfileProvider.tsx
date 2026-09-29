@@ -6,6 +6,8 @@ import { deriveRelationship } from "@/lib/profileRelationship"
 import { subscriptionHref } from "@/lib/upgradeNavigation"
 import type { DemoFriend, PendingRequest } from "@/hooks/useFriends"
 import type { ReportCategory } from "@/lib/signaling/protocol"
+import type { ReportTargetRef } from "@/lib/reportTargets"
+import { reportMatch } from "@/components/report/ReportDialog"
 
 /** What a surface passes to open someone's profile: who they are, plus any safe reference it already has. */
 export type OpenUserProfileArgs = ProfileTarget & {
@@ -60,13 +62,17 @@ type ProviderProps = {
   friendActionState: Map<string, string>
   /** The live call's partner, if any — blocking/reporting them uses the in-call path, which ends the call. */
   currentPeerDisplayId: string | null
+  /** The live call's room, so a report made from the partner's profile keeps its match context. */
+  currentRoomId: string | null
+  /** The signed-in viewer's own username (their own posts get no report/block actions). */
+  viewerUsername: string | null
   sendFriendRequestTo: (displayId: string) => void
   respondToFriendRequest: (requestId: string, accept: boolean) => void
   unfriend: (friendshipId: string) => void
   blockAccount: (userId: string) => void
-  reportAccount: (userId: string, category: ReportCategory) => void
+  reportAccount: (userId: string, category: ReportCategory, details?: string) => void
   blockCurrentPeer: () => void
-  reportCurrentPeer: (category: ReportCategory) => void
+  reportCurrentPeer: (category: ReportCategory, details?: string, expectedRoomId?: string) => boolean
 }
 
 const REQUEST_ERRORS: Record<string, string> = {
@@ -84,7 +90,7 @@ const REQUEST_ERRORS: Record<string, string> = {
  * that relationship allows, routed to the existing server paths.
  */
 export function UserProfileProvider({
-  children, target, setTarget, friends, requests, sentRequests, friendActionState, currentPeerDisplayId,
+  children, target, setTarget, friends, requests, sentRequests, friendActionState, currentPeerDisplayId, currentRoomId, viewerUsername,
   sendFriendRequestTo, respondToFriendRequest, unfriend, blockAccount, reportAccount, blockCurrentPeer, reportCurrentPeer,
 }: ProviderProps) {
   const [pendingUsernames, setPendingUsernames] = useState<string[]>([])
@@ -148,12 +154,15 @@ export function UserProfileProvider({
     setTarget(null)
   }
 
-  function report(category: ReportCategory) {
-    if (!target) return
-    if (isCurrentPeer) reportCurrentPeer(category)
-    else if (knownUserId) reportAccount(knownUserId, category)
-    else if (target.username) fetch("/api/friends/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: target.username, category }) }).catch(() => {})
-  }
+  // One Report dialog for every profile; only the transport differs. A live
+  // call's partner is reported as that match (room + recent chat context), a
+  // friend/requester over the socket path, anyone else by username through
+  // POST /api/reports. The server resolves the reported account each time.
+  const report: { target: ReportTargetRef; submitOrdinary?: (category: ReportCategory, details?: string) => Promise<void> | void } | undefined =
+    !target ? undefined
+      : isCurrentPeer && currentRoomId ? { target: { type: "match", id: currentRoomId }, submitOrdinary: reportMatch(currentRoomId, reportCurrentPeer) }
+      : target.username ? { target: { type: "user", id: target.username }, submitOrdinary: knownUserId ? (category, details) => reportAccount(knownUserId, category, details) : undefined }
+      : undefined
 
   const context = useMemo(() => ({ openUserProfile, closeUserProfile, sendFriendRequestByUsername, isRequestPending, requestError }), [openUserProfile, closeUserProfile, sendFriendRequestByUsername, isRequestPending, requestError])
   const canBlockOrReport = !!target && (isCurrentPeer || !!knownUserId || !!target.username)
@@ -170,7 +179,8 @@ export function UserProfileProvider({
         onDecline={() => { if (relationship.kind === "incoming") { respondToFriendRequest(relationship.requestId, false); setTarget(null) } }}
         onRemoveFriend={() => { if (relationship.kind === "friend" && relationship.friendshipId) { unfriend(relationship.friendshipId); setTarget(null) } }}
         onBlock={canBlockOrReport ? block : undefined}
-        onReport={canBlockOrReport ? report : undefined}
+        report={canBlockOrReport ? report : undefined}
+        viewerUsername={viewerUsername}
         actionError={requestError}
       />
     </Context.Provider>

@@ -71,6 +71,7 @@ export default function CommunityGuidelinesPage() {
             category, any details you add, and which call it happened in — is queued for a human moderator to
             review. It is never shown to the person you reported, or publicly. Authorized moderators and lawful disclosures may involve restricted access.
           </p>
+          <p className="mt-2 text-muted">You can also report a specific post from the ••• menu on that post in someone else&apos;s profile, or an account from its profile. Choosing &ldquo;Intimate image shared without consent&rdquo; opens a dedicated removal request reviewed separately from ordinary reports.</p>
           <p className="mt-2 text-muted">If the call has just ended, use <Link href="/reports/recent" className="underline">Report a recent match</Link> within the configured eligibility window. That private server-authorized list does not reveal counterpart account IDs. A later report normally cannot include transient in-call chat because room memory is cleared when the call ends.</p>
         </section>
 
@@ -87,7 +88,7 @@ export default function CommunityGuidelinesPage() {
         <section>
           <h2 className="text-[16px] font-semibold">What happens when you report someone</h2>
           <p className="mt-2 text-muted">
-            A human moderator reviews the report against an account&apos;s history and decides on one of: no action,
+            A human moderator reviews the report and its target against an account&apos;s history. Reported content can be kept or removed as a separate decision — removing a post doesn&apos;t by itself penalize the account. For the account, the moderator decides on one of: no action,
             an internal warning noted on the account, a temporary restriction while review is pending, a temporary suspension, or a permanent ban. Enforcement is
             applied to the Rizzuno/Google account itself — not just the one call — and is designed to persist across
             sign-outs, devices, and new sessions on that same account. Rizzuno enforces against the Google account it

@@ -85,14 +85,16 @@ export default function SafetyPage() {
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
             <li><strong className="text-foreground">During a match:</strong> open the ••• safety menu on the other person&apos;s video, choose Report, select a category, and add details if useful.</li>
             <li><strong className="text-foreground">Immediately afterward:</strong> open <Link href="/reports/recent" className="underline">Report a recent match</Link>. The private list contains only your still-reportable sessions and does not reveal internal account IDs.</li>
-            <li><strong className="text-foreground">Friends or profiles:</strong> use the Report control on the supported friend, request, or username-result view.</li>
+            <li><strong className="text-foreground">Friends or profiles:</strong> use the Report control on the supported friend, request, or username-result view to report the account or its behavior.</li>
+            <li><strong className="text-foreground">A specific post:</strong> on someone else&apos;s profile, open the ••• menu on the post and choose Report post. The report identifies that post, not just the account.</li>
+            <li><strong className="text-foreground">An intimate image shared without consent:</strong> choose &ldquo;Intimate image shared without consent&rdquo; in the same Report menu. This opens a dedicated removal request that staff review for validity separately from ordinary reports; don&apos;t attach or re-send the image.</li>
           </ul>
         </section>
 
         <section>
           <h2 className="text-[16px] font-semibold">What happens after a report</h2>
           <p className="mt-2 text-muted">The report is queued for authorized review. It can include the category, your optional details, exact time, server-authoritative account and session references, a bounded summary of relevant prior reports/actions, and up to 20 approved text messages from the preceding two minutes when the report is made during the live room. Post-match reports normally have no chat snapshot because that memory is cleared when the room ends. The reported person does not receive the report or evidence.</p>
-          <p className="mt-2 text-muted">A reviewer can record no action, an internal warning, a temporary restriction pending review, a temporary suspension, or a permanent ban. Underage concerns enter the urgent safety queue. Rizzuno does not promise instant review or continuous staffing.</p>
+          <p className="mt-2 text-muted">Reviewers see the reported target with relevant context — for a post, that post (while it still exists) and its reference at report time. Decisions about content and about the account are separate: a reviewer can keep or remove a reported post, and separately record no action, an internal warning, a temporary restriction pending review, a temporary suspension, or a permanent ban. Removing a post does not by itself penalize the account. Underage concerns enter the urgent safety queue. Rizzuno does not promise instant review or continuous staffing.</p>
         </section>
 
         <section>

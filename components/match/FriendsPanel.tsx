@@ -1,7 +1,7 @@
 "use client"
 import { UserAvatar } from "@/components/UserAvatar"
 import { useUserProfile } from "@/components/profile/UserProfileProvider"
-import { ReportButton } from "./ReportButton"
+import { ReportDialog } from "@/components/report/ReportDialog"
 import panelStyles from "./SocialPanel.module.css"
 
 import { useEffect, useRef, useState } from "react"
@@ -66,7 +66,7 @@ type FriendsPanelProps = {
   onDeclineRequest: (id: string) => void
   onRemoveFriend: (id: string) => void
   onBlockPerson: (id: string, displayName: string) => void
-  onReportPerson: (userId: string, category: ReportCategory) => void
+  onReportPerson: (userId: string, category: ReportCategory, details?: string) => void
   /** Reported whenever unread message count changes, so the header's Friends icon can badge it. Now a real sum of each friend's server-computed `unreadCount` (see DemoFriend's own doc comment) — never a local counter. */
   onUnreadMessagesChange?: (count: number) => void
   /** This session's live friend-chat cache, keyed by friendshipId — see useMatchmaking's `friendMessages` doc comment. Merged with real fetched history (below) rather than trusted alone. */
@@ -132,6 +132,8 @@ export function FriendsPanel({
 
   // Per-row "•••" menu on a friend in the list (View profile / Remove friend / Block).
   const [rowMenuFriendId, setRowMenuFriendId] = useState<string | null>(null)
+  // The shared Report dialog, held outside the row menu so it survives that menu closing.
+  const [reportingFriend, setReportingFriend] = useState<{ userId: string; username: string } | null>(null)
   // Each row's own wrapping element, keyed by friend.id — populated by the
   // row's own ref callback below, purely so the outside-click effect can
   // tell "inside the currently-open row" (its trigger + dropdown) apart
@@ -641,11 +643,13 @@ export function FriendsPanel({
                                   >
                                     Block
                                   </button>
-                                  <ReportButton
-                                    onReport={(category) => onReportPerson(friend.userId, category)}
-                                    onSubmitted={() => setTimeout(() => setRowMenuFriendId(null), 1100)}
-                                    triggerClassName="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
-                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => { setRowMenuFriendId(null); setReportingFriend({ userId: friend.userId, username: friend.username }) }}
+                                    className="w-full rounded-xl px-3 py-2.5 text-left text-[13px] text-danger hover:bg-surface-2"
+                                  >
+                                    Report
+                                  </button>
                                 </>
                               )}
                             </motion.div>
@@ -925,6 +929,12 @@ export function FriendsPanel({
       )}
     </AnimatePresence>
 
+    <ReportDialog
+      open={!!reportingFriend}
+      target={{ type: "user", id: reportingFriend?.username ?? "" }}
+      submitOrdinary={reportingFriend ? (category, details) => onReportPerson(reportingFriend.userId, category, details) : undefined}
+      onClose={() => setReportingFriend(null)}
+    />
     </>
   )
 }

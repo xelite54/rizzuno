@@ -4,28 +4,27 @@ import styles from "./MatchStage.module.css"
 
 import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import { DotsIcon, CheckIcon } from "@/components/icons"
+import { DotsIcon } from "@/components/icons"
 import { EASE_OUT, DURATION_QUICK } from "@/lib/motion"
-import { REPORT_CATEGORIES as CATEGORY_VALUES, type ReportCategory } from "@/lib/signaling/protocol"
-
-// Shared with ReportButton.tsx (the equivalent report flow for a friend's
-// or another account's profile, reported outside a live call).
-const CATEGORY_LABELS: Record<ReportCategory, string> = {
-  sexual_content: "Sexual content", harassment: "Harassment", hate: "Hate", scam: "Scam", spam: "Spam",
-  underage_concern: "Underage concern", violence: "Violence", other: "Other",
-}
-export const REPORT_CATEGORIES = CATEGORY_VALUES.map((value) => ({ value, label: CATEGORY_LABELS[value] }))
+import type { ReportCategory } from "@/lib/signaling/protocol"
+import { ReportDialog, reportMatch } from "@/components/report/ReportDialog"
 
 type SafetyMenuProps = {
   disabled: boolean
+  /** The live room — the report's target, so it keeps its match context. */
+  roomId: string | null
   onViewProfile: () => void
-  onReport: (category: ReportCategory) => void
+  /** Sends over the live socket while still in `expectedRoomId`; false once that call has ended. */
+  onReport: (category: ReportCategory, details: string | undefined, expectedRoomId: string) => boolean
   onBlock: () => void
 }
 
-export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: SafetyMenuProps) {
+export function SafetyMenu({ disabled, roomId, onViewProfile, onReport, onBlock }: SafetyMenuProps) {
   const [open, setOpen] = useState(false)
-  const [view, setView] = useState<"menu" | "categories" | "confirmBlock" | "confirmed">("menu")
+  const [view, setView] = useState<"menu" | "confirmBlock">("menu")
+  // The room being reported, captured when Report is chosen: the dialog stays
+  // open (and still reports that match) even if the call ends meanwhile.
+  const [reportingRoomId, setReportingRoomId] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
   function close() {
@@ -46,17 +45,22 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
     return () => document.removeEventListener("pointerdown", handlePointerDown)
   }, [open])
 
-  function submitReport(category: ReportCategory) {
-    onReport(category)
-    setView("confirmed")
-    setTimeout(close, 1100)
-  }
+  const dialog = (
+    <ReportDialog
+      open={!!reportingRoomId}
+      target={{ type: "match", id: reportingRoomId ?? "" }}
+      submitOrdinary={reportingRoomId ? reportMatch(reportingRoomId, onReport) : undefined}
+      onClose={() => setReportingRoomId(null)}
+    />
+  )
 
-  if (disabled) return null
+  if (disabled) return dialog
 
   return (
-    // Keep safety separate from Stop; the menu can extend over the lower
-    // video panel and scroll within short landscape viewports.
+    <>
+    {dialog}
+    {/* Keep safety separate from Stop; the menu can extend over the lower
+        video panel and scroll within short landscape viewports. */}
     <div ref={rootRef} className={`${styles.safetyMenu} absolute right-3 top-9 z-40 md:right-5`}>
       <button
         type="button"
@@ -92,7 +96,10 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
                 </button>
                 <button
                   type="button"
-                  onClick={() => setView("categories")}
+                  onClick={() => {
+                    setReportingRoomId(roomId)
+                    close()
+                  }}
                   className="rounded-xl px-3 py-2.5 text-left text-[13px] text-foreground hover:bg-surface-2"
                 >
                   Report
@@ -134,30 +141,10 @@ export function SafetyMenu({ disabled, onViewProfile, onReport, onBlock }: Safet
               </div>
             )}
 
-            {view === "categories" && (
-              <div className="flex flex-col">
-                {REPORT_CATEGORIES.map((category) => (
-                  <button
-                    key={category.value}
-                    type="button"
-                    onClick={() => submitReport(category.value)}
-                    className="rounded-xl px-3 py-2 text-left text-[13px] text-foreground hover:bg-surface-2"
-                  >
-                    {category.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {view === "confirmed" && (
-              <div className="flex items-center gap-2 px-3 py-4 text-[13px] text-foreground">
-                <CheckIcon className="h-3.5 w-3.5 text-accent" />
-                Report sent — thanks
-              </div>
-            )}
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+    </>
   )
 }

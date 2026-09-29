@@ -27,7 +27,7 @@ export default async function SafetyCase({ params }: { params: Promise<{ reportI
   }
   return <main className="h-dvh overflow-y-auto px-6 py-10"><div className="mx-auto max-w-3xl space-y-6">
     <h1 className="text-2xl font-bold">Restricted safety case</h1>
-    <p>Report {reportId} · {report.category} · Investigation {report.safety_state}. This view is audited. Do not copy evidence into ordinary tickets or email. Follow docs/SAFETY_ESCALATION.md.</p>
+    <p>Report {reportId} · {report.category} · Target {report.target_type} {report.target_id}{report.content_reference ? ` (${report.content_reference})` : ""} · Investigation {report.safety_state}. This view is audited. Do not copy evidence into ordinary tickets or email. Follow docs/SAFETY_ESCALATION.md.</p>
     <pre className="overflow-x-auto whitespace-pre-wrap rounded border p-4 text-xs">{JSON.stringify(evidence, null, 2)}</pre>
     <form action={cybertip} className="grid gap-3 rounded border border-border p-4">
       <h2 className="font-semibold">U.S. CyberTipline decision and preservation</h2>

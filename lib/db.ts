@@ -1,14 +1,16 @@
 import { boundedReportChat, type ReportChatEntry } from "./reportEvidence"
-import { deleteStoredImage, storedImageKey } from "./imageStorage"
+import { deleteStoredImage, readStoredImage, storedImageKey } from "./imageStorage"
 import { log } from "./observability"
-import { Pool } from "pg"
+import { Pool, type PoolClient } from "pg"
 import { databaseConfig } from "./dbConfig"
 import { isValidReportCategory } from "./signaling/protocol"
 import { isWireId } from "./signaling/validation"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { REQUIRED_DOCUMENTS } from "./legalVersions"
 import { MIGRATIONS } from "./migrations"
 import { recentMatchReportWindowMs } from "./recentMatches"
+import { notifySafetyTeam } from "./safetyNotifications"
+import { isReportTargetType, NCII_RELATIONSHIPS, NCII_REPORT_CATEGORY, type NciiRelationship, type ReportTargetType } from "./reportTargets"
 
 /** Shared persistent account, profile, social, moderation, billing and legal store. */
 const connectionString = process.env.DATABASE_URL
@@ -665,6 +667,10 @@ export async function listPendingRequestsSent(userId: string): Promise<SentFrien
   return rows.map((r) => ({ requestId: r.id, recipientId: r.recipient_id, username: r.username, profilePhoto: r.profile_photo, createdAt: Number(r.created_at) }))
 }
 
+/** What exactly was reported. `id` is the server-resolved record id (for
+ * `user`, the account id — never a client-supplied value). */
+export type ReportTarget = { type: ReportTargetType; id: string; contentReference?: string | null }
+
 export type ReportInput = {
   reporterId: string
   reportedId: string
@@ -672,6 +678,10 @@ export type ReportInput = {
   details?: string
   matchId?: string | null
   chatContext?: ReportChatEntry[]
+  /** Defaults to the match when `matchId` is set, otherwise the reported account. */
+  target?: ReportTarget
+  /** Target-specific evidence resolved from authoritative records (e.g. the reported message). */
+  targetEvidence?: Record<string, unknown>
 }
 
 export async function recordMatchStart(input: { matchId: string; userAId: string; userBId: string; source: "random" | "friend"; startedAt?: number }) {
@@ -716,45 +726,143 @@ export async function listRecentMatchesForReporting(userId: string): Promise<Rec
 
 /** Authorizes the target solely from the server-created room ledger. */
 export async function fileRecentMatchReport(input: { reporterId: string; matchId: string; category: string; details?: string }) {
-  if (!isWireId(input.matchId)) throw new Error("invalid_match")
-  const { rows } = await q<{ user_a_id: string; user_b_id: string }>(
-    `SELECT user_a_id,user_b_id FROM match_sessions
-     WHERE id=$1 AND report_eligible_until>$2 AND (user_a_id=$3 OR user_b_id=$3)`, [input.matchId,now(),input.reporterId])
-  const match = rows[0]
-  if (!match) throw new Error("match_not_reportable")
-  const reportedId = match.user_a_id === input.reporterId ? match.user_b_id : match.user_a_id
-  return fileReport({ reporterId: input.reporterId, reportedId, category: input.category, details: input.details, matchId: input.matchId })
+  const resolved = await resolveReportTarget(input.reporterId, { type: "match", id: input.matchId })
+  return fileReport({ reporterId: input.reporterId, reportedId: resolved.reportedId, category: input.category, details: input.details, matchId: resolved.matchId, target: resolved.target })
 }
+
+type ResolvedReportTarget = {
+  reportedId: string
+  matchId: string | null
+  target: ReportTarget
+  /** The authoritative stored image reference for a post — server-only, never returned to a client. */
+  imageReference?: string
+  targetEvidence?: Record<string, unknown>
+}
+
+/** A post's reference as kept on the report: the generated Storage reference,
+ * or a marker for a legacy inline image (never a multi-megabyte data URL). */
+function postContentReference(dataUrl: string): string {
+  return storedImageKey(dataUrl) ? dataUrl : "inline-image"
+}
+
+/**
+ * The ONE place a report's responsible account is decided. A client only
+ * ever supplies a target type and that target's opaque reference (a public
+ * username for `user`); ownership/sender/counterpart come exclusively from
+ * the database. Throws `content_unavailable` for a target that no longer
+ * exists (or is no longer visible), `cannot_report_self` for the reporter's
+ * own content/account, and `invalid_target` for malformed input.
+ */
+export async function resolveReportTarget(reporterId: string, ref: { type: unknown; id: unknown }): Promise<ResolvedReportTarget> {
+  if (!isReportTargetType(ref.type) || typeof ref.id !== "string" || !ref.id.trim() || ref.id.length > 200) throw new Error("invalid_target")
+  const id = ref.id.trim()
+  switch (ref.type) {
+    case "user": {
+      const { rows } = await q<{ id: string }>(`SELECT id FROM users WHERE username=$1 AND deleted_at IS NULL`, [id.toLowerCase()])
+      const account = rows[0]?.id
+      if (!account) throw new Error("content_unavailable")
+      if (account === reporterId) throw new Error("cannot_report_self")
+      return { reportedId: account, matchId: null, target: { type: "user", id: account } }
+    }
+    case "post": {
+      if (!isWireId(id)) throw new Error("invalid_target")
+      // Removed posts and posts of deleted/banned accounts are no longer
+      // served anywhere, so they can't be the subject of a new report.
+      const { rows } = await q<{ id: string; user_id: string; data_url: string }>(
+        `SELECT p.id,p.user_id,p.data_url FROM user_posts p JOIN users u ON u.id=p.user_id
+         WHERE p.id=$1 AND u.deleted_at IS NULL AND u.banned_at IS NULL`, [id])
+      const post = rows[0]
+      if (!post) throw new Error("content_unavailable")
+      if (post.user_id === reporterId) throw new Error("cannot_report_self")
+      return { reportedId: post.user_id, matchId: null, imageReference: post.data_url,
+        target: { type: "post", id: post.id, contentReference: postContentReference(post.data_url) } }
+    }
+    case "match": {
+      if (!isWireId(id)) throw new Error("invalid_match")
+      const { rows } = await q<{ user_a_id: string; user_b_id: string }>(
+        `SELECT user_a_id,user_b_id FROM match_sessions
+         WHERE id=$1 AND report_eligible_until>$2 AND (user_a_id=$3 OR user_b_id=$3)`, [id,now(),reporterId])
+      const match = rows[0]
+      if (!match) throw new Error("match_not_reportable")
+      const reportedId = match.user_a_id === reporterId ? match.user_b_id : match.user_a_id
+      return { reportedId, matchId: id, target: { type: "match", id } }
+    }
+    case "message": {
+      if (!isWireId(id)) throw new Error("invalid_target")
+      // Only a message actually delivered to the reporter can be reported by them.
+      const { rows } = await q<{ id: string; friendship_id: string; sender_id: string; text: string; created_at: string }>(
+        `SELECT id,friendship_id,sender_id,text,created_at FROM friend_messages WHERE id=$1 AND recipient_id=$2`, [id,reporterId])
+      const message = rows[0]
+      if (!message) throw new Error("content_unavailable")
+      return { reportedId: message.sender_id, matchId: null,
+        target: { type: "message", id: message.id, contentReference: `friendship:${message.friendship_id}` },
+        targetEvidence: { message: { text: message.text.slice(0, 500), sentAt: Number(message.created_at) } } }
+    }
+  }
+}
+
+/** The generic entry point behind POST /api/reports: resolve, then file. */
+export async function fileTargetedReport(input: { reporterId: string; targetType: unknown; targetId: unknown; category: string; details?: string }): Promise<string> {
+  if (!isValidReportCategory(input.category)) throw new Error("invalid_target")
+  const resolved = await resolveReportTarget(input.reporterId, { type: input.targetType, id: input.targetId })
+  return fileReport({ reporterId: input.reporterId, reportedId: resolved.reportedId, category: input.category, details: input.details,
+    matchId: resolved.matchId, target: resolved.target, targetEvidence: resolved.targetEvidence })
+}
+
+/** Prevents accidental duplicates: the same account re-submitting the same
+ * category and details against the same target inside this window gets the
+ * existing report back. A different category, updated details, or a later
+ * report is always recorded as new. */
+export const REPORT_DEDUPE_WINDOW_MS = 3_600_000
 
 export async function fileReport(input: ReportInput): Promise<string> {
   if (!isValidReportCategory(input.category) || input.reporterId === input.reportedId || !await lookupExistingTarget(input.reportedId)) throw new Error("invalid_target")
   if (input.details && input.details.length > 500) throw new Error("invalid_report")
+  const target: ReportTarget = input.target ?? (input.matchId ? { type: "match", id: input.matchId } : { type: "user", id: input.reportedId })
+  if (!isReportTargetType(target.type) || (target.type === "match") !== !!input.matchId || (target.type === "match" && target.id !== input.matchId) || (target.type === "user" && target.id !== input.reportedId)) throw new Error("invalid_target")
   if (await checkAndIncrementApiRateLimit(`report:${input.reporterId}`, 20, 3_600_000)) throw new Error("rate_limited")
   await ensureMigrated()
   const client = await requirePool().connect()
   try {
     await client.query("BEGIN")
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`report:${input.reporterId}:${input.reportedId}`])
-    // Different category, detail or room remains a new report, including urgent safety information.
-    const existing = await client.query(`SELECT id FROM reports WHERE reporter_id=$1 AND reported_id=$2 AND category=$3 AND COALESCE(details,'')=$4 AND COALESCE(match_id,'')=$5 AND created_at>$6 LIMIT 1`,
-      [input.reporterId,input.reportedId,input.category,input.details ?? "",input.matchId ?? "",now()-3_600_000])
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`report:${input.reporterId}:${target.type}:${target.id}`])
+    const existing = await client.query(`SELECT id FROM reports WHERE reporter_id=$1 AND target_type=$2 AND target_id=$3 AND category=$4 AND COALESCE(details,'')=$5 AND created_at>$6 LIMIT 1`,
+      [input.reporterId,target.type,target.id,input.category,input.details ?? "",now()-REPORT_DEDUPE_WINDOW_MS])
     const id = existing.rows[0]?.id ?? randomUUID()
-    if (!existing.rows.length) await client.query(
-      `INSERT INTO reports(id,reporter_id,reported_id,category,details,match_id,status,created_at,priority) VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8)`,
-      [id,input.reporterId,input.reportedId,input.category,input.details ?? null,input.matchId ?? null,now(),input.category === "underage_concern" ? "urgent" : "normal"])
     if (!existing.rows.length) {
+      await insertReportWithEvidence(client, { id, reporterId: input.reporterId, reportedId: input.reportedId, category: input.category, details: input.details ?? null,
+        matchId: input.matchId ?? null, target, priority: input.category === "underage_concern" ? "urgent" : "normal",
+        chat: boundedReportChat(input.chatContext ?? [], now()).filter(entry => entry.senderId === input.reporterId || entry.senderId === input.reportedId),
+        targetEvidence: input.targetEvidence })
       if (input.category === "underage_concern") await client.query("UPDATE reports SET safety_state='open' WHERE id=$1", [id])
-      const capturedAt = now()
-      const reports = await client.query("SELECT id,category,status,created_at FROM reports WHERE reported_id=$1 AND id<>$2 ORDER BY created_at DESC LIMIT 20", [input.reportedId,id])
-      const actions = await client.query("SELECT id,action,created_at FROM moderation_actions WHERE target_user_id=$1 ORDER BY created_at DESC LIMIT 20", [input.reportedId])
-      const chat = boundedReportChat(input.chatContext ?? [], capturedAt).filter(entry => entry.senderId === input.reporterId || entry.senderId === input.reportedId)
-      await client.query("INSERT INTO report_evidence(report_id,captured_at,chat_context,history) VALUES($1,$2,$3,$4)", [id,capturedAt,JSON.stringify(chat),JSON.stringify({ reports: reports.rows, actions: actions.rows })])
     }
     await client.query("COMMIT")
     if (!existing.rows.length && input.category === "underage_concern") log.warn("moderation.urgent_report", { count: 1 })
+    if (!existing.rows.length) void notifySafetyTeam({ kind: "report", reportId: id, category: input.category, targetType: target.type, priority: input.category === "underage_concern" ? "urgent" : "normal" })
     return id
   } catch (err) { await client.query("ROLLBACK").catch(() => {}); throw err }
   finally { client.release() }
+}
+
+/** Inserts the report plus its restricted evidence snapshot: the exact
+ * target and reference at report time, bounded prior history, and any
+ * approved chat context. No image bytes are copied — the post reference
+ * suffices while the post exists, and removal is audited separately. */
+async function insertReportWithEvidence(client: PoolClient, row: {
+  id: string; reporterId: string; reportedId: string; category: string; details: string | null; matchId: string | null
+  target: ReportTarget; priority: "urgent" | "normal"; chat: ReportChatEntry[]; targetEvidence?: Record<string, unknown>
+}) {
+  const capturedAt = now()
+  await client.query(
+    `INSERT INTO reports(id,reporter_id,reported_id,category,details,match_id,status,created_at,priority,target_type,target_id,content_reference)
+     VALUES($1,$2,$3,$4,$5,$6,'pending',$7,$8,$9,$10,$11)`,
+    [row.id,row.reporterId,row.reportedId,row.category,row.details,row.matchId,capturedAt,row.priority,row.target.type,row.target.id,row.target.contentReference ?? null])
+  const reports = await client.query("SELECT id,category,target_type,status,created_at FROM reports WHERE reported_id=$1 AND id<>$2 ORDER BY created_at DESC LIMIT 20", [row.reportedId,row.id])
+  const actions = await client.query("SELECT id,action,created_at FROM moderation_actions WHERE target_user_id=$1 ORDER BY created_at DESC LIMIT 20", [row.reportedId])
+  const removals = await client.query("SELECT id,target_type,target_id,created_at FROM content_removals WHERE target_user_id=$1 ORDER BY created_at DESC LIMIT 20", [row.reportedId])
+  const target = { type: row.target.type, id: row.target.id, contentReference: row.target.contentReference ?? null, reportedAt: capturedAt, ...row.targetEvidence }
+  await client.query("INSERT INTO report_evidence(report_id,captured_at,chat_context,history) VALUES($1,$2,$3,$4)",
+    [row.id,capturedAt,JSON.stringify(row.chat),JSON.stringify({ reports: reports.rows, actions: actions.rows, removals: removals.rows, target })])
 }
 
 export type ReportRow = {
@@ -768,14 +876,38 @@ export type ReportRow = {
   match_id: string | null
   status: string
   created_at: number
+  target_type: ReportTargetType
+  target_id: string
+  content_reference: string | null
+}
+
+/** Admin queue row: the report plus what a reviewer needs to see its target in context. */
+export type ReportQueueRow = ReportRow & {
+  reported_username: string | null
+  /** Post targets only: whether the post still exists (and can be shown/removed). */
+  target_available: boolean
+  /** Current post image reference, only while the post still exists. */
+  post_image: string | null
+  ncii_case_id: string | null
+  prior_reports: number
+  prior_actions: number
+  prior_removals: number
 }
 
 /** Admin-only — reports are never exposed to regular clients (see the admin route's authorization check). */
-export async function listReports(status?: string): Promise<ReportRow[]> {
+export async function listReports(status?: string): Promise<ReportQueueRow[]> {
+  const select = `SELECT r.*, u.username AS reported_username, p.data_url AS post_image, (p.id IS NOT NULL) AS target_available, n.id AS ncii_case_id,
+      (SELECT count(*) FROM reports o WHERE o.reported_id=r.reported_id AND o.id<>r.id) AS prior_reports,
+      (SELECT count(*) FROM moderation_actions m WHERE m.target_user_id=r.reported_id AND m.action<>'no_action') AS prior_actions,
+      (SELECT count(*) FROM content_removals c WHERE c.target_user_id=r.reported_id) AS prior_removals
+    FROM reports r LEFT JOIN users u ON u.id=r.reported_id
+    LEFT JOIN user_posts p ON r.target_type='post' AND p.id=r.target_id
+    LEFT JOIN ncii_cases n ON n.report_id=r.id`
   const { rows } = status
-    ? await q(`SELECT * FROM reports WHERE (status = $1 OR ($1='pending' AND safety_state='open')) ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`, [status])
-    : await q(`SELECT * FROM reports ORDER BY (priority='urgent') DESC, created_at DESC LIMIT 500`)
-  return (rows as Record<string, unknown>[]).map((r) => ({ ...r, created_at: Number(r.created_at) })) as ReportRow[]
+    ? await q(`${select} WHERE (r.status = $1 OR ($1='pending' AND r.safety_state='open')) ORDER BY (r.priority='urgent') DESC, r.created_at DESC LIMIT 500`, [status])
+    : await q(`${select} ORDER BY (r.priority='urgent') DESC, r.created_at DESC LIMIT 500`)
+  return (rows as Record<string, unknown>[]).map((r) => ({ ...r, created_at: Number(r.created_at), target_available: r.target_available === true,
+    prior_reports: Number(r.prior_reports), prior_actions: Number(r.prior_actions), prior_removals: Number(r.prior_removals) })) as ReportQueueRow[]
 }
 
 export async function getReport(id: string): Promise<ReportRow | undefined> {
@@ -786,29 +918,45 @@ export async function getReport(id: string): Promise<ReportRow | undefined> {
 
 export type ModerationAction = "no_action" | "warning" | "restrict" | "suspend" | "ban"
 
-/** The only place enforcement actually gets applied — always through here, always attributed to a real admin id, always logged. Runs as one transaction: a report shouldn't end up marked reviewed if the enforcement action it implies failed to apply, or vice versa. */
+/**
+ * The only place enforcement actually gets applied — always through here, always attributed to a real admin id, always logged. Runs as one transaction: a report shouldn't end up marked reviewed if the enforcement action it implies failed to apply, or vice versa.
+ *
+ * The content decision (`removeContent`) and the account decision (`action`)
+ * are independent: "no_action" + removeContent removes only the post, and
+ * removing content never implies an account penalty.
+ */
 export async function resolveReport(
   reportId: string,
   actorAdminId: string,
   action: ModerationAction,
   reason: string | null,
-  suspendUntilMs: number | null
+  suspendUntilMs: number | null,
+  options: { removeContent?: boolean } = {}
 ) {
   if (!isWireId(reportId) || !["no_action", "warning", "restrict", "suspend", "ban"].includes(action)) throw new Error("invalid_action")
   if (["restrict", "suspend"].includes(action) && (!Number.isSafeInteger(suspendUntilMs) || suspendUntilMs! <= now() || suspendUntilMs! > now() + 366 * 86_400_000)) throw new Error("invalid_suspension")
   if (["restrict", "suspend", "ban"].includes(action) && (!reason?.trim() || reason.length > 500)) throw new Error("reason_required")
   await ensureMigrated()
   const client = await requirePool().connect()
+  let removedReference: string | null = null
   try {
     await client.query("BEGIN")
 
     const { rows } = await client.query(`SELECT * FROM reports WHERE id = $1 FOR UPDATE`, [reportId])
     const report = rows[0] as
-      | { id: string; reported_id: string; status: string }
+      | { id: string; reported_id: string; status: string; category: string; target_type: ReportTargetType; target_id: string }
       | undefined
     if (!report) throw new Error("report not found")
     if (report.reported_id === actorAdminId) throw new Error("conflicted_reviewer")
     if (report.status !== "pending") throw new Error("report_already_reviewed")
+
+    if (options.removeContent) {
+      // NCII removal is decided in its own legal workflow, never as a side effect here.
+      if (report.category === NCII_REPORT_CATEGORY) throw new Error("ncii_case_required")
+      const removed = await removeContentWithClient(client, { targetType: report.target_type, targetId: report.target_id, actorId: actorAdminId,
+        reason: reason?.trim() || `Removed after report review (${report.category})`, reportId, expectedOwnerId: report.reported_id })
+      removedReference = removed.reference
+    }
 
     const previous = await client.query('SELECT banned_at,ban_reason,suspended_until,suspend_reason FROM users WHERE id=$1 FOR UPDATE', [report.reported_id])
     if (action === "ban") {
@@ -848,6 +996,200 @@ export async function resolveReport(
   } finally {
     client.release()
   }
+  await cleanupUnreferencedStoredImage(removedReference)
+}
+
+type RemoveContentInput = {
+  targetType: string
+  targetId: string
+  reason: string
+  actorId: string
+  reportId?: string | null
+  nciiCaseId?: string | null
+  /** When acting on a report, the post must still belong to the reported account. */
+  expectedOwnerId?: string
+}
+
+/** Removes the post row and audits it inside the caller's transaction. The
+ * Storage object is never deleted from here: the DELETE's queue_post_image
+ * trigger enqueues it for the existing deletion worker, which refuses while
+ * any legal hold is active, and a hold's held_records snapshot of the post
+ * keeps the object from ever being destroyed. */
+async function removeContentWithClient(client: PoolClient, input: RemoveContentInput): Promise<{ reference: string; targetUserId: string }> {
+  if (input.targetType !== "post") throw new Error("unsupported_content_action")
+  if (!isWireId(input.targetId)) throw new Error("invalid_target")
+  const reason = input.reason.trim()
+  if (!reason || reason.length > 500) throw new Error("reason_required")
+  const found = await client.query<{ user_id: string; data_url: string }>("SELECT user_id,data_url FROM user_posts WHERE id=$1 FOR UPDATE", [input.targetId])
+  const post = found.rows[0]
+  if (!post) throw new Error("content_unavailable")
+  if (post.user_id === input.actorId) throw new Error("conflicted_reviewer")
+  if (input.expectedOwnerId && post.user_id !== input.expectedOwnerId) throw new Error("content_unavailable")
+  await client.query("DELETE FROM user_posts WHERE id=$1", [input.targetId])
+  await client.query(`INSERT INTO content_removals(id,target_type,target_id,target_user_id,content_reference,actor_id,report_id,ncii_case_id,reason,created_at)
+    VALUES($1,'post',$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [randomUUID(),input.targetId,post.user_id,postContentReference(post.data_url),input.actorId,input.reportId ?? null,input.nciiCaseId ?? null,reason,now()])
+  return { reference: post.data_url, targetUserId: post.user_id }
+}
+
+/**
+ * The one reusable moderator content-removal operation. Removes the
+ * content only — it never touches account standing (see resolveReport for
+ * account enforcement) — records a content_removals audit row, then hands
+ * the object to the existing Storage deletion queue.
+ */
+export async function removeReportedContent(input: RemoveContentInput): Promise<{ targetUserId: string }> {
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  let removed: { reference: string; targetUserId: string }
+  try {
+    await client.query("BEGIN")
+    removed = await removeContentWithClient(client, input)
+    await client.query("COMMIT")
+  } catch (err) { await client.query("ROLLBACK").catch(() => {}); throw err }
+  finally { client.release() }
+  await cleanupUnreferencedStoredImage(removed.reference)
+  return { targetUserId: removed.targetUserId }
+}
+
+/** Operational review target for NCII removal requests, measured from receipt. */
+export const NCII_REMOVAL_WINDOW_MS = 48 * 3_600_000
+
+export type NciiRequestInput = {
+  requesterId: string
+  targetType: unknown
+  targetId: unknown
+  relationship: NciiRelationship
+  signatureName: string
+  contact: string
+  description?: string
+  goodFaith: boolean
+}
+
+/**
+ * Opens a dedicated NCII case — never only an ordinary report. The target is
+ * resolved exactly like any other report (server-side ownership), then the
+ * case and one linked `intimate_image` report row (moderation history and
+ * the hook for any separate account decision/appeal) are written together.
+ * Nothing is removed until a reviewer validates the request.
+ */
+export async function fileNciiRequest(input: NciiRequestInput): Promise<string> {
+  const signature = input.signatureName.trim(); const contact = input.contact.trim(); const description = input.description?.trim() || null
+  if (!NCII_RELATIONSHIPS.includes(input.relationship) || input.goodFaith !== true || signature.length < 2 || signature.length > 200
+    || contact.length < 3 || contact.length > 320 || (description?.length ?? 0) > 2000) throw new Error("invalid_request")
+  const resolved = await resolveReportTarget(input.requesterId, { type: input.targetType, id: input.targetId })
+  if (resolved.target.type !== "post" && !description) throw new Error("description_required")
+  if (!await lookupExistingTarget(resolved.reportedId)) throw new Error("content_unavailable")
+  if (await checkAndIncrementApiRateLimit(`report:${input.requesterId}`, 20, 3_600_000)) throw new Error("rate_limited")
+  // Hash of the stored (already normalized) object, for matching re-uploads.
+  let imageSha256: string | null = null
+  const key = storedImageKey(resolved.imageReference)
+  if (key) { try { imageSha256 = createHash("sha256").update(await readStoredImage(key)).digest("hex") } catch { imageSha256 = null } }
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  try {
+    await client.query("BEGIN")
+    const target = resolved.target
+    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`ncii:${input.requesterId}:${target.type}:${target.id}`])
+    const open = await client.query<{ id: string }>(`SELECT id FROM ncii_cases WHERE requester_user_id=$1 AND target_type=$2 AND target_id=$3 AND status='received' LIMIT 1`,
+      [input.requesterId,target.type,target.id])
+    if (open.rows.length) { await client.query("COMMIT"); return open.rows[0].id }
+    const caseId = randomUUID(); const reportId = randomUUID(); const received = now()
+    // The linked report carries no requester statement; that stays in the restricted case.
+    await insertReportWithEvidence(client, { id: reportId, reporterId: input.requesterId, reportedId: resolved.reportedId, category: NCII_REPORT_CATEGORY,
+      details: null, matchId: resolved.matchId, target, priority: "urgent", chat: [], targetEvidence: resolved.targetEvidence })
+    await client.query(`INSERT INTO ncii_cases(id,report_id,requester_user_id,reported_user_id,target_type,target_id,content_reference,image_sha256,
+        requester_relationship,signature_name,contact,description,good_faith_statement,received_at,removal_due_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true,$13,$14)`,
+      [caseId,reportId,input.requesterId,resolved.reportedId,target.type,target.id,target.contentReference ?? null,imageSha256,
+        input.relationship,signature,contact,description,received,received + NCII_REMOVAL_WINDOW_MS])
+    await client.query("COMMIT")
+    log.warn("moderation.ncii_request", { count: 1 })
+    void notifySafetyTeam({ kind: "ncii", caseId, targetType: target.type, removalDueAt: received + NCII_REMOVAL_WINDOW_MS })
+    return caseId
+  } catch (err) { await client.query("ROLLBACK").catch(() => {}); throw err }
+  finally { client.release() }
+}
+
+export type NciiCase = {
+  id: string; reportId: string | null; requesterUserId: string; reportedUserId: string; reportedUsername: string | null
+  targetType: ReportTargetType; targetId: string; contentReference: string | null; imageSha256: string | null
+  relationship: NciiRelationship; signatureName: string; contact: string; description: string | null
+  status: "received" | "removed" | "content_unavailable" | "rejected"; receivedAt: number; removalDueAt: number
+  reviewerId: string | null; decidedAt: number | null; decisionRationale: string | null
+  /** Current post image, only while the post still exists. */
+  postImage: string | null
+  /** Still awaiting review past its review-due time. */
+  overdue: boolean
+}
+
+const NCII_SELECT = `SELECT c.*, u.username AS reported_username, p.data_url AS post_image FROM ncii_cases c
+  LEFT JOIN users u ON u.id=c.reported_user_id LEFT JOIN user_posts p ON c.target_type='post' AND p.id=c.target_id`
+function nciiRow(row: Record<string, unknown>): NciiCase {
+  const opt = (value: unknown) => value === null || value === undefined ? null : String(value)
+  return { id: String(row.id), reportId: opt(row.report_id), requesterUserId: String(row.requester_user_id), reportedUserId: String(row.reported_user_id),
+    reportedUsername: opt(row.reported_username), targetType: row.target_type as ReportTargetType, targetId: String(row.target_id),
+    contentReference: opt(row.content_reference), imageSha256: opt(row.image_sha256), relationship: row.requester_relationship as NciiRelationship,
+    signatureName: String(row.signature_name), contact: String(row.contact), description: opt(row.description), status: row.status as NciiCase["status"],
+    receivedAt: Number(row.received_at), removalDueAt: Number(row.removal_due_at), reviewerId: opt(row.reviewer_id),
+    decidedAt: row.decided_at === null ? null : Number(row.decided_at), decisionRationale: opt(row.decision_rationale), postImage: opt(row.post_image),
+    overdue: row.status === "received" && Number(row.removal_due_at) < now() }
+}
+
+/** Restricted: callers must be trained safety reviewers. Excludes cases the
+ * viewer is a party to (as requester or reported account). */
+export async function listNciiCases(viewerId: string, state: "open" | "closed" = "open"): Promise<NciiCase[]> {
+  const { rows } = await q<Record<string, unknown>>(`${NCII_SELECT} WHERE ${state === "open" ? "c.status='received'" : "c.status<>'received'"}
+    AND c.reported_user_id<>$1 AND c.requester_user_id<>$1 ORDER BY ${state === "open" ? "c.removal_due_at ASC" : "c.decided_at DESC"} LIMIT 200`, [viewerId])
+  return rows.map(nciiRow)
+}
+
+/** Audited restricted view of one case. */
+export async function getNciiCase(caseId: string, viewerId: string): Promise<NciiCase | null> {
+  if (!isWireId(caseId)) return null
+  const { rows } = await q<Record<string, unknown>>(`${NCII_SELECT} WHERE c.id=$1 AND c.reported_user_id<>$2 AND c.requester_user_id<>$2`, [caseId,viewerId])
+  const row = rows[0]
+  if (!row) return null
+  if (row.report_id) await q('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
+    [randomUUID(),row.report_id,viewerId,'ncii_case_access',caseId,'Restricted NCII case view',now()])
+  return nciiRow(row)
+}
+
+/**
+ * Human validity review. `valid_remove` removes the identified post through
+ * the same removeReportedContent path (audited, queued Storage deletion,
+ * legal holds respected); `valid_unavailable` records a valid request whose
+ * content is already gone or not removable in-app; `rejected` records an
+ * invalid/insufficient request. Account enforcement stays separate — the
+ * linked report remains in the moderation queue for that decision.
+ */
+export async function reviewNciiCase(input: { caseId: string; actorId: string; outcome: "valid_remove" | "valid_unavailable" | "rejected"; rationale: string }) {
+  const rationale = input.rationale.trim()
+  if (!isWireId(input.caseId) || !["valid_remove", "valid_unavailable", "rejected"].includes(input.outcome) || !rationale || rationale.length > 2000) throw new Error("invalid_ncii_review")
+  await ensureMigrated()
+  const client = await requirePool().connect()
+  let removedReference: string | null = null
+  try {
+    await client.query("BEGIN")
+    const found = await client.query<{ id: string; report_id: string | null; status: string; requester_user_id: string; reported_user_id: string; target_type: string; target_id: string }>(
+      "SELECT * FROM ncii_cases WHERE id=$1 FOR UPDATE", [input.caseId])
+    const nciiCase = found.rows[0]
+    if (!nciiCase) throw new Error("case_not_found")
+    if ([nciiCase.requester_user_id, nciiCase.reported_user_id].includes(input.actorId)) throw new Error("conflicted_reviewer")
+    if (nciiCase.status !== "received") throw new Error("case_already_decided")
+    if (input.outcome === "valid_remove") {
+      const removed = await removeContentWithClient(client, { targetType: nciiCase.target_type, targetId: nciiCase.target_id, actorId: input.actorId,
+        reason: "Valid non-consensual intimate image request", reportId: nciiCase.report_id, nciiCaseId: nciiCase.id, expectedOwnerId: nciiCase.reported_user_id })
+      removedReference = removed.reference
+    }
+    const status = input.outcome === "valid_remove" ? "removed" : input.outcome === "valid_unavailable" ? "content_unavailable" : "rejected"
+    await client.query("UPDATE ncii_cases SET status=$2,reviewer_id=$3,decided_at=$4,decision_rationale=$5 WHERE id=$1", [input.caseId,status,input.actorId,now(),rationale])
+    if (nciiCase.report_id) await client.query('INSERT INTO safety_decisions(id,report_id,actor_id,decision,case_reference,rationale,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      [randomUUID(),nciiCase.report_id,input.actorId,`ncii_${status}`,input.caseId,rationale,now()])
+    await client.query("COMMIT")
+  } catch (err) { await client.query("ROLLBACK").catch(() => {}); throw err }
+  finally { client.release() }
+  await cleanupUnreferencedStoredImage(removedReference)
 }
 
 export type UserAppeal = {
@@ -1788,7 +2130,7 @@ export async function purgeRetentionBatch(batchSize = 100) {
       ['appeals','appeals','submitted_at', "status IN ('upheld','overturned','dismissed')"],
       ['moderationActions','moderation_actions','created_at',"NOT EXISTS(SELECT 1 FROM appeals a WHERE a.enforcement_id=t.id) AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.report_id AND c.preservation_status='active' AND c.preservation_expires_at>extract(epoch from clock_timestamp())*1000)"],
       ['reportEvidence','report_evidence','captured_at', "evidence_key IS NULL AND EXISTS(SELECT 1 FROM reports r WHERE r.id=t.report_id AND r.status='reviewed' AND r.safety_state<>'open') AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.report_id AND c.preservation_status='active' AND c.preservation_expires_at>extract(epoch from clock_timestamp())*1000)"],
-      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM report_evidence e WHERE e.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.id)"],
+      ['reports','reports','created_at', "status='reviewed' AND safety_state<>'open' AND NOT EXISTS(SELECT 1 FROM moderation_actions a WHERE a.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM safety_decisions d WHERE d.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM report_evidence e WHERE e.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM cybertipline_cases c WHERE c.report_id=t.id) AND NOT EXISTS(SELECT 1 FROM ncii_cases n WHERE n.report_id=t.id)"],
       ['recentMatches','match_sessions','started_at', "report_eligible_until<extract(epoch from clock_timestamp())*1000 AND NOT EXISTS(SELECT 1 FROM reports r WHERE r.match_id=t.id)"],
       ['cybertiplineCases','cybertipline_cases','updated_at', "preservation_status<>'active' OR preservation_expires_at<=extract(epoch from clock_timestamp())*1000"],
       ['imageChecks','moderation_events','created_at','true'],

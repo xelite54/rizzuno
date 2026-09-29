@@ -101,10 +101,10 @@ try {
     await call("Emulation.setTouchEmulationEnabled", { enabled: viewport.mobile, maxTouchPoints: 5 })
     for (const [surface, query] of [["#friend", ""], ["[data-user-profile-sheet]", "?surface=sheet"]]) {
       await call("Page.navigate", { url: origin + query })
-      await evaluate(`new Promise(r => { const t = setInterval(() => { if (document.querySelectorAll(${JSON.stringify(surface + " .grid > button")}).length === 5) { clearInterval(t); r(true) } }, 25) })`)
+      await evaluate(`new Promise(r => { const t = setInterval(() => { if (document.querySelectorAll(${JSON.stringify(surface + " .grid [data-post-tile]")}).length === 5) { clearInterval(t); r(true) } }, 25) })`)
       const where = `${viewport.name} ${surface === "#friend" ? "gallery" : "profile sheet"}`
       // Open the middle post.
-      await click(`${surface} .grid > button:nth-child(3)`)
+      await click(`${surface} .grid > div:nth-child(3) > [data-post-tile]`)
       let s = await until(`${where}: middle post opens`, photo(3))
       assert.equal(s.prevHidden, false, `${where}: previous arrow visible mid-gallery`)
       assert.equal(s.nextHidden, false, `${where}: next arrow visible mid-gallery`)
@@ -142,12 +142,12 @@ try {
       await key("Escape"); await until(`${where}: Escape closes`, (x) => !x.open)
 
       // Click outside the image closes.
-      await click(`${surface} .grid > button:nth-child(2)`); await until(`${where}: reopen at 2`, photo(2))
+      await click(`${surface} .grid > div:nth-child(2) > [data-post-tile]`); await until(`${where}: reopen at 2`, photo(2))
       const img = await evaluate(`(() => { const r = document.querySelector("dialog[open] img").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom + 12 } })()`)
       await clickAt(img.x, img.y); await until(`${where}: click outside closes`, (x) => !x.open)
 
       // The close button closes.
-      await click(`${surface} .grid > button:nth-child(5)`); await until(`${where}: reopen at 5`, photo(5))
+      await click(`${surface} .grid > div:nth-child(5) > [data-post-tile]`); await until(`${where}: reopen at 5`, photo(5))
       await click('dialog[open] button[aria-label="Close photo"]'); await until(`${where}: close button closes`, (x) => !x.open)
       console.log(`✔ ${where}: middle post, arrows, keyboard, boundaries${viewport.mobile ? ", swipe" : ""}, Escape, click-outside, close`)
     }
