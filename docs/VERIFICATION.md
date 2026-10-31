@@ -1,4 +1,17 @@
-# Launch-hardening verification — 2026-09-25
+# Age-gate verification — 2026-10-30
+
+The checkbox gate, signed eligibility sessions, scoped policy decisions, server-to-server assurance bridge, updated legal versions and setup requirements are documented in [AGE_ASSURANCE.md](AGE_ASSURANCE.md). This revision has not been pushed or deployed. No real assurance provider or legal jurisdiction approval was provisioned.
+
+- Application, unit-test and browser-harness type checks passed.
+- All 340 unit/integration tests passed, with no failures or skips, using `node --import tsx --experimental-test-module-mocks --test tests/*.test.mts`. Local socket permission was needed for WebSocket tests.
+- ESLint passed for all changed TypeScript/TSX files; `git diff --check` passed.
+- `node scripts/ci-build.mjs` passed production compilation using synthetic CI configuration. The sandboxed attempt stalled and was stopped; the successful retry had the network/process access needed by the compiler. The compiled fixture is not a production deployment artifact.
+- The existing Chrome homepage harness passed age-gate behavior and layout checks at 375×667, 390×844, 767×600, 768×1024, 1024×768 and 1440×900. Checks include unchecked/required state, disabled Continue, no date input, legal-link scroll access, declaration-only submission and progression to Google sign-in. The sustained homepage soak was shortened to one cycle for this focused change; no new three-minute soak is claimed.
+- Assurance tests use a simulated authenticated service. They exercise missing configuration, pending results, redirect restrictions, missing/tampered browser binding, wrong-reference and expired results, successful limited assertions, rate limits, OAuth access, legal acceptance and realtime ticket expiry/policy changes. Real provider methods, accuracy, retention/deletion and live Google OAuth remain external validation requirements.
+
+Production access requires current `AGE_POLICIES_JSON` entries for every enabled country/state, plus an approved live provider bridge wherever required. Missing or expired decisions and incomplete required checks fail closed. No all-state legal compliance or verified age from a checkbox is claimed.
+
+## Historical launch-hardening verification — 2026-09-25
 
 Repository: Rizzuno (`xelite54/rizzuno`), local working tree based on `1c639cadca126c35efbb11157417e31d0838b0fa`. These changes have not been pushed or deployed. Local verification is not evidence of production capacity or jurisdictional compliance.
 

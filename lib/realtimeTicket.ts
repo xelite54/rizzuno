@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
-import { normalizeCountry } from "./country"
+import { normalizeCountry, normalizeUsRegion } from "./country"
+import { agePolicyForLocation } from "./agePolicy"
 
 /**
  * Bridges an authenticated Auth.js session into the realtime WebSocket
@@ -36,14 +37,21 @@ function ticketKey(): Buffer {
   return createHmac("sha256", secret).update("rizzuno:realtime-ticket:v1").digest()
 }
 
-export function mintTicket(userId: string, countryCode?: string | null): string {
-  const payload = JSON.stringify({ sub: userId, exp: Date.now() + TICKET_TTL_MS, countryCode: normalizeCountry(countryCode) })
+type AgeAccess = { ageExpiresAt?: number; agePolicyKey?: string; usRegion?: string | null }
+export function realtimeAgeAllowed(access: AgeAccess & { countryCode?: string }) {
+  if (!access.ageExpiresAt || !access.agePolicyKey) return process.env.NODE_ENV !== "production" && !process.env.AGE_POLICIES_JSON
+  const policy = agePolicyForLocation(access.countryCode ?? null, access.usRegion ?? null)
+  return access.ageExpiresAt > Date.now() && !!policy && policy.mode !== "unavailable" && policy.key === access.agePolicyKey
+}
+
+export function mintTicket(userId: string, countryCode?: string | null, ageAccess?: AgeAccess): string {
+  const payload = JSON.stringify({ sub: userId, exp: Date.now() + TICKET_TTL_MS, countryCode: normalizeCountry(countryCode), ...ageAccess })
   const encodedPayload = Buffer.from(payload, "utf8").toString("base64url")
   const signature = createHmac("sha256", ticketKey()).update(encodedPayload).digest("base64url")
   return `${encodedPayload}.${signature}`
 }
 
-export function verifyTicket(ticket: string): { userId: string; countryCode?: string } | null {
+export function verifyTicket(ticket: string): ({ userId: string; countryCode?: string } & AgeAccess) | null {
   if (typeof ticket !== "string" || ticket.length > 2048 || ticket.split(".").length !== 2) return null
   const [encodedPayload, signature] = ticket.split(".")
   if (!encodedPayload || !signature) return null
@@ -60,11 +68,13 @@ export function verifyTicket(ticket: string): { userId: string; countryCode?: st
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
 
   try {
-    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as { sub?: unknown; exp?: unknown; countryCode?: unknown }
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as { sub?: unknown; exp?: unknown; countryCode?: unknown; ageExpiresAt?: unknown; agePolicyKey?: unknown; usRegion?: unknown }
     if (typeof payload.sub !== "string" || !payload.sub || payload.sub.length > 200) return null
     if (typeof payload.exp !== "number" || !Number.isSafeInteger(payload.exp) || Date.now() >= payload.exp || payload.exp > Date.now() + TICKET_TTL_MS) return null
     const countryCode = normalizeCountry(payload.countryCode)
-    return { userId: payload.sub, ...(countryCode ? { countryCode } : {}) }
+    const ageAccess = payload.ageExpiresAt !== undefined ? { ageExpiresAt: Number.isSafeInteger(payload.ageExpiresAt) ? Number(payload.ageExpiresAt) : 0, agePolicyKey: typeof payload.agePolicyKey === "string" ? payload.agePolicyKey : "", usRegion: normalizeUsRegion(payload.usRegion) } : {}
+    const access = { userId: payload.sub, ...(countryCode ? { countryCode } : {}), ...ageAccess }
+    return realtimeAgeAllowed(access) ? access : null
   } catch {
     return null
   }

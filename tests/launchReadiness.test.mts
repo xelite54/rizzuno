@@ -7,7 +7,7 @@ import { retentionPolicy, RETENTION_CATEGORIES } from "../lib/retention.ts"
 import { boundedReportChat } from "../lib/reportEvidence.ts"
 
 test("launch gate rejects missing operator decisions, unregistered US process and expired retention approval", () => {
-  const env = { ...ciLaunchFixture, NODE_ENV: "production", LEGAL_REVIEW_APPROVED:"true",SAFETY_WORKFLOW_APPROVED:"true",RETENTION_SCHEDULER_CONFIRMED:"true",SUPPORTED_US_REGIONS:"NY",DMCA_512_RELIANCE:"true",DMCA_AGENT_REGISTERED:"true", PROVIDER_REGION_DISCLOSURE_REVIEWED:"true",TRAINED_SAFETY_REVIEWERS_CONFIRMED:"true",UNDER13_RESPONSE_PROCEDURE_APPROVED:"true",CYBERTIPLINE_PROCEDURE_APPROVED:"true",BREACH_RESPONSE_APPROVED:"true",US_STATE_LAUNCH_REVIEW_APPROVED:"true" }
+  const env = { ...ciLaunchFixture, NODE_ENV: "production", AGE_POLICIES_JSON:JSON.stringify({"US-NY":{mode:"self_attestation",minimumAge:18,reference:"test fixture, not a legal determination",reviewBy:"2099-01-01"}}), LEGAL_REVIEW_APPROVED:"true",SAFETY_WORKFLOW_APPROVED:"true",RETENTION_SCHEDULER_CONFIRMED:"true",SUPPORTED_US_REGIONS:"NY",DMCA_512_RELIANCE:"true",DMCA_AGENT_REGISTERED:"true", PROVIDER_REGION_DISCLOSURE_REVIEWED:"true",TRAINED_SAFETY_REVIEWERS_CONFIRMED:"true",UNDER13_RESPONSE_PROCEDURE_APPROVED:"true",CYBERTIPLINE_PROCEDURE_APPROVED:"true",BREACH_RESPONSE_APPROVED:"true",US_STATE_LAUNCH_REVIEW_APPROVED:"true" }
   validateLaunchReadiness(env)
   for (const key of Object.keys(ciLaunchFixture)) {
     const candidate: Record<string,string|undefined> = { ...env }; delete candidate[key]

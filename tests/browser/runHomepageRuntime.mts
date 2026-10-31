@@ -34,6 +34,7 @@ const server = createServer(async (req, res) => {
   else if (url.pathname === "/api/auth/signout") { signedOut.add(account); json({ url: "/" }) }
   else if (url.pathname === "/api/auth/session") json(signedOut.has(account) ? null : { user: { id: account, name: account }, expires: new Date(Date.now() + 3600_000).toISOString() })
   else if (url.pathname === "/api/legal/status") json({ accepted: !dbMockState.acceptanceRequiredUserIds.has(account) })
+  else if (url.pathname === "/api/eligibility") json({ eligible: true, minimumAge: 18 })
   else if (url.pathname === "/api/legal/accept") { dbMockState.acceptanceRequiredUserIds.delete(account); json({ ok: true }) }
   else if (url.pathname === "/api/profile/me") {
     await new Promise(resolve => setTimeout(resolve, 250))

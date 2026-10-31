@@ -114,7 +114,7 @@ export function useLegalAcceptance(signedIn: boolean, revalidateSession: () => P
 
   const accept = useCallback(async () => {
     try {
-      const res = await fetch("/api/legal/accept", { method: "POST" })
+      const res = await fetch("/api/legal/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmedAdult: true, acceptTerms: true }) })
       if (res.ok) setStatus("accepted")
       return res.ok
     } catch {

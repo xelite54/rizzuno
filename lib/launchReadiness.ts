@@ -1,6 +1,7 @@
 import { normalizeCountry, normalizeUsRegion } from "./country"
 import { retentionPolicy } from "./retention"
 import { recentMatchReportWindowMs } from "./recentMatches"
+import { validateAgePolicies } from "./agePolicy"
 
 export function supportedCountries(env: Record<string, string | undefined> = process.env): string[] {
   const values = (env.SUPPORTED_COUNTRIES ?? "").split(",").map(value => value.trim()).filter(Boolean)
@@ -54,6 +55,7 @@ export function validateLaunchReadiness(env: Record<string, string | undefined> 
     }
   }
   const regions = supportedUsRegions(env)
+  if (!compileOnlyFixture) validateAgePolicies(countries, regions, env)
   if (regions.length && !countries.includes("US")) throw new Error("SUPPORTED_US_REGIONS requires US in SUPPORTED_COUNTRIES")
   if (env.LAUNCH_GEO_SOURCE !== "vercel") throw new Error("Configure reviewed trusted geolocation: LAUNCH_GEO_SOURCE=vercel")
   recentMatchReportWindowMs(env)

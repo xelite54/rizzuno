@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { recordAcceptance, getUserStatus, describeDbError } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
+import { requestEligibility } from "@/lib/ageEligibilityHttp"
+import { csrfGuard } from "@/lib/requestSecurity"
 
 /**
  * Records that the signed-in account affirmed they're 18+ and accepted the
@@ -17,7 +19,12 @@ import { isRateLimited } from "@/lib/apiRateLimit"
  * whether it's configured, plus the real Postgres/Node error code when a
  * query fails.
  */
-async function handlePOST() {
+async function handlePOST(request: Request) {
+  const rejected = csrfGuard(request)
+  if (rejected) return rejected
+  const input = await request.json().catch(() => null)
+  if (input?.confirmedAdult !== true || input?.acceptTerms !== true) return NextResponse.json({ error: "confirmation_required" }, { status: 400 })
+  if (!await requestEligibility(request)) return NextResponse.json({ error: "age_eligibility_required" }, { status: 403 })
   const databaseUrlConfigured = Boolean(process.env.DATABASE_URL)
 
   // Not pre-declared with an explicit type: `auth` is an overloaded

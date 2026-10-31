@@ -6,6 +6,7 @@ import { mintTicket } from "@/lib/realtimeTicket"
 import { getUserStatus, hasAcceptedCurrent } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { requestCountry, requestUsRegion } from "@/lib/country"
+import { requestEligibility } from "@/lib/ageEligibilityHttp"
 
 /**
  * The only bridge between an authenticated Auth.js session and the
@@ -28,6 +29,8 @@ async function handleGET(request: Request) {
   if (!userId) {
     return NextResponse.json({ error: "not_authenticated" }, { status: 401 })
   }
+  const eligibility = await requestEligibility(request)
+  if (!eligibility) return NextResponse.json({ error: "acceptance_required" }, { status: 403, headers: { "Cache-Control": "no-store" } })
   // Generous — a fresh ticket is minted on every reconnect and every
   // profile-field edit (see useMatchmaking.ts's `announce`), both of which
   // are normal, if this account is behaving itself.
@@ -49,7 +52,7 @@ async function handleGET(request: Request) {
     return NextResponse.json({ error: "acceptance_required" }, { status: 403 })
   }
 
-  return NextResponse.json({ ticket: mintTicket(userId, requestCountry(request)) }, { headers: { "Cache-Control": "no-store" } })
+  return NextResponse.json({ ticket: mintTicket(userId, requestCountry(request), { ageExpiresAt: eligibility.expiresAt, agePolicyKey: eligibility.policyKey, usRegion: requestUsRegion(request) }) }, { headers: { "Cache-Control": "no-store" } })
 }
 
 export const GET = withHttpMetrics("/app/api/realtime/ticket", handleGET)

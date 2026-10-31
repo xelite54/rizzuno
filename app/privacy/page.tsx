@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "September 25, 2026"
+const LAST_UPDATED = "October 30, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
@@ -28,7 +28,7 @@ const SECTIONS = [
   { id: "retention", label: "12. Data retention" },
   { id: "deletion", label: "13. Privacy and deletion requests" },
   { id: "export", label: "14. Data export" },
-  { id: "children", label: "15. 18+ users & age affirmation" },
+  { id: "children", label: "15. Age assurance & minors" },
   { id: "security", label: "16. Security" },
   { id: "international", label: "17. International processing" },
   { id: "rights", label: "18. Your rights & controls" },
@@ -206,7 +206,7 @@ export default function PrivacyPolicyPage() {
 
           <section id="cookies">
             <h2 className="text-[16px] font-semibold">9. Cookies &amp; browser storage</h2>
-            <p className="mt-3 text-[14px] leading-relaxed text-muted">Before OAuth, a signed, httpOnly eligibility cookie stores only whether the check passed, when it was completed, and the gate version for up to 24 hours. It does not contain the date of birth entered on the screen and cannot be read by client-side JavaScript.</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-muted">Before OAuth, a signed, HTTP-only eligibility cookie records whether eligibility was established, the declaration or provider method, applicable policy reference and minimum age, check time, gate version and expiry. It lasts up to 24 hours, subject to earlier provider or policy expiry, and cannot be read by client-side JavaScript. The gate does not ask for or calculate age from a date of birth. An additional provider check uses a separate signed transaction cookie for up to 15 minutes, containing a random reference, transaction identifier, policy reference and expiry. It is cleared from the browser on completion.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Auth.js uses secure authentication/session and OAuth security cookies. The session is HTTP-only; production cookies use HTTPS. The configured session lifetime is seven days, subject to session refresh and sign-out. Cookies protect sign-in and do not serve advertising.</p>
             <p className="mt-3 text-[14px] leading-relaxed text-muted">Browser local storage caches profile fields, friends/requests, blocked accounts, recent match history (up to 50), and a cosmetic fallback handle. These caches can persist after a connection ends and are keyed by account where applicable; they are not the authority for server-side blocks or profile data. Clearing site storage removes browser copies, not Postgres records. The application also uses navigation state to return to profile panels.</p>
 
@@ -262,16 +262,16 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section id="children">
-            <h2 className="text-[16px] font-semibold">15. 18+ users &amp; age affirmation</h2>
+            <h2 className="text-[16px] font-semibold">15. Age assurance &amp; minors</h2>
             <p className="mt-2 text-muted">
               Rizzuno is intended only for adults — at least 18 years of age, or the age of majority where they live
               if that&apos;s older, whichever is higher — and is not directed at children.
             </p>
             <p className="mt-2 text-muted">
-              Before Google OAuth starts, the eligibility screen processes the date of birth you enter to determine
-              whether you are at least 18 and asks you to affirm any higher applicable age of majority. Rizzuno does
-              not store that exact date. It stores only the eligibility result, check time and gate version in a
-              signed, httpOnly cookie for up to 24 hours. An ineligible result prevents the Google OAuth flow.
+              Before Google OAuth starts, you must actively confirm that you are 18 or older and meet applicable
+              age requirements. This declaration does not verify your age. The gate does not request a date of
+              birth, ID image or selfie. Without an eligible signed session, sign-in and realtime admission are
+              denied. The cookie contents and lifetimes are described in Section 9.
             </p>
             <p className="mt-2 text-muted">
               Rizzuno records an account&apos;s affirmation that the user meets this age requirement, together with
@@ -280,13 +280,29 @@ export default function PrivacyPolicyPage() {
               authenticates your Google account and supplies the account fields described in Section 2 (your Google
               account&apos;s stable ID, name, email, and profile photo) — it does not supply, confirm, or verify
               your age. Rizzuno&apos;s own affirmation is a self-attestation, not identity-level or government-ID
-              age verification. Rizzuno does not currently verify a user&apos;s real age by any other means or
-              represent that it does, and does not guarantee the real age of any other user.
+              age verification. Additional assurance, when required for your location, is a separate process;
+              we do not label the checkbox or Google login as verified age, and cannot guarantee another user&apos;s age.
             </p>
             <p className="mt-2 text-muted">
-              Rizzuno does not permit children to create or use accounts. The pre-OAuth check necessarily processes
-              the date entered by a person who receives an ineligible result, but does not retain that exact date or
-              start Google OAuth. If Rizzuno becomes aware that an account does not meet the age requirement,
+              When a provider check is offered, its name and privacy notice appear before you leave Rizzuno.
+              Rizzuno sends a random session reference, the required age threshold, jurisdiction and return address
+              to the configured service. We receive a transaction reference, status, whether the threshold is met,
+              and expiry through a server-authenticated connection. The bridge does not request your exact birth
+              date, name, document images or biometric data in its result, and these are not stored in eligibility
+              cookies. The provider may collect information directly under its displayed notice; its verification
+              method, retention, processing locations and privacy safeguards must be reviewed before that service
+              is enabled. If no suitable required check is available, access is unavailable in that location.
+            </p>
+            <p className="mt-2 text-muted">
+              Trusted hosting geolocation supplies a country and, for U.S. requests, state to select the access
+              policy; we do not request precise device location for this purpose. Eligibility and transaction data
+              are used to enforce access restrictions, not advertising. Rate-limit records contain bounded opaque
+              references and counters, not identity documents. For an incorrect check or a privacy request,
+              contact us through Section 22; do not send ID documents in chat or an ordinary report.
+            </p>
+            <p className="mt-2 text-muted">
+              Rizzuno does not permit children to create or use accounts, even with parental permission.
+              If Rizzuno becomes aware that an account does not meet the age requirement,
               Rizzuno may restrict or terminate it and handle associated information as required by applicable law.
             </p>
             <p className="mt-2 text-muted">Information suggesting an account may belong to a child under 13 is routed to restricted trained safety and privacy review. A report is not proof of age. Reviewers can record the case, restrict access while it is investigated, minimize further collection, refer it to the operator&apos;s approved privacy process, remove a confirmed ineligible account, and document which records are deleted or retained for a specific safety, legal-hold, security, or account-reentry purpose. This process is not a claim of verified age or COPPA compliance.</p>

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "September 25, 2026"
+const LAST_UPDATED = "October 30, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -108,20 +108,34 @@ export default function TermsOfServicePage() {
               or the age of majority in the jurisdiction where you live if that age is higher than 18.
             </p>
             <p className="mt-2 text-muted">
-              By continuing to access or use Rizzuno — including by completing Rizzuno&apos;s date-based eligibility
-              screen before Google Sign-In, and by checking the affirmation box shown after you sign in
-              — you represent and warrant that you satisfy this age requirement.
+              You must actively select the unchecked age-confirmation box and Continue before Google Sign-In.
+              By confirming, you represent that you are 18 or older and meet all applicable age requirements,
+              including a higher local age of majority. After sign-in, you must also accept the current Terms
+              and acknowledge the Privacy Policy before using matchmaking.
             </p>
             <p className="mt-2 text-muted">If you do not satisfy this age requirement, you must not access or use Rizzuno.</p>
             <p className="mt-2 text-muted">
-              Rizzuno currently relies on this representation as an age-eligibility self-attestation. The pre-sign-in
-              screen sends the entered date of birth to Rizzuno only to calculate eligibility; the exact date is not
-              stored. A signed, short-lived cookie records only the result, time and gate version. After sign-in,
-              the legal-acceptance record stores the applicable version and acceptance time (see Section 41).
-              Google Sign-In authenticates the Google account used to access Rizzuno; it does not
-              constitute age verification by Google or by Rizzuno. Rizzuno does not currently perform government-ID,
-              biometric, facial-age-estimation, or other independent identity-level age verification, and does not
-              guarantee that another user&apos;s stated age is accurate.
+              The checkbox is a declaration, not verified age. Rizzuno does not request your date of birth in
+              this gate. Google Sign-In authenticates an account; it does not verify age. A signed eligibility
+              session records the result, check method, applicable policy and minimum age, and timestamps.
+              It lasts no longer than 24 hours and may expire sooner. Account acceptance records retain the
+              applicable document versions and time (Section 41). Neither a declaration nor an additional
+              check guarantees another participant&apos;s age or makes an interaction safe.
+            </p>
+            <p className="mt-2 text-muted">
+              Where applicable law requires additional age assurance, access depends on completing the check
+              required for that location. Before a provider check starts, we identify the configured service
+              and link its privacy notice. The provider performs the check; Rizzuno receives a limited eligibility
+              result rather than identity-document images. An incomplete, failed, expired, or unavailable required
+              check prevents access. We may restrict service in a location instead of offering it without the
+              required safeguards. Requirements depend on the service, jurisdiction, effective dates and court
+              orders; we do not promise compliance with every U.S. state law simply because this gate exists.
+            </p>
+            <p className="mt-2 text-muted">
+              Do not falsify an age declaration, use someone else&apos;s check, or bypass regional or age restrictions.
+              Parental permission or supervision does not permit an ineligible person to use Rizzuno. Suspected
+              underage use may lead to a restriction pending trained safety review and, where appropriate,
+              suspension or termination. Reports and appeals remain available as described below.
             </p>
           </section>
 
@@ -514,8 +528,8 @@ export default function TermsOfServicePage() {
             <p className="mt-2 text-muted">
               RIZZUNO IS PROVIDED &ldquo;AS IS&rdquo; AND &ldquo;AS AVAILABLE,&rdquo; WITHOUT WARRANTIES OF ANY
               KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS
-              FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. Rizzuno does not verify the identity, age, intentions,
-              or conduct of other users beyond the affirmation described in Section 2, and cannot guarantee your
+              FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. The declaration and any additional age assurance
+              described in Section 2 do not guarantee a participant&apos;s identity, age, intentions or conduct. Rizzuno cannot guarantee your
               safety when interacting with a stranger. You use Rizzuno, and interact with people you meet on it, at
               your own risk. See our{" "}
               <Link href="/safety" className="underline underline-offset-2 hover:text-accent">

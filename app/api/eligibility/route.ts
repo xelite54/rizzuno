@@ -1,28 +1,55 @@
 import { cookies } from "next/headers"
 import { NextResponse } from "next/server"
-import { AGE_ELIGIBILITY_COOKIE, AGE_ELIGIBILITY_MAX_AGE_SECONDS, createEligibilityToken, evaluateDateOfBirth, readEligibilityToken } from "@/lib/preAuthEligibility"
+import { AGE_ELIGIBILITY_COOKIE, AGE_ELIGIBILITY_MAX_AGE_SECONDS, createEligibilityToken, eligibilitySatisfies, readEligibilityToken, signAgeChallenge } from "@/lib/preAuthEligibility"
+import { requestAgePolicy } from "@/lib/agePolicy"
+import { ageAssuranceConfig, beginAgeAssurance } from "@/lib/ageAssurance"
+import { csrfGuard } from "@/lib/requestSecurity"
+import { isRateLimited } from "@/lib/apiRateLimit"
+import { AGE_CHALLENGE_COOKIE, eligibilityCookieOptions, eligibilityHeaders } from "@/lib/ageEligibilityHttp"
 
-const headers = { "Cache-Control": "no-store" }
-
-export async function GET() {
-  const store = await cookies()
-  const claim = await readEligibilityToken(store.get(AGE_ELIGIBILITY_COOKIE)?.value)
-  return NextResponse.json({ checked: claim !== null, eligible: claim?.eligible === true }, { headers })
+export async function GET(request: Request) {
+  const claim = await readEligibilityToken((await cookies()).get(AGE_ELIGIBILITY_COOKIE)?.value)
+  const policy = requestAgePolicy(request)
+  const provider = policy?.mode === "provider" ? ageAssuranceConfig() : null
+  return NextResponse.json({ checked: claim !== null, eligible: eligibilitySatisfies(claim, policy), minimumAge: policy?.minimumAge ?? 18,
+    unavailable: !policy || policy.mode === "unavailable" || (policy.mode === "provider" && !provider),
+    provider: provider ? { name: provider.name, privacyUrl: provider.privacyUrl } : null }, { headers: eligibilityHeaders })
 }
 
 export async function POST(request: Request) {
+  const rejected = csrfGuard(request)
+  if (rejected) return rejected
   let input: unknown
-  try { input = await request.json() } catch { return NextResponse.json({ error: "invalid_request" }, { status: 400, headers }) }
+  try { input = await request.json() } catch { return NextResponse.json({ error: "invalid_request" }, { status: 400, headers: eligibilityHeaders }) }
   const body = input && typeof input === "object" ? input as Record<string, unknown> : {}
-  const eligible = evaluateDateOfBirth(body.dateOfBirth, body.meetsHigherLocalAge)
-  const token = await createEligibilityToken(eligible)
-  const response = NextResponse.json({ eligible }, { status: eligible ? 200 : 403, headers })
-  response.cookies.set(AGE_ELIGIBILITY_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: AGE_ELIGIBILITY_MAX_AGE_SECONDS,
-  })
+  const policy = requestAgePolicy(request)
+  // Strict boolean. Legacy DOB payloads and client "verified" flags cannot
+  // grant access; denial also removes previous browser eligibility.
+  if (body.confirmedAdult !== true || !policy || policy.mode === "unavailable") {
+    const response = NextResponse.json({ eligible: false, error: body.confirmedAdult !== true ? "confirmation_required" : "region_unavailable" }, { status: 403, headers: eligibilityHeaders })
+    response.cookies.set(AGE_ELIGIBILITY_COOKIE, "", { ...eligibilityCookieOptions, maxAge: 0 })
+    return response
+  }
+  if (policy.mode === "provider") {
+    if (!ageAssuranceConfig()) return NextResponse.json({ eligible: false, error: "age_assurance_unavailable" }, { status: 503, headers: eligibilityHeaders })
+    // Shared cap bounds unauthenticated provider spend without retaining IPs.
+    if (await isRateLimited("age-assurance:start", 100, 60_000)) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: eligibilityHeaders })
+    try {
+      const app = new URL(process.env.APP_URL ?? request.url)
+      if (process.env.NODE_ENV === "production" && app.protocol !== "https:") throw new Error("invalid_app_url")
+      const reference = crypto.randomUUID()
+      const session = await beginAgeAssurance(policy, reference, `${app.origin}/?ageAssurance=complete`)
+      const challenge = await signAgeChallenge({ reference, transactionId: session.transactionId, policyKey: policy.key, expiresAt: Date.now() + 15 * 60_000 })
+      const response = NextResponse.json({ eligible: false, assuranceRequired: true, redirectUrl: session.redirectUrl }, { headers: eligibilityHeaders })
+      response.cookies.set(AGE_CHALLENGE_COOKIE, challenge, { ...eligibilityCookieOptions, maxAge: 15 * 60 })
+      response.cookies.set(AGE_ELIGIBILITY_COOKIE, "", { ...eligibilityCookieOptions, maxAge: 0 })
+      return response
+    } catch { return NextResponse.json({ eligible: false, error: "age_assurance_unavailable" }, { status: 503, headers: eligibilityHeaders }) }
+  }
+  const now = Date.now()
+  const token = await createEligibilityToken(true, now, undefined, { method: "self_attestation", policyKey: policy.key, minimumAge: policy.minimumAge, expiresAt: Math.min(now + AGE_ELIGIBILITY_MAX_AGE_SECONDS * 1000, Date.parse(policy.reviewBy)) })
+  const response = NextResponse.json({ eligible: true }, { headers: eligibilityHeaders })
+  response.cookies.set(AGE_ELIGIBILITY_COOKIE, token, eligibilityCookieOptions)
+  response.cookies.set(AGE_CHALLENGE_COOKIE, "", { ...eligibilityCookieOptions, maxAge: 0 })
   return response
 }

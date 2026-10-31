@@ -16,11 +16,22 @@ const output = await build({ entryPoints: ["tests/browser/homepageHarness.tsx"],
 } }] })
 const styles = await postcss([tailwind()]).process(await readFile("app/globals.css", "utf8"), { from: "app/globals.css" })
 const css = styles.css + (output.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? "")
+const eligibilityRequests: unknown[] = []
 const server = createServer((req, res) => {
   if (req.url === "/harness.js") { res.setHeader("Content-Type", "text/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
   else if (req.url === "/harness.css") { res.setHeader("Content-Type", "text/css"); res.end(css) }
   else if (req.url === "/blank") res.end("<html><body></body></html>")
-  else if (req.url === "/api/eligibility") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ eligible: false, checked: false })) }
+  else if (req.url === "/api/eligibility") {
+    res.setHeader("Content-Type", "application/json")
+    if (req.method === "POST") {
+      let body = ""
+      req.on("data", chunk => { body += chunk })
+      req.on("end", () => {
+        const data = JSON.parse(body); eligibilityRequests.push(data)
+        res.end(JSON.stringify({ eligible: data.confirmedAdult === true }))
+      })
+    } else res.end(JSON.stringify({ eligible: false, checked: false, minimumAge: 18 }))
+  }
   else { res.setHeader("Content-Type", "text/html"); res.end('<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/harness.css"></head><body><div id="root"></div><script src="/harness.js"></script></body></html>') }
 })
 await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
@@ -120,6 +131,14 @@ try {
     await browser.call("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 768 })
     await browser.evaluate("window.homepage.set('signed-out')")
     await delay(100)
+    const ageGate = await browser.evaluate(`(() => {
+      const input = document.querySelector('input[name="confirmedAdult"]');
+      const form = input.closest('form');
+      return { checked:input.checked, required:input.required, disabled:form.querySelector('button').disabled,
+        label:input.parentElement.textContent.trim(), button:form.querySelector('button').textContent,
+        dateInputs:document.querySelectorAll('input[type="date"],input[autocomplete="bday"]').length };
+    })()`)
+    assert.deepEqual(ageGate, { checked:false, required:true, disabled:true, label:"I confirm I am 18 or older and meet applicable age requirements", button:"Continue", dateInputs:0 })
     const geometry = await browser.evaluate(`(() => {
       const stage = document.querySelector('main[data-layout]');
       const [self, peer] = stage.children;
@@ -132,8 +151,8 @@ try {
       assert.equal(geometry.peer.y, height / 2, "mobile homepage content starts at midpoint")
       assert.equal(geometry.peer.height, height / 2, "mobile homepage content half")
       const form = await browser.evaluate(`(() => {
-        const input = document.querySelector('input[name="dateOfBirth"]');
-        const panel = input.parentElement.parentElement.parentElement;
+        const input = document.querySelector('input[name="confirmedAdult"]');
+        const panel = input.closest('form').parentElement;
         panel.scrollTop = 0;
         const startVisible = panel.getBoundingClientRect().top <= panel.firstElementChild.getBoundingClientRect().top;
         panel.scrollTop = panel.scrollHeight;
@@ -152,6 +171,14 @@ try {
       await writeFile(path.join(artifactDir, "homepage-mobile.png"), Buffer.from(image.data, "base64"))
     }
   }
+  assert.equal(eligibilityRequests.length, 0, "unchecked gate never submitted")
+  await browser.evaluate(`document.querySelector('input[name="confirmedAdult"]').click()`)
+  await delay(50)
+  assert.equal(await browser.evaluate(`document.querySelector('form button').disabled`), false)
+  await browser.evaluate(`document.querySelector('form').requestSubmit()`)
+  await delay(150)
+  assert.deepEqual(eligibilityRequests, [{ confirmedAdult: true }], "gate sends only the declaration")
+  assert.equal(await browser.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent.includes('Continue with Google'))`), true)
   results.status = "passed"
   console.log(`HOMEPAGE: passed; evidence ${artifactDir}`)
 } finally {

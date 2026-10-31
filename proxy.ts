@@ -3,7 +3,8 @@ import { requestCountry, requestUsRegion } from "./lib/country"
 import { NextResponse, type NextRequest } from "next/server"
 import { contentSecurityPolicy } from "./lib/securityHeaders"
 import { csrfGuard } from "./lib/requestSecurity"
-import { AGE_ELIGIBILITY_COOKIE, readEligibilityToken } from "./lib/preAuthEligibility"
+import { AGE_ELIGIBILITY_COOKIE, readEligibilityToken, eligibilitySatisfies } from "./lib/preAuthEligibility"
+import { requestAgePolicy } from "./lib/agePolicy"
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
@@ -13,7 +14,7 @@ export async function proxy(request: NextRequest) {
     return new NextResponse("Rizzuno is not available in your region.", { status: 451, headers: { "Cache-Control": "no-store" } })
   }
   if ((path.startsWith("/api/auth/signin") || path.startsWith("/api/auth/callback/")) &&
-      (await readEligibilityToken(request.cookies.get(AGE_ELIGIBILITY_COOKIE)?.value))?.eligible !== true) {
+      !eligibilitySatisfies(await readEligibilityToken(request.cookies.get(AGE_ELIGIBILITY_COOKIE)?.value), requestAgePolicy(request))) {
     return NextResponse.json({ error: "age_eligibility_required" }, { status: 403, headers: { "Cache-Control": "no-store" } })
   }
   // Auth.js owns OAuth/CSRF; Stripe authenticates the raw body signature.

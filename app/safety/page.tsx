@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Practical safety guidance for meeting strangers on live video through Rizzuno.",
 }
 
-const LAST_UPDATED = "September 25, 2026"
+const LAST_UPDATED = "October 30, 2026"
 
 export default function SafetyPage() {
   return (
@@ -27,8 +27,8 @@ export default function SafetyPage() {
           <p className="mt-2 text-muted">
             Random matches may be strangers or people you have met before. Mutually accepted friend invitations are separate from random matching. Every Rizzuno
             user is required to complete a self-attested eligibility check before Google Sign-In and affirm the requirement again before matching, and is
-            signed in with a Google account — that&apos;s it. Rizzuno does not independently verify each
-            user&apos;s actual age, identity, intentions, or honesty beyond that affirmation, so you should not
+            signed in with a Google account. Additional age assurance is required in some locations. These steps
+            do not guarantee each user&apos;s actual age, identity, intentions, or honesty, so you should not
             assume another user&apos;s age or identity has been verified, and Rizzuno can&apos;t guarantee any of
             those things about the person you&apos;re matched with. Use the same judgment you&apos;d use with any
             stranger.
@@ -99,7 +99,7 @@ export default function SafetyPage() {
 
         <section>
           <h2 className="text-[16px] font-semibold">Underage concerns</h2>
-          <p className="mt-2 text-muted">Rizzuno is only for people who are at least 18, or the higher age of majority where they live. The pre-Google age gate uses the date entered only to calculate eligibility and does not store the exact date. It remains self-attestation; Google Sign-In does not verify age. Report a suspected underage user immediately and leave the interaction.</p>
+          <p className="mt-2 text-muted">Rizzuno is only for people who are at least 18, or the higher age of majority where they live. The pre-Google gate requires an active checkbox declaration without asking for a date of birth. This is self-attestation; Google Sign-In does not verify age. Some locations require a separate provider check, and access is unavailable if a required check cannot be completed. Report a suspected underage user immediately and leave the interaction; do not ask for identity documents.</p>
           <p className="mt-2 text-muted">The documented operator flow is: urgent flag → temporary restriction when credible and appropriate → trained safety review with minimal evidence and a case reference → permanent removal if confirmed → an <Link href="/appeals" className="underline">appeal</Link> for an incorrectly flagged user. An ordinary underage report is not sent to NCMEC. Authorized staff can separately record a manual CyberTipline decision and receipt; Rizzuno has no automatic NCMEC submission or claimed partnership. A recorded manual submission starts restricted preservation of existing report context without creating recordings or screenshots. Generic nudity scores are never treated as CSAM detection.</p>
           <p className="mt-2 text-muted">If available information suggests the account may belong to a child under 13, trained staff open a separate restricted safety/privacy review, can limit access while reviewing, minimize further collection, refer the case through the operator-approved process, and remove the account if the age concern is confirmed. A report is not age verification or a legal conclusion, and this workflow does not claim COPPA compliance.</p>
         </section>

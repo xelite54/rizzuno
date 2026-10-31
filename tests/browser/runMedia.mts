@@ -30,6 +30,7 @@ const server = createServer((req, res) => {
   if (url.pathname === "/harness.js") { res.setHeader("Content-Type", "application/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
   else if (url.pathname === "/harness.css") { res.setHeader("Content-Type", "text/css"); res.end(css) }
   else if (url.pathname === "/api/legal/status") { res.setHeader("Content-Type", "application/json"); res.end('{"accepted":true}') } // Simulate a stale accepted web status.
+  else if (url.pathname === "/api/eligibility") { res.setHeader("Content-Type", "application/json"); res.end('{"eligible":true,"minimumAge":18}') }
   else if (url.pathname === "/api/legal/accept" && req.method === "POST") {
     const account = url.searchParams.get("account")!
     dbMockState.acceptanceRequiredUserIds.delete(account)

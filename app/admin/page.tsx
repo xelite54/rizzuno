@@ -37,7 +37,7 @@ export default async function AdminPage() {
 
   return (
     <main className="mx-auto min-h-full w-full max-w-3xl bg-background px-6 py-16 text-foreground">
-      <p className="text-sm">Age assurance: {ageAssuranceCapability().state} (current gate: self-attestation). Specialist illegal-content detection: {severeContentCapability().state}. Underage concerns require a trained safety reviewer. Follow the operator safety escalation runbook.</p>
+      <p className="text-sm">Age assurance bridge: {ageAssuranceCapability().state}. Self-attestation and additional checks follow the reviewed jurisdiction policy; configuration alone does not establish legal compliance. Specialist illegal-content detection: {severeContentCapability().state}. Underage concerns require a trained safety reviewer. Follow the operator safety escalation runbook.</p>
       <h1 className="text-[24px] font-bold tracking-tight">Moderation queue</h1>
       <p className="mt-1 text-[13px] text-muted">{pending.length} pending report(s). Content decisions (keep/remove the reported post) and account decisions are separate; removing content never applies an account penalty by itself.</p>
 

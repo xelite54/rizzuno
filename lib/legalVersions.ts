@@ -18,7 +18,7 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // flat "at least 18" to "at least 18, or the age of majority where you
   // live if that's older" (see AgeGate.tsx) — so accounts that affirmed
   // under the old wording are asked to affirm the new one.
-  { document: "age18", version: "2" },
+  { document: "age18", version: "2026-10-30" },
   // Bumped 2026-08-23: full rewrite from placeholder copy to production
   // Terms/Privacy text (see the legal-accuracy audit) — a material change,
   // so every account with a prior acceptance record is asked again.
@@ -174,9 +174,10 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // CyberTipline decision and scoped preservation workflow.
   // Bumped 2026-09-25b: added the distinct under-13 escalation/referral flow,
   // explicit reviewed-state access requirement, and conditional §512 wording.
-  { document: "terms", version: "2026-09-25b" },
-  { document: "privacy", version: "2026-09-25b" },
+  // 2026-10-30: checkbox-only declaration, jurisdiction assurance and minimization.
+  { document: "terms", version: "2026-10-30" },
+  { document: "privacy", version: "2026-10-30" },
 ]
 
 // Guidelines are incorporated into Terms; bump Terms whenever these versions change materially.
-export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-09-25b", safety: "2026-09-25b", appeals: "2026-09-24", copyright: "2026-09-25" } as const
+export const RELATED_LEGAL_VERSIONS = { guidelines: "2026-10-30", safety: "2026-10-30", appeals: "2026-09-24", copyright: "2026-09-25" } as const

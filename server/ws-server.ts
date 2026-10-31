@@ -11,7 +11,7 @@ import { matchmaker } from "./matchmaker"
 import type { QueuedClient } from "./matchmaker"
 import { MAX_CHAT_IMAGE_LENGTH, isValidGender, WS_CLOSE_SUPERSEDED } from "../lib/signaling/protocol"
 import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from "../lib/signaling/protocol"
-import { verifyTicket } from "../lib/realtimeTicket"
+import { verifyTicket, realtimeAgeAllowed } from "../lib/realtimeTicket"
 import {
   getUserStatus,
   realtimeAccess,
@@ -117,6 +117,7 @@ function availableForInvitation(state: ConnectionState): boolean {
     connections.get(state.userId) === state &&
     state.ws.readyState === WebSocket.OPEN &&
     state.isAlive &&
+    realtimeAgeAllowed(state) &&
     !state.roomId &&
     !state.seeking
   )
@@ -139,7 +140,7 @@ async function checkLiveAccess(states: ConnectionState[]): Promise<boolean> {
   }
   let allowed = true
   for (const state of states) {
-    const result = access.get(state.userId) ?? "banned"
+    const result = realtimeAgeAllowed(state) ? access.get(state.userId) ?? "banned" : "acceptance_required"
     if (result === "allowed") continue
     allowed = false
     send(state.ws, { type: "rejected", reason: result })
@@ -164,6 +165,9 @@ type ConnectionState = {
   profilePhoto?: string | null
   recentChat?: ReportChatEntry[]
   countryCode?: string
+  ageExpiresAt?: number
+  agePolicyKey?: string
+  usRegion?: string | null
   roomId: string | null
   /**
    * Authoritative server-side matching INTENT — true exactly when this
@@ -284,6 +288,7 @@ function makeCheckLive(expectedInitiatorState: ConnectionState) {
   return function checkLive(userId: string, expectedGeneration: number): { live: boolean; gender?: Gender } {
     const s = connections.get(userId)
     if (!s) return { live: false }
+    if (!realtimeAgeAllowed(s)) return { live: false }
     if (userId === expectedInitiatorState.userId && s !== expectedInitiatorState) return { live: false }
     if (s.ws.readyState !== WebSocket.OPEN) return { live: false }
     if (!s.seeking) return { live: false }
@@ -1124,6 +1129,9 @@ export function createRizzunoWebSocketServer() {
           gender,
           profilePhoto: (await getPublicProfile(userId)).profilePhoto,
           countryCode: verified.countryCode,
+          ageExpiresAt: verified.ageExpiresAt,
+          agePolicyKey: verified.agePolicyKey,
+          usRegion: verified.usRegion,
           roomId: existing?.roomId ?? null,
           seeking: existing?.seeking ?? false,
           searchGeneration: existing?.searchGeneration ?? 0,

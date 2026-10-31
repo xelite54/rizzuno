@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: "Rizzuno's rules for how to treat the people you're matched with, and how reporting and blocking work.",
 }
 
-const LAST_UPDATED = "September 25, 2026"
+const LAST_UPDATED = "October 30, 2026"
 
 export default function CommunityGuidelinesPage() {
   return (
@@ -34,7 +34,7 @@ export default function CommunityGuidelinesPage() {
           <h2 className="text-[16px] font-semibold">Not allowed, ever</h2>
           <ul className="mt-2 list-disc space-y-1.5 pl-5 text-muted">
             <li>Using Rizzuno without meeting its eligibility age (18, or the age of majority where you live if higher), or knowingly helping an ineligible person gain access.</li>
-            <li>Misrepresenting your own eligibility to use Rizzuno.</li>
+            <li>Misrepresenting age, sharing an age-check session, or bypassing an age check or regional restriction. A parent&apos;s permission does not make underage use acceptable.</li>
             <li>Nudity or sexual activity involving anyone who hasn&apos;t consented.</li>
             <li>
               Any sexual content involving, or appearing to involve, a minor — this is treated as an absolute,
@@ -65,6 +65,7 @@ export default function CommunityGuidelinesPage() {
 
         <section>
           <h2 className="text-[16px] font-semibold">Reporting</h2>
+          <p className="mt-2 text-muted">If a participant may be underage, end the conversation and choose &ldquo;Underage concern&rdquo; in the report menu. Do not ask them for an ID, birth date, intimate image or other proof. The checkbox and Google login do not verify age. Additional checks in some locations do not guarantee another participant&apos;s age. Trained reviewers assess underage concerns; an account may be restricted while the concern is investigated. Use the Appeals page if you believe an account decision is mistaken.</p>
           <p className="mt-2 text-muted">
             The ••• menu on a call lets you report someone in one of a few categories (sexual content, harassment,
             hate, scam, spam, underage concern, violence, or other), with optional details. Your report — its
