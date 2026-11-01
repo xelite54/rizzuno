@@ -11,7 +11,8 @@ export const ciLaunchFixture = {
   // for a synthetic compile and can never make this fixture launch-ready.
   LEGAL_REVIEW_APPROVED: "false", SAFETY_WORKFLOW_APPROVED: "false", RETENTION_SCHEDULER_CONFIRMED: "false",
   LAUNCH_REVIEW_REFERENCE: "ci-fixture", ADMIN_EMAILS: "ci@example.invalid", SAFETY_REVIEWER_EMAILS: "ci@example.invalid",
-  SUPPORTED_COUNTRIES: "US", SUPPORTED_US_REGIONS: "", LAUNCH_GEO_SOURCE: "vercel",
+  // Synthetic test country only; not a Japanese legal approval.
+  SUPPORTED_COUNTRIES: "JP", SUPPORTED_US_REGIONS: "", SUPPORTED_SUBDIVISIONS_JSON: "{}", LAUNCH_GEO_SOURCE: "vercel",
   PROVIDER_REGION_DISCLOSURE_REVIEWED: "false", TRAINED_SAFETY_REVIEWERS_CONFIRMED: "false",
   UNDER13_RESPONSE_PROCEDURE_APPROVED: "false", CYBERTIPLINE_PROCEDURE_APPROVED: "false", BREACH_RESPONSE_APPROVED: "false", US_STATE_LAUNCH_REVIEW_APPROVED: "false",
   RECENT_MATCH_REPORT_WINDOW_HOURS: "24",

@@ -21,6 +21,18 @@ export function requestCountry(request: Request): string | null {
   return process.env.VERCEL === "1" ? normalizeCountry(request.headers.get("x-vercel-ip-country")) : null
 }
 
+/** Vercel's ISO 3166-2 subdivision component (for example JP -> 13).
+ * Only use this behind the actual Vercel ingress, never as a browser field. */
+export function normalizeSubdivision(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const code = value.trim().toUpperCase()
+  return /^[A-Z0-9]{1,3}$/.test(code) ? code : null
+}
+export function requestSubdivision(request: Request): string | null {
+  return process.env.VERCEL === "1" && requestCountry(request) !== null
+    ? normalizeSubdivision(request.headers.get("x-vercel-ip-country-region")) : null
+}
+
 const usRegions = new Set("AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split(" "))
 
 export function normalizeUsRegion(value: unknown): string | null {

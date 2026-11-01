@@ -1,20 +1,23 @@
-import { locationAllowed } from "./lib/launchReadiness"
-import { requestCountry, requestUsRegion } from "./lib/country"
 import { NextResponse, type NextRequest } from "next/server"
 import { contentSecurityPolicy } from "./lib/securityHeaders"
 import { csrfGuard } from "./lib/requestSecurity"
 import { AGE_ELIGIBILITY_COOKIE, readEligibilityToken, eligibilitySatisfies } from "./lib/preAuthEligibility"
 import { requestAgePolicy } from "./lib/agePolicy"
+import { regionUnavailableResponse } from "./lib/geographicResponse"
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
   // Public legal/contact pages remain reachable; product and sign-in fail closed.
   const publicLegal = ["/terms", "/privacy", "/community-guidelines", "/safety", "/copyright", "/appeals", "/reports/recent"]
-  if (!publicLegal.includes(path) && path !== "/api/billing/webhook" && !path.startsWith("/_next/") && !locationAllowed(requestCountry(request), requestUsRegion(request))) {
-    return new NextResponse("Rizzuno is not available in your region.", { status: 451, headers: { "Cache-Control": "no-store" } })
+  // Signing out and fetching Auth.js's CSRF token cannot grant product access.
+  const exitAuth = path === "/api/auth/signout" || path === "/api/auth/csrf"
+  const policy = requestAgePolicy(request)
+  const staticAsset = path.startsWith("/_next/static/") || path === "/_next/image" || path === "/favicon.ico"
+  if (!publicLegal.includes(path) && !exitAuth && path !== "/api/billing/webhook" && !staticAsset && (!policy || policy.mode === "unavailable")) {
+    return regionUnavailableResponse(request)
   }
   if ((path.startsWith("/api/auth/signin") || path.startsWith("/api/auth/callback/")) &&
-      !eligibilitySatisfies(await readEligibilityToken(request.cookies.get(AGE_ELIGIBILITY_COOKIE)?.value), requestAgePolicy(request))) {
+      !eligibilitySatisfies(await readEligibilityToken(request.cookies.get(AGE_ELIGIBILITY_COOKIE)?.value), policy)) {
     return NextResponse.json({ error: "age_eligibility_required" }, { status: 403, headers: { "Cache-Control": "no-store" } })
   }
   // Auth.js owns OAuth/CSRF; Stripe authenticates the raw body signature.

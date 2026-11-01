@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import { NextRequest, NextResponse } from "next/server"
 import { AGE_ELIGIBILITY_COOKIE, readEligibilityToken } from "../lib/preAuthEligibility.ts"
 import { verifyTicket, realtimeAgeAllowed } from "../lib/realtimeTicket.ts"
+import { EXCLUDED_COUNTRIES } from "../lib/geographicAccess.ts"
 
 const jar = new Map<string, string>()
 let accepted = true, banned = false, recorded = 0, limited = false
@@ -19,7 +20,7 @@ const origin = "https://rizzuno.test"
 const review = { mode: "self_attestation", minimumAge: 18, reference: "test only", reviewBy: "2099-01-01" }
 
 function request(path: string, body?: unknown, sameOrigin = true) {
-  return new Request(`${origin}${path}`, { method: body === undefined ? "GET" : "POST", headers: { "x-vercel-ip-country": "US", "x-vercel-ip-country-region": "NY", ...(sameOrigin ? { origin } : {}), "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+  return new Request(`${origin}${path}`, { method: body === undefined ? "GET" : "POST", headers: { "x-vercel-ip-country": "JP", "x-vercel-ip-country-region": "13", ...(sameOrigin ? { origin } : {}), "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
 }
 function applyCookies(response: Awaited<ReturnType<typeof gate.POST>>) {
   assert.ok(response instanceof NextResponse)
@@ -30,7 +31,7 @@ function applyCookies(response: Awaited<ReturnType<typeof gate.POST>>) {
 }
 function configure(mode = "self_attestation") {
   jar.clear(); accepted = true; banned = false; recorded = 0; limited = false
-  Object.assign(process.env, { AUTH_SECRET: "age-test-secret-at-least-thirty-two-chars", REALTIME_TICKET_SECRET: "test-realtime-secret", APP_URL: origin, VERCEL: "1", SUPPORTED_COUNTRIES: "US", SUPPORTED_US_REGIONS: "NY", DATABASE_URL: "postgres://unused.invalid/test", AGE_POLICIES_JSON: JSON.stringify({ "US-NY": { ...review, mode } }) })
+  Object.assign(process.env, { AUTH_SECRET: "age-test-secret-at-least-thirty-two-chars", REALTIME_TICKET_SECRET: "test-realtime-secret", APP_URL: origin, VERCEL: "1", SUPPORTED_COUNTRIES: "JP", SUPPORTED_US_REGIONS: "", SUPPORTED_SUBDIVISIONS_JSON: "{}", DATABASE_URL: "postgres://unused.invalid/test", AGE_POLICIES_JSON: JSON.stringify({ "JP": { ...review, mode } }) })
 }
 
 test("unchecked, missing, legacy, and forged age claims cannot grant access; success preserves OAuth and matchmaking", async () => {
@@ -59,13 +60,13 @@ test("unchecked, missing, legacy, and forged age claims cannot grant access; suc
   assert.equal(issued.status, 200)
   const issuedToken = (await issued.json()).ticket
   const access = verifyTicket(issuedToken)!
-  assert.equal(access.userId, "test-account"); assert.equal(access.usRegion, "NY")
+  assert.equal(access.userId, "test-account"); assert.equal(access.subdivision, "13")
   assert.equal(realtimeAgeAllowed({ ...access, ageExpiresAt: Date.now() - 1 }), false)
   accepted = false
   assert.equal((await ticket.GET(request("/api/realtime/ticket"))).status, 403)
   accepted = true; banned = true
   assert.equal((await ticket.GET(request("/api/realtime/ticket"))).status, 403)
-  process.env.AGE_POLICIES_JSON = JSON.stringify({ "US-NY": { ...review, mode: "provider" } })
+  process.env.AGE_POLICIES_JSON = JSON.stringify({ "JP": { ...review, mode: "provider" } })
   assert.equal(verifyTicket(issuedToken), null)
   assert.equal(realtimeAgeAllowed(access), false)
   assert.equal((await gate.GET(request("/api/eligibility"))).status, 200)
@@ -88,7 +89,7 @@ test("required assurance fails closed and trusts only a browser-bound authentica
       return Response.json({ transactionId: "transaction-1", redirectUrl: badRedirect ? "https://evil.invalid/" : "https://assurance.invalid/check" })
     }
     assert.equal(body.reference, session.reference)
-    return Response.json({ reference: session.reference, transactionId: "transaction-1", minimumAge: 18, jurisdiction: "US-NY", ...result })
+    return Response.json({ reference: session.reference, transactionId: "transaction-1", minimumAge: 18, jurisdiction: "JP", ...result })
   })
   try {
     badRedirect = true
@@ -118,4 +119,50 @@ test("required assurance fails closed and trusts only a browser-bound authentica
     limited = true
     assert.equal((await gate.POST(request("/api/eligibility", { confirmedAdult: true }))).status, 429)
   } finally { fetchMock.mock.restore() }
+})
+
+test("all excluded countries fail through product APIs, OAuth and direct eligibility/ticket handlers", async () => {
+  configure()
+  const allowed = await gate.POST(request("/api/eligibility", {confirmedAdult:true}))
+  applyCookies(allowed)
+  const cookie = `${AGE_ELIGIBILITY_COOKIE}=${jar.get(AGE_ELIGIBILITY_COOKIE)}`
+  const paths = ["/", "/api/profile/me", "/api/eligibility", "/api/eligibility/assurance", "/api/realtime/ticket", "/api/realtime/turn", "/api/auth/signin/google", "/api/auth/callback/google", "/api/auth/session", "/api/legal/accept", "/_next/data/fake/index.json"]
+  for (const country of EXCLUDED_COUNTRIES) {
+    // Even a stale/incorrect deployment configuration and valid age cookie
+    // cannot enable an excluded country.
+    process.env.SUPPORTED_COUNTRIES = `JP,${country}`
+    process.env.SKIP_LAUNCH_READINESS = "true"
+    process.env.AGE_POLICIES_JSON = JSON.stringify({JP:review,[country]:review})
+    for (const path of paths) {
+      const req = new NextRequest(`${origin}${path}?country=JP`,{headers:{"x-vercel-ip-country":country,"x-vercel-ip-country-region":"13","x-country":"JP",cookie}})
+      const response = await proxy(req)
+      assert.equal(response.status,451,`${country} ${path}`)
+      assert.match(await response.text(),/Rizzuno is unavailable in your region/)
+      assert.match(response.headers.get("cache-control")!,/no-store/)
+    }
+    const blocked = (path: string, body?: unknown) => {
+      const req = request(path,body)
+      req.headers.set("x-vercel-ip-country",country)
+      return req
+    }
+    assert.equal((await gate.GET(blocked("/api/eligibility"))).status,451)
+    assert.equal((await gate.POST(blocked("/api/eligibility",{confirmedAdult:true,country:"JP"}))).status,451)
+    assert.equal((await assurance.POST(blocked("/api/eligibility/assurance",{}))).status,451)
+    assert.equal((await ticket.GET(blocked("/api/realtime/ticket"))).status,451)
+  }
+  configure(); delete process.env.SKIP_LAUNCH_READINESS
+  delete process.env.VERCEL
+  // A standalone request cannot turn its own forwarded country into trust.
+  assert.equal((await proxy(new NextRequest(request("/?country=JP")))).status,451)
+  process.env.VERCEL="1"
+  for (const country of [null,"XX","MX"]) {
+    const req = new NextRequest(request("/"))
+    if (country) req.headers.set("x-vercel-ip-country",country)
+    else req.headers.delete("x-vercel-ip-country")
+    assert.equal((await proxy(req)).status,451)
+  }
+  for (const path of ["/terms","/privacy","/community-guidelines","/safety","/appeals","/reports/recent","/api/auth/signout","/api/auth/csrf"]) {
+    const req = new NextRequest(`${origin}${path}`,{headers:{"x-vercel-ip-country":"US"}})
+    assert.equal((await proxy(req)).status,200,"legal/safety access remains available")
+  }
 })

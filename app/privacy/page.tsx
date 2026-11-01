@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "privacy")!.version
-const LAST_UPDATED = "October 30, 2026"
+const LAST_UPDATED = "November 1, 2026"
 
 const SECTIONS = [
   { id: "operator", label: "1. Who operates Rizzuno" },
@@ -155,8 +155,11 @@ export default function PrivacyPolicyPage() {
               service, these providers may automatically process technical information as a normal part of
               operating that infrastructure — for example, your IP address, request timestamps, and basic
               browser/device information may appear in server or platform logs. Rizzuno&apos;s own application code
-              displays an approximate country/region flag to your match and enforces the supported-country allowlist using Vercel&apos;s IP-country lookup. If the operator enables the optional U.S. state gate, Rizzuno also processes Vercel&apos;s IP-derived country-region code to allow or deny access; it is not taken from a browser location field and is not shown to matches.
-              Only the country code is included in the short-lived signed connection ticket and match identity;
+              displays an approximate country flag to your match and uses Vercel&apos;s IP-derived country and,
+              where needed, subdivision code to apply geographic exclusions, explicit access approvals and age
+              policies. Browser location fields do not select access. The country and available subdivision
+              code are included in the short-lived signed connection ticket so the realtime server can enforce
+              those decisions; only the country is shown to matches. Unknown and unapproved locations are denied;
               this feature does not save the IP address or country in your profile. There is no manual country-preference control and Rizzuno does not request GPS or precise location. VPNs may change the country shown.
               Rizzuno does not deliberately log or store your IP address in its database, but we do not claim our
               infrastructure providers never see or process it, and we do not claim Rizzuno never processes an IP
@@ -294,7 +297,7 @@ export default function PrivacyPolicyPage() {
               is enabled. If no suitable required check is available, access is unavailable in that location.
             </p>
             <p className="mt-2 text-muted">
-              Trusted hosting geolocation supplies a country and, for U.S. requests, state to select the access
+              Trusted hosting geolocation supplies a country and available subdivision to select the access
               policy; we do not request precise device location for this purpose. Eligibility and transaction data
               are used to enforce access restrictions, not advertising. Rate-limit records contain bounded opaque
               references and counters, not identity documents. For an incorrect check or a privacy request,

@@ -2,7 +2,8 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { countryLabel, normalizeCountry, requestCountry } from "../lib/country.ts"
 import { safeUpgradeReturn } from "../lib/upgradeNavigation.ts"
-import { mintTicket, verifyTicket } from "../lib/realtimeTicket.ts"
+import { verifyTicket } from "../lib/realtimeTicket.ts"
+import { mintTicket } from "./helpers/accessPolicy.mts"
 
 test("country flags cover countries without guessing unknown locations", () => {
   assert.equal(countryLabel("US")?.flag, "🇺🇸")
@@ -21,10 +22,11 @@ test("country comes only from platform headers and is signed into the ticket", (
     assert.equal(requestCountry(request), null)
     process.env.VERCEL = "1"
     assert.equal(requestCountry(request), "US")
-    const ticket = mintTicket("user", "US")
-    assert.deepEqual(verifyTicket(ticket), { userId: "user", countryCode: "US" })
+    const ticket = mintTicket("user", "JP")
+    assert.equal(verifyTicket(ticket)?.countryCode, "JP")
+    assert.equal(verifyTicket(ticket)?.userId, "user")
     const [payload, signature] = ticket.split(".")
-    const tampered = Buffer.from(Buffer.from(payload, "base64url").toString().replace("US", "GB")).toString("base64url")
+    const tampered = Buffer.from(Buffer.from(payload, "base64url").toString().replace("JP", "GB")).toString("base64url")
     assert.equal(verifyTicket(`${tampered}.${signature}`), null)
   } finally {
     if (oldPlatform === undefined) delete process.env.VERCEL; else process.env.VERCEL = oldPlatform

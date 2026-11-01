@@ -1,6 +1,6 @@
 # Age eligibility and additional assurance
 
-Updated October 30, 2026. This documents implementation and release inputs, not a legal opinion or a 50-state compliance certification. No external provider has been selected, provisioned or validated by this change.
+Updated November 1, 2026. This documents implementation and release inputs, not a legal opinion or a compliance certification. No external provider has been selected, provisioned or validated by this change. The 52 mandatory exclusions and access mechanism are documented in [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md); the United States is currently excluded in its entirety.
 
 ## User experience and enforcement
 
@@ -8,15 +8,15 @@ The unchecked declaration reads “I confirm I am 18 or older and meet applicabl
 
 The server requires the literal boolean `confirmedAdult: true`; old DOB submissions do not work. Eligibility uses an HMAC-signed, HTTP-only, SameSite=Lax cookie, Secure with a `__Host-` name in production. Its version, method, jurisdiction-policy hash, minimum-age threshold and absolute expiry are checked independently of the UI. Maximum lifetime is 24 hours, bounded by provider and policy expiry. Legal acceptance remains an account record with version and timestamp; historical records are preserved.
 
-OAuth initiation/callback, account acceptance and realtime ticket issuance check current eligibility. Tickets carry the signed policy hash, state and eligibility expiry to the realtime service. Admission, eligibility-sensitive actions, final matchmaking checks and the existing periodic access sweep reject expired or changed eligibility. Existing bans, restrictions, legal-acceptance checks, underage reports, urgent safety review, appeals and child-safety workflows remain enforced. Report and appeal pages remain reachable when product access is denied.
+OAuth initiation/callback, account acceptance and realtime ticket issuance check current eligibility. Tickets carry the signed country, available subdivision, policy hash and eligibility expiry to the realtime service. Admission, eligibility-sensitive actions, final matchmaking checks and the existing periodic access sweep reject excluded or removed locations and expired or changed eligibility. Existing bans, restrictions, legal-acceptance checks, underage reports, urgent safety review, appeals and child-safety workflows remain enforced. Report and appeal pages remain reachable when product access is denied.
 
 ## Required deployment decisions
 
-Keep the existing explicit `SUPPORTED_COUNTRIES` and `SUPPORTED_US_REGIONS` allowlists. For every enabled country, or individual `US-STATE` entry, supply an `AGE_POLICIES_JSON` entry:
+Keep an explicit `SUPPORTED_COUNTRIES` allowlist excluding all 52 blocked countries. For every enabled country, or approved subdivision selected by `SUPPORTED_SUBDIVISIONS_JSON`, supply an `AGE_POLICIES_JSON` entry:
 
 ```json
 {
-  "US-XX": {
+  "XX": {
     "mode": "unavailable",
     "minimumAge": 18,
     "reference": "actual scoped review and supporting legal sources",
@@ -25,11 +25,11 @@ Keep the existing explicit `SUPPORTED_COUNTRIES` and `SUPPORTED_US_REGIONS` allo
 }
 ```
 
-This is a schema illustration, not a valid jurisdiction or an approval. Supported modes are `self_attestation`, `provider`, and `unavailable`. Self-attestation may be enabled only when the documented review determines additional assurance is not required for this service/location. Use `provider` wherever required, with a method that actually meets the relevant standard. Use `unavailable` until an appropriate check can be offered. The minimum is 18, with conservative local-majority floors of 19 for Alabama/Nebraska and 21 for Mississippi; a review can set a higher threshold elsewhere. No parent-consent route admits ineligible users.
+This is a schema illustration, not a valid jurisdiction or an approval. Supported modes are `self_attestation`, `provider`, and `unavailable`. Self-attestation may be enabled only when the documented review determines additional assurance is not required for this service/location. Use `provider` wherever required, with a method that actually meets the relevant standard. Use `unavailable` until an appropriate check can be offered. The minimum is 18; the review must set a higher threshold wherever applicable. No parent-consent route admits ineligible users. Historical U.S. majority floors in code do not enable any U.S. state while the nationwide exclusion applies.
 
-Missing, invalid, unreviewed or expired entries deny eligibility; production launch validation requires a current entry for each allowlisted location. Changing an entry changes its hash and invalidates prior eligibility for that location. The realtime deployment needs the same policies and geolocation allowlists as the web deployment. Production has no fallback to development self-attestation, including when `SKIP_LAUNCH_READINESS` bypasses the older launch checks.
+Missing, invalid, unreviewed or expired entries deny eligibility; production launch validation requires a current entry for each allowlisted location. Changing an entry changes its hash and invalidates prior eligibility for that location. The realtime deployment needs the same policies and geolocation allowlists as the web deployment. There is no fallback to development self-attestation in any environment, including when `SKIP_LAUNCH_READINESS` bypasses the older launch checks.
 
-Use only reviewed hosting geolocation (`VERCEL=1` supplies country/state); browser fields do not select policy. Unknown U.S. state is denied. This IP-derived signal has limitations, including proxies and VPNs; it is not proof of residence or guaranteed circumvention resistance. Standalone hosting needs an authenticated, reviewed location source before regional access can be enabled; this change does not trust arbitrary forwarded headers.
+Use only reviewed hosting geolocation (actual Vercel ingress supplies country/subdivision); browser fields do not select policy. Missing required subdivisions are denied independently of national policy. This IP-derived signal has limitations, including proxies and VPNs; it is not proof of residence or guaranteed circumvention resistance. Standalone hosting needs an authenticated, reviewed location source before regional access can be enabled; this change does not trust arbitrary forwarded headers.
 
 For each jurisdiction, record: the service's features and statutory scope; adult-content thresholds versus social-media duties; effective dates; current injunctions, stays and appeals; the required minimum age; accepted methods and accuracy/fairness requirements; privacy, deletion and retention rules; provider/subprocessor locations; and the next review date. Revisit decisions before enabling new features or jurisdictions and when legal status changes. Do not interpret an age checkbox, a Google account, or the blanket U.S. approval flag as this review.
 

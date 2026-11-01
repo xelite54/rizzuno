@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { startTestServer, connectAndHello } from "./helpers/wsHarness.mts"
 import { dbMockState, resetDbMockState } from "./helpers/dbMock.mts"
-import { mintTicket } from "../lib/realtimeTicket"
+import { mintTicket } from "./helpers/accessPolicy.mts"
 
 test("friend invitations require recipient consent, then create a direct call with working signaling", async () => {
   resetDbMockState()

@@ -6,26 +6,29 @@ import { ageAssuranceConfig, beginAgeAssurance } from "@/lib/ageAssurance"
 import { csrfGuard } from "@/lib/requestSecurity"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { AGE_CHALLENGE_COOKIE, eligibilityCookieOptions, eligibilityHeaders } from "@/lib/ageEligibilityHttp"
+import { regionUnavailableResponse } from "@/lib/geographicResponse"
 
 export async function GET(request: Request) {
-  const claim = await readEligibilityToken((await cookies()).get(AGE_ELIGIBILITY_COOKIE)?.value)
   const policy = requestAgePolicy(request)
+  if (!policy || policy.mode === "unavailable") return regionUnavailableResponse(request)
+  const claim = await readEligibilityToken((await cookies()).get(AGE_ELIGIBILITY_COOKIE)?.value)
   const provider = policy?.mode === "provider" ? ageAssuranceConfig() : null
   return NextResponse.json({ checked: claim !== null, eligible: eligibilitySatisfies(claim, policy), minimumAge: policy?.minimumAge ?? 18,
-    unavailable: !policy || policy.mode === "unavailable" || (policy.mode === "provider" && !provider),
+    unavailable: policy.mode === "provider" && !provider,
     provider: provider ? { name: provider.name, privacyUrl: provider.privacyUrl } : null }, { headers: eligibilityHeaders })
 }
 
 export async function POST(request: Request) {
+  const policy = requestAgePolicy(request)
+  if (!policy || policy.mode === "unavailable") return regionUnavailableResponse(request)
   const rejected = csrfGuard(request)
   if (rejected) return rejected
   let input: unknown
   try { input = await request.json() } catch { return NextResponse.json({ error: "invalid_request" }, { status: 400, headers: eligibilityHeaders }) }
   const body = input && typeof input === "object" ? input as Record<string, unknown> : {}
-  const policy = requestAgePolicy(request)
   // Strict boolean. Legacy DOB payloads and client "verified" flags cannot
   // grant access; denial also removes previous browser eligibility.
-  if (body.confirmedAdult !== true || !policy || policy.mode === "unavailable") {
+  if (body.confirmedAdult !== true) {
     const response = NextResponse.json({ eligible: false, error: body.confirmedAdult !== true ? "confirmation_required" : "region_unavailable" }, { status: 403, headers: eligibilityHeaders })
     response.cookies.set(AGE_ELIGIBILITY_COOKIE, "", { ...eligibilityCookieOptions, maxAge: 0 })
     return response

@@ -1,4 +1,3 @@
-import { countryAllowed } from "../lib/launchReadiness"
 import { boundedReportChat, type ReportChatEntry } from "../lib/reportEvidence"
 import type { ClusterBackend } from "./clusterGateway"
 import { log } from "../lib/observability"
@@ -11,7 +10,7 @@ import { matchmaker } from "./matchmaker"
 import type { QueuedClient } from "./matchmaker"
 import { MAX_CHAT_IMAGE_LENGTH, isValidGender, WS_CLOSE_SUPERSEDED } from "../lib/signaling/protocol"
 import type { ClientMessage, Gender, PublicPeerIdentity, ServerMessage } from "../lib/signaling/protocol"
-import { verifyTicket, realtimeAgeAllowed } from "../lib/realtimeTicket"
+import { verifyTicket, realtimeAgeAllowed, realtimeLocationAllowed } from "../lib/realtimeTicket"
 import {
   getUserStatus,
   realtimeAccess,
@@ -140,7 +139,7 @@ async function checkLiveAccess(states: ConnectionState[]): Promise<boolean> {
   }
   let allowed = true
   for (const state of states) {
-    const result = realtimeAgeAllowed(state) ? access.get(state.userId) ?? "banned" : "acceptance_required"
+    const result = !realtimeLocationAllowed(state) ? "region_unavailable" : realtimeAgeAllowed(state) ? access.get(state.userId) ?? "banned" : "acceptance_required"
     if (result === "allowed") continue
     allowed = false
     send(state.ws, { type: "rejected", reason: result })
@@ -167,7 +166,7 @@ type ConnectionState = {
   countryCode?: string
   ageExpiresAt?: number
   agePolicyKey?: string
-  usRegion?: string | null
+  subdivision?: string | null
   roomId: string | null
   /**
    * Authoritative server-side matching INTENT — true exactly when this
@@ -1005,8 +1004,9 @@ export function createRizzunoWebSocketServer() {
         // than trusted — everything downstream (matching, blocks, reports,
         // moderation) uses `userId` from here, never anything the client
         // said about itself directly.
-        const verifiedTicket = verifyTicket(message.ticket)
-        const verified = verifiedTicket && (!process.env.SUPPORTED_COUNTRIES || countryAllowed(verifiedTicket.countryCode ?? null)) ? verifiedTicket : null
+        // verifyTicket rechecks the exclusion list, allowlist, subdivision,
+        // reviewed policy and expiry; raw hello fields cannot supply location.
+        const verified = verifyTicket(message.ticket)
         if (!verified) {
           log.warn("ws-server: hello rejected — invalid or expired ticket")
           send(ws, { type: "rejected", reason: "invalid_ticket" })
@@ -1131,7 +1131,7 @@ export function createRizzunoWebSocketServer() {
           countryCode: verified.countryCode,
           ageExpiresAt: verified.ageExpiresAt,
           agePolicyKey: verified.agePolicyKey,
-          usRegion: verified.usRegion,
+          subdivision: verified.subdivision,
           roomId: existing?.roomId ?? null,
           seeking: existing?.seeking ?? false,
           searchGeneration: existing?.searchGeneration ?? 0,

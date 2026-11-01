@@ -1,12 +1,13 @@
-import { locationAllowed } from "@/lib/launchReadiness"
 import { withHttpMetrics } from "@/lib/httpMetrics"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { mintTicket } from "@/lib/realtimeTicket"
 import { getUserStatus, hasAcceptedCurrent } from "@/lib/db"
 import { isRateLimited } from "@/lib/apiRateLimit"
-import { requestCountry, requestUsRegion } from "@/lib/country"
+import { requestCountry, requestSubdivision } from "@/lib/country"
 import { requestEligibility } from "@/lib/ageEligibilityHttp"
+import { requestAgePolicy } from "@/lib/agePolicy"
+import { regionUnavailableResponse } from "@/lib/geographicResponse"
 
 /**
  * The only bridge between an authenticated Auth.js session and the
@@ -23,7 +24,8 @@ import { requestEligibility } from "@/lib/ageEligibilityHttp"
  * before a ban took effect.
  */
 async function handleGET(request: Request) {
-  if (!locationAllowed(requestCountry(request), requestUsRegion(request))) return NextResponse.json({ error: "region_unavailable" }, { status: 451 })
+  const policy = requestAgePolicy(request)
+  if (!policy || policy.mode === "unavailable") return regionUnavailableResponse(request)
   const session = await auth()
   const userId = session?.user?.id
   if (!userId) {
@@ -52,7 +54,7 @@ async function handleGET(request: Request) {
     return NextResponse.json({ error: "acceptance_required" }, { status: 403 })
   }
 
-  return NextResponse.json({ ticket: mintTicket(userId, requestCountry(request), { ageExpiresAt: eligibility.expiresAt, agePolicyKey: eligibility.policyKey, usRegion: requestUsRegion(request) }) }, { headers: { "Cache-Control": "no-store" } })
+  return NextResponse.json({ ticket: mintTicket(userId, requestCountry(request), { ageExpiresAt: eligibility.expiresAt, agePolicyKey: eligibility.policyKey, subdivision: requestSubdivision(request) }) }, { headers: { "Cache-Control": "no-store" } })
 }
 
 export const GET = withHttpMetrics("/app/api/realtime/ticket", handleGET)

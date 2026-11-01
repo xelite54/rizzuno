@@ -87,6 +87,8 @@ Object.assign(window, { homepage: {
     disabled: selectors.map(selector => (document.querySelector(selector) as HTMLButtonElement)?.disabled),
     selfTrackLive: (document.querySelector<HTMLVideoElement>('video[data-video-role="self"]')?.srcObject as MediaStream | null)?.getVideoTracks().some(track => track.readyState === "live") ?? false,
     layout: document.querySelector("main")?.getAttribute("data-layout"),
+    regionUnavailable: document.body.textContent?.includes("Rizzuno is unavailable in your region") ?? false,
+    connecting: document.body.textContent?.includes("Connecting…") ?? false,
     peerPlaying: [...document.querySelectorAll<HTMLVideoElement>('video[data-video-role="peer"]')].some(v => !v.paused && v.readyState >= 2),
   }),
   refreshSession: () => refreshSession(),

@@ -4,7 +4,7 @@ import { fork, spawn } from "node:child_process"
 import { createServer } from "node:net"
 import { createClient } from "redis"
 import { WebSocket } from "ws"
-import { mintTicket } from "../../lib/realtimeTicket.ts"
+import { mintTicket } from "../helpers/accessPolicy.mts"
 
 const levels = (process.env.LOAD_LEVELS ?? "100,500,1000").split(",").map(Number)
 const cap = process.env.LOAD_ALLOW_LARGE === "1" ? 10_000 : 1000

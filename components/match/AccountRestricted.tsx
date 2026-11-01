@@ -10,6 +10,8 @@ type AccountRestrictedProps = {
 
 function describe(restriction: AccountRestriction): { title: string; body: string } {
   switch (restriction.reason) {
+    case "region_unavailable":
+      return { title: "Rizzuno is unavailable in your region", body: "See the Terms for availability details." }
     case "banned":
       return {
         title: "Account suspended permanently",

@@ -2,7 +2,7 @@
 import "../helpers/dbMock.mts"
 import { dbMockState } from "../helpers/dbMock.mts"
 import { createRizzunoWebSocketServer } from "../../server/ws-server"
-import { mintTicket } from "../../lib/realtimeTicket"
+import { mintTicket } from "../helpers/accessPolicy.mts"
 import { build, stop } from "esbuild"
 import postcss from "postcss"
 import tailwind from "@tailwindcss/postcss"
@@ -20,6 +20,7 @@ const output = await build({ entryPoints: ["tests/browser/homepageRuntime.tsx"],
 const styles = await postcss([tailwind()]).process(await readFile("app/globals.css", "utf8"), { from: "app/globals.css" })
 const css = styles.css + (output.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? "")
 let ticketFailures = 0, invalidTickets = 0, staleHelloError = false
+let regionDenied = false
 const tickets: string[] = []
 const signedOut = new Set<string>()
 const requests: Record<string, number> = {}
@@ -44,7 +45,8 @@ const server = createServer(async (req, res) => {
   }
   else if (url.pathname === "/api/realtime/ticket") {
     tickets.push(account)
-    if (ticketFailures > 0 && account === "runtime-a") { ticketFailures--; json({ error: "rate_limited" }, 429) }
+    if (regionDenied && account === "runtime-a") json({error:"region_unavailable",message:"Rizzuno is unavailable in your region"},451)
+    else if (ticketFailures > 0 && account === "runtime-a") { ticketFailures--; json({ error: "rate_limited" }, 429) }
     else if (invalidTickets > 0 && account === "runtime-a") { invalidTickets--; json({ ticket: "fixture-invalid" }) }
     else json({ ticket: mintTicket(account) })
   }
@@ -181,11 +183,18 @@ try {
   await browsers[0].evaluate("window.homepage.swipe()")
   await until("searching", s => s[0].received.some((m: any) => m.type === "queued"))
   await browsers[1].evaluate("window.homepage.swipe()")
-  await until("matched with real WebRTC", s => s.every(x => x.peerPlaying), 40_000)
+  await until("matched with real WebRTC", s => s.every(x => x.peerPlaying && !x.connecting), 40_000)
   await browsers[0].evaluate("window.homepage.swipe()")
   await until("skipped", s => s[0].received.filter((m: any) => m.type === "queued").length >= 2)
   await browsers[0].evaluate("Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('Stop'))?.click()")
   await until("paused", s => s[0].layout === "home")
+  const priorHellos = (await browsers[0].snapshot()).sent.filter((message: any) => message.type === "hello").length
+  regionDenied = true
+  await browsers[0].evaluate("window.homepage.reconnect()")
+  await until("geographic denial shown without extra age step", s => s[0].regionUnavailable && !s[0].peerPlaying)
+  assert.equal((await browsers[0].snapshot()).sent.filter((message: any) => message.type === "hello").length,priorHellos,"451 never sends hello")
+  await browsers[0].evaluate("Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Sign out').click()")
+  await until("sign-out remains available after geographic denial",s=>s[0].disabled[2]&&s[0].openSockets===0)
   while (Date.now() - started < Number(process.env.HOMEPAGE_HOLD_MS ?? 180_000)) {
     await delay(2000)
     await check()

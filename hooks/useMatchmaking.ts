@@ -70,6 +70,7 @@ export type AccountRestriction =
   | { reason: "restricted"; until?: number }
   | { reason: "account_deleted" }
   | { reason: "acceptance_required" }
+  | { reason: "region_unavailable" }
   /**
    * The server has rejected several consecutive "hello" attempts as
    * `invalid_ticket` in a row — a real, if rare, production fingerprint:
@@ -1045,7 +1046,11 @@ export function useMatchmaking(
         const body: { error?: string; until?: number; reason?: string | null } = await res.json().catch(() => ({}))
         if (!isCurrent()) return
         console.warn("matchmaking: ticket request failed — not sending hello", { status: res.status, error: body.error })
-        if (body.error === "banned") setRestriction({ reason: "banned", detail: body.reason })
+        if (res.status === 451 || body.error === "region_unavailable") {
+          pauseMatching()
+          setRestriction({ reason: "region_unavailable" })
+        }
+        else if (body.error === "banned") setRestriction({ reason: "banned", detail: body.reason })
         else if (body.error === "restricted") setRestriction({ reason: "restricted", until: body.until })
         else if (body.error === "suspended") setRestriction({ reason: "suspended", until: body.until })
         else if (body.error === "account_deleted") setRestriction({ reason: "account_deleted" })
@@ -1094,7 +1099,7 @@ export function useMatchmaking(
     finally {
       if (generation === announceGenerationRef.current) ticketInFlightRef.current = false
     }
-  }, [myHandle, send, onAcceptanceRequired, cancelHelloRetry, scheduleHelloRetry])
+  }, [myHandle, send, onAcceptanceRequired, cancelHelloRetry, scheduleHelloRetry, pauseMatching])
 
   useEffect(() => {
     announceRef.current = announce
@@ -1465,7 +1470,12 @@ export function useMatchmaking(
         }
         case "rejected":
           console.warn("matchmaking: hello rejected", { reason: message.reason })
-          if (message.reason === "acceptance_required") {
+          if (message.reason === "region_unavailable") {
+            invalidTicketStreakRef.current = 0
+            setRealtimeReady(false)
+            pauseMatching()
+            setRestriction({ reason: "region_unavailable" })
+          } else if (message.reason === "acceptance_required") {
             invalidTicketStreakRef.current = 0
             setRealtimeReady(false)
             setRestriction({ reason: "acceptance_required" })
@@ -1597,7 +1607,7 @@ export function useMatchmaking(
           break
       }
     })
-  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId, onAcceptanceRequired, cancelHelloRetry, scheduleHelloRetry])
+  }, [subscribe, send, recordHistory, announce, findMatch, accountId, setRoomId, onAcceptanceRequired, cancelHelloRetry, scheduleHelloRetry, pauseMatching])
 
   // Let the matched partner know our mic state — fires immediately once a
   // real room exists, and again on every toggle after that.

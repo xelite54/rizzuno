@@ -10,7 +10,7 @@ import { WebSocket } from "ws"
 import { createRizzunoWebSocketServer } from "../../server/ws-server"
 import { WS_PATH } from "../../lib/signaling/protocol"
 import type { ClientMessage, ServerMessage } from "../../lib/signaling/protocol"
-import { mintTicket } from "../../lib/realtimeTicket"
+import { mintTicket } from "./accessPolicy.mts"
 
 process.env.REALTIME_TICKET_SECRET ||= "test-secret-not-for-production"
 

@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import assert from "node:assert/strict"
 import { WebSocket } from "ws"
+import { regionUnavailableResponse } from "../../lib/geographicResponse"
 const chrome = process.env.CHROME_PATH ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 const artifactDir = await mkdtemp(path.join(tmpdir(), "rizzuno-homepage-"))
 const output = await build({ entryPoints: ["tests/browser/homepageHarness.tsx"], bundle: true, outdir: artifactDir, write: false, platform: "browser", format: "iife", jsx: "automatic", define: { "process.env": "{}", "process.env.NODE_ENV": '"development"' }, plugins: [{ name: "service-fixtures", setup(build) {
@@ -18,7 +19,12 @@ const styles = await postcss([tailwind()]).process(await readFile("app/globals.c
 const css = styles.css + (output.outputFiles.find(file => file.path.endsWith(".css"))?.text ?? "")
 const eligibilityRequests: unknown[] = []
 const server = createServer((req, res) => {
-  if (req.url === "/harness.js") { res.setHeader("Content-Type", "text/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
+  if (req.url === "/region-unavailable") {
+    const response = regionUnavailableResponse(new Request("https://fixture.invalid/"))
+    res.writeHead(response.status,Object.fromEntries(response.headers))
+    void response.text().then(html => res.end(html))
+  }
+  else if (req.url === "/harness.js") { res.setHeader("Content-Type", "text/javascript"); res.end(output.outputFiles.find(file => file.path.endsWith(".js"))!.contents) }
   else if (req.url === "/harness.css") { res.setHeader("Content-Type", "text/css"); res.end(css) }
   else if (req.url === "/blank") res.end("<html><body></body></html>")
   else if (req.url === "/api/eligibility") {
@@ -179,6 +185,15 @@ try {
   await delay(150)
   assert.deepEqual(eligibilityRequests, [{ confirmedAdult: true }], "gate sends only the declaration")
   assert.equal(await browser.evaluate(`Array.from(document.querySelectorAll('button')).some(button => button.textContent.includes('Continue with Google'))`), true)
+  for (const [width,height] of [[375,667],[1440,900]]) {
+    await browser.call("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:width<768})
+    await browser.call("Page.navigate",{url:`${origin}/region-unavailable`})
+    await delay(100)
+    const denied = await browser.evaluate(`({message:document.querySelector('h1')?.textContent,overflow:document.documentElement.scrollWidth>innerWidth,inputs:document.querySelectorAll('input,button').length,links:Array.from(document.querySelectorAll('a')).map(link=>link.getAttribute('href'))})`)
+    assert.deepEqual(denied,{message:"Rizzuno is unavailable in your region",overflow:false,inputs:0,links:["/terms","/privacy","/safety"]})
+    const capture=await browser.call("Page.captureScreenshot",{format:"png"})
+    await writeFile(path.join(artifactDir,`region-unavailable-${width}.png`),Buffer.from(capture.data,"base64"))
+  }
   results.status = "passed"
   console.log(`HOMEPAGE: passed; evidence ${artifactDir}`)
 } finally {

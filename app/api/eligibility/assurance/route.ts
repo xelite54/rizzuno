@@ -6,13 +6,15 @@ import { AGE_ELIGIBILITY_COOKIE, createEligibilityToken, readAgeChallenge } from
 import { csrfGuard } from "@/lib/requestSecurity"
 import { isRateLimited } from "@/lib/apiRateLimit"
 import { AGE_CHALLENGE_COOKIE, eligibilityCookieOptions, eligibilityHeaders } from "@/lib/ageEligibilityHttp"
+import { regionUnavailableResponse } from "@/lib/geographicResponse"
 
 export async function POST(request: Request) {
+  const policy = requestAgePolicy(request)
+  if (!policy || policy.mode === "unavailable") return regionUnavailableResponse(request)
   const rejected = csrfGuard(request)
   if (rejected) return rejected
   const challenge = await readAgeChallenge((await cookies()).get(AGE_CHALLENGE_COOKIE)?.value)
-  const policy = requestAgePolicy(request)
-  if (!challenge || !policy || policy.mode !== "provider" || challenge.policyKey !== policy.key ||
+  if (!challenge || policy.mode !== "provider" || challenge.policyKey !== policy.key ||
     typeof challenge.reference !== "string" || typeof challenge.transactionId !== "string" ||
     !Number.isSafeInteger(challenge.expiresAt) || Number(challenge.expiresAt) <= Date.now()) {
     return NextResponse.json({ eligible: false, error: "age_assurance_expired" }, { status: 403, headers: eligibilityHeaders })

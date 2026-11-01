@@ -175,8 +175,9 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // Bumped 2026-09-25b: added the distinct under-13 escalation/referral flow,
   // explicit reviewed-state access requirement, and conditional §512 wording.
   // 2026-10-30: checkbox-only declaration, jurisdiction assurance and minimization.
-  { document: "terms", version: "2026-10-30" },
-  { document: "privacy", version: "2026-10-30" },
+  // 2026-11-01: mandatory country exclusions, default-deny access and separately scoped subdivisions.
+  { document: "terms", version: "2026-11-01" },
+  { document: "privacy", version: "2026-11-01" },
 ]
 
 // Guidelines are incorporated into Terms; bump Terms whenever these versions change materially.

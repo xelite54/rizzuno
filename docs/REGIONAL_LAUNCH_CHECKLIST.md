@@ -2,6 +2,8 @@
 
 This is an operator decision record, not a certification of GDPR, DSA, UK Online Safety Act, COPPA or other compliance. No country is enabled by default in production. Record reviewer, date, evidence and next review date for every gate. Do not add a country until its review is complete.
 
+November 1, 2026 availability update: the 52 countries in [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md) are excluded, including the United States, United Kingdom and EU/EEA countries. The jurisdiction notes below retain review context and safety obligations; they are not permission to launch in excluded locations. Neither an approval flag nor a U.S. state list overrides a country exclusion.
+
 ## All launches
 
 - Publish actual `LEGAL_OPERATOR_NAME`, `LEGAL_OPERATOR_ADDRESS`, `PRIVACY_CONTACT_EMAIL`, `LEGAL_NOTICE_EMAIL` and `LEGAL_DEPLOYMENT_DISCLOSURE`; set `COPYRIGHT_NOTICE_EMAIL` only when a separate monitored copyright inbox exists. The disclosure must identify every actual hosting, database/pooler, object-storage, Redis, moderation, TURN, monitoring/logging and backup provider, processing region, purpose, and relevant international transfer arrangement. Do not substitute examples from architecture docs for actual deployments.
@@ -23,7 +25,7 @@ This is an operator decision record, not a certification of GDPR, DSA, UK Online
 - Approve and rehearse the manual CyberTipline workflow before setting `CYBERTIPLINE_PROCEDURE_APPROVED=true`. Ordinary underage reports do not create cases or submissions. Staff, not code, decide whether to record `not_required`, `manual_report_required`, or `manual_report_submitted`; submission remains external/manual. Confirm receipt handling, restricted access, audit review, and scoped one-year preservation without new recordings/screenshots.
 - Confirm named trained reviewers and coverage before setting `TRAINED_SAFETY_REVIEWERS_CONFIRMED=true`. Approve the state-by-state breach workflow in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md) before setting `BREACH_RESPONSE_APPROVED=true`.
 - Review actual providers and processing regions before setting `PROVIDER_REGION_DISCLOSURE_REVIEWED=true`.
-- Complete [US_STATE_LAUNCH_MATRIX.md](US_STATE_LAUNCH_MATRIX.md). Put only individually reviewed states/DC in the required non-empty `SUPPORTED_US_REGIONS` allowlist, then set `US_STATE_LAUNCH_REVIEW_APPROVED=true` only after that operator review. No state is pre-approved by the repository.
+- Keep `SUPPORTED_US_REGIONS` empty while the entire US is excluded. [US_STATE_LAUNCH_MATRIX.md](US_STATE_LAUNCH_MATRIX.md) remains a historical review template and does not enable any state. Any future availability change requires a separately authorized country-policy change and new legal review.
 
 ## EU/EEA
 
@@ -45,7 +47,7 @@ Operator/legal review of this service before adding each country to the allowlis
 
 ## Rollout mechanism and limitations
 
-`SUPPORTED_COUNTRIES` is a comma-separated list of uppercase country codes, validated by `lib/country.ts` (no `*`). A production U.S. launch requires a non-empty `SUPPORTED_US_REGIONS` list of reviewed 50-state/DC codes; blank no longer means nationwide access. `LAUNCH_GEO_SOURCE=vercel` selects the currently supported trust boundary. The web deployment must actually run behind Vercel, which supplies `x-vercel-ip-country` and `x-vercel-ip-country-region`; direct/untrusted proxy deployments are not supported for public rollout. Missing, unknown or unsupported U.S. regions fail closed. Unknown or denied countries get HTTP 451 on product and sign-in requests. Public legal/contact pages remain reachable. Ticket issuance checks the same allowlist; the signed country claim is checked during WebSocket hello. Use identical configuration/revision on web and realtime. Direct WS access cannot mint a valid ticket.
+`SUPPORTED_COUNTRIES` is a comma-separated list of uppercase country codes, validated by `lib/geographicAccess.ts` (no `*`, no excluded codes). Empty or invalid configuration denies product access. Each approved location needs a current `AGE_POLICIES_JSON` decision, and applicable subnational restrictions use a separate `SUPPORTED_SUBDIVISIONS_JSON` allowlist plus scoped age policies. `LAUNCH_GEO_SOURCE=vercel` selects the supported trust boundary. The web deployment must actually run behind Vercel, which supplies `x-vercel-ip-country` and `x-vercel-ip-country-region`; direct/untrusted proxy deployments are not supported for public rollout. Unknown, excluded and unapproved locations get HTTP 451 on product, API and sign-in requests. Public legal/designated safety pages remain reachable. Version-2 signed ticket claims are checked during cluster-gateway and WebSocket hello, and current location approvals are rechecked during live access. Use identical configuration/revision on web and realtime. Direct WS access cannot mint a valid ticket or supply a trusted location in its hello fields.
 
 IP geolocation is not residency verification and cannot reliably defeat VPNs. Regional review must decide whether this restriction is sufficient. Reject unknown locations, test forged headers against the real deployed edge, and verify preview/custom domains cannot bypass that edge. A different hosting topology needs a reviewed trusted-geolocation adapter before launch; do not trust arbitrary browser-supplied country headers.
 

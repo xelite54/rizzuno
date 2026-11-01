@@ -1,5 +1,7 @@
 # U.S. state launch matrix
 
+November 1, 2026: the United States is currently excluded nationwide by the mandatory country policy. This matrix is retained for review context; no entry, age check or `SUPPORTED_US_REGIONS` setting authorizes U.S. access. See [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md).
+
 This is an empty operator review record, not a legal approval list. The repository does not mark any state approved. Complete one row per intended launch region and retain the review evidence outside source control where it contains confidential advice.
 
 | Region | Approved | Reviewer/date | Review reference | Conditions/next review |

@@ -4,7 +4,7 @@
 import "../helpers/dbMock.mts"
 import { dbMockState } from "../helpers/dbMock.mts"
 import { createRizzunoWebSocketServer } from "../../server/ws-server"
-import { mintTicket } from "../../lib/realtimeTicket"
+import { mintTicket } from "../helpers/accessPolicy.mts"
 import { build, stop } from "esbuild"
 import postcss from "postcss"
 import tailwind from "@tailwindcss/postcss"

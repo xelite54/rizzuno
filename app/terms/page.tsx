@@ -3,6 +3,7 @@ import Link from "next/link"
 import { REQUIRED_DOCUMENTS } from "@/lib/legalVersions"
 import { LEGAL_CONFIG } from "@/lib/legalConfig"
 import { LegalNav } from "@/components/LegalNav"
+import { EXCLUDED_COUNTRIES } from "@/lib/geographicAccess"
 
 export const metadata: Metadata = {
   title: "Terms of Service — Rizzuno",
@@ -11,7 +12,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "October 30, 2026"
+const LAST_UPDATED = "November 1, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -115,6 +116,15 @@ export default function TermsOfServicePage() {
             </p>
             <p className="mt-2 text-muted">If you do not satisfy this age requirement, you must not access or use Rizzuno.</p>
             <p className="mt-2 text-muted">
+              Product access also requires an approved location. Rizzuno currently excludes these countries
+              (two-letter country codes): {EXCLUDED_COUNTRIES.join(", ")}. Being outside this list does not
+              mean the service is available or legally approved there. We permit access only to explicitly
+              approved countries and, where separately required, approved subdivisions with a current age-policy
+              review. Unidentified and unapproved locations are denied. A completed declaration, Google login or
+              existing account does not override these restrictions. Public legal and designated safety pages
+              remain available, including information about reporting and appeals.
+            </p>
+            <p className="mt-2 text-muted">
               The checkbox is a declaration, not verified age. Rizzuno does not request your date of birth in
               this gate. Google Sign-In authenticates an account; it does not verify age. A signed eligibility
               session records the result, check method, applicable policy and minimum age, and timestamps.
@@ -129,7 +139,9 @@ export default function TermsOfServicePage() {
               result rather than identity-document images. An incomplete, failed, expired, or unavailable required
               check prevents access. We may restrict service in a location instead of offering it without the
               required safeguards. Requirements depend on the service, jurisdiction, effective dates and court
-              orders; we do not promise compliance with every U.S. state law simply because this gate exists.
+              orders; we do not promise that an access restriction or age gate establishes compliance with every
+              law that could apply. The United States is currently excluded in its entirety; a state-level
+              decision cannot enable access while that exclusion applies.
             </p>
             <p className="mt-2 text-muted">
               Do not falsify an age declaration, use someone else&apos;s check, or bypass regional or age restrictions.

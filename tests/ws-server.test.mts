@@ -79,7 +79,7 @@ test("a message sent before 'hello' is silently ignored — no crash, no respons
     // The exact same (still-open) socket can still complete a normal
     // hello afterward — the early, ignored message didn't corrupt
     // anything about this connection.
-    const { mintTicket } = await import("../lib/realtimeTicket")
+    const { mintTicket } = await import("./helpers/accessPolicy.mts")
     early.send({ type: "hello", ticket: mintTicket(uid("early")), handle: "early", gender: "male", profilePhoto: null })
     await early.waitForType("ready")
     early.close()
@@ -133,7 +133,7 @@ test("refreshing hello while queued preserves matching intent", async () => {
     const a = await connectAndHello(server.url, "hello-queue-a", { gender: "male" })
     a.send({ type: "find" })
     await a.waitForType("queued")
-    const { mintTicket } = await import("../lib/realtimeTicket")
+    const { mintTicket } = await import("./helpers/accessPolicy.mts")
     a.send({ type: "hello", ticket: mintTicket("hello-queue-a"), handle: "a", gender: "male" })
     await a.waitForType("ready")
     const b = await connectAndHello(server.url, "hello-queue-b", { gender: "female" })
@@ -206,7 +206,7 @@ test("Test B/D/E — a duplicate same-account hello during an active call is rej
     // Test E: "open another page logged into the same account" — a second
     // physical socket authenticates as the SAME account while `a` is still
     // open and healthy (mirrors a second tab/device, not a reconnect).
-    const { mintTicket } = await import("../lib/realtimeTicket")
+    const { mintTicket } = await import("./helpers/accessPolicy.mts")
     const duplicate = new TestClient(server.url)
     await duplicate.waitForOpen()
     const closeEvent = new Promise<number>((resolve) => duplicate.ws.once("close", (code) => resolve(code)))
@@ -287,7 +287,7 @@ test("a duplicate hello while the existing connection is actively searching (no 
     a.send({ type: "find" })
     await a.waitForType("queued")
 
-    const { mintTicket } = await import("../lib/realtimeTicket")
+    const { mintTicket } = await import("./helpers/accessPolicy.mts")
     const duplicate = new TestClient(server.url)
     await duplicate.waitForOpen()
     const closeEvent = new Promise<number>((resolve) => duplicate.ws.once("close", (code) => resolve(code)))
@@ -553,7 +553,7 @@ test("account A -> account B on the SAME socket: A is completely gone before B i
     await socket.waitForOpen()
 
     // hello as A, queue as A.
-    const { mintTicket } = await import("../lib/realtimeTicket")
+    const { mintTicket } = await import("./helpers/accessPolicy.mts")
     socket.send({ type: "hello", ticket: mintTicket(a), handle: "a-handle", gender: "male", profilePhoto: null })
     await socket.waitForType("ready")
     socket.send({ type: "find" })
@@ -944,7 +944,7 @@ test("valid tickets require current legal acceptance and reconnect after accepta
   resetDbMockState()
   const server = await startTestServer()
   const userId = uid("legal")
-  const { mintTicket } = await import("../lib/realtimeTicket")
+  const { mintTicket } = await import("./helpers/accessPolicy.mts")
   dbMockState.acceptanceRequiredUserIds.add(userId)
   try {
     const client = new TestClient(server.url)

@@ -1,4 +1,16 @@
-# Age-gate verification — 2026-10-30
+# Geographic-access verification — 2026-11-01
+
+Implemented the exact 52-country exclusion policy, explicit allowlist and current age-policy requirements, independently scoped subdivision approvals, version-2 signed location tickets and a responsive regional-denial response. See [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md) for configuration and trust boundaries. No remaining country was legally approved, no live provider was enabled, and no cloud configuration or deployment was changed.
+
+- All **343 tests passed**, with zero failures, skips or cancellations: `node --import tsx --experimental-test-module-mocks --test tests/*.test.mts`. Coverage includes every excluded code despite overrides/misconfiguration, blocked API/OAuth requests with a valid age cookie, unknown/unapproved locations, scoped subdivisions, direct handler denial, authentic-but-excluded and forged WebSocket tickets, client hello location spoofing, old wire-format rejection and live policy revocation.
+- `npm run typecheck`, ESLint for changed TypeScript/TSX/JavaScript files, and `git diff --check` passed.
+- `node scripts/ci-build.mjs` passed with synthetic, isolated CI configuration. The artifact is not approved for production deployment.
+- The existing Chrome homepage harness passed unchanged checkbox/Google continuation and layout assertions at six viewport sizes, plus the actual region-response HTML at 375×667 and 1440×900. The blocked screen displayed the exact message, accessible legal/safety links and no horizontal overflow.
+- The browser runtime harness passed in about 25.5 seconds using real hooks, HTTP, WebSocket and WebRTC with synthetic accounts. It covered authentication refresh, reconnect/rate limiting, legal reacceptance, camera recovery, matching, skip/pause, HTTP 451 showing the regional message without an extra age step, and sign-out after denial. Its skip stimulus now waits for the visible Connecting state to finish, correcting an earlier premature test action. The optional three-minute soak was not run.
+
+Tests simulate trusted Vercel country/subdivision headers; they do not validate the live edge's header overwrite behavior or defeat VPNs/credential relays. Before release, validate the actual Vercel ingress and deploy consistent policy settings/source to web, gateways and realtime workers. Version-2 tickets invalidate older wire-format tickets; existing reconnect obtains a fresh ticket only from an approved location. Empty, excluded or invalid geographic configuration remains denied, including under the readiness override.
+
+## Historical age-gate verification — 2026-10-30
 
 The checkbox gate, signed eligibility sessions, scoped policy decisions, server-to-server assurance bridge, updated legal versions and setup requirements are documented in [AGE_ASSURANCE.md](AGE_ASSURANCE.md). This revision has not been pushed or deployed. No real assurance provider or legal jurisdiction approval was provisioned.
 

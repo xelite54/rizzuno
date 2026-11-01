@@ -4,7 +4,7 @@ import { fork, spawn } from "node:child_process"
 import { createServer } from "node:net"
 import { createClient } from "redis"
 import { TestClient } from "../helpers/wsHarness.mts"
-import { mintTicket } from "../../lib/realtimeTicket.ts"
+import { mintTicket } from "../helpers/accessPolicy.mts"
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve,ms))
 async function until(check: () => Promise<boolean>, ms = 25_000) {

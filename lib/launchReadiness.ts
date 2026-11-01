@@ -1,35 +1,9 @@
-import { normalizeCountry, normalizeUsRegion } from "./country"
+import { supportedUsRegions, validateGeographicAccess } from "./geographicAccess"
+export { supportedCountries, supportedUsRegions, countryAllowed, locationAllowed } from "./geographicAccess"
 import { retentionPolicy } from "./retention"
 import { recentMatchReportWindowMs } from "./recentMatches"
 import { validateAgePolicies } from "./agePolicy"
 
-export function supportedCountries(env: Record<string, string | undefined> = process.env): string[] {
-  const values = (env.SUPPORTED_COUNTRIES ?? "").split(",").map(value => value.trim()).filter(Boolean)
-  if (!values.length || values.some(value => !normalizeCountry(value) || value !== value.toUpperCase())) throw new Error("Invalid configuration: SUPPORTED_COUNTRIES")
-  return [...new Set(values)]
-}
-export function countryAllowed(country: string | null, env: Record<string, string | undefined> = process.env) {
-  if (env.SKIP_LAUNCH_READINESS === "true") return true
-  if (env.NODE_ENV !== "production" && !env.SUPPORTED_COUNTRIES) return true
-  return country !== null && supportedCountries(env).includes(country)
-}
-export function supportedUsRegions(env: Record<string, string | undefined> = process.env): string[] {
-  const raw = env.SUPPORTED_US_REGIONS?.trim()
-  if (!raw) return []
-  const values = raw.split(",").map(value => value.trim())
-  if (values.some(value => !normalizeUsRegion(value) || value !== value.toUpperCase())) throw new Error("Invalid configuration: SUPPORTED_US_REGIONS")
-  return [...new Set(values)]
-}
-export function locationAllowed(country: string | null, usRegion: string | null, env: Record<string, string | undefined> = process.env) {
-  if (env.SKIP_LAUNCH_READINESS === "true") return true
-  if (!countryAllowed(country, env)) return false
-  const regions = supportedUsRegions(env)
-  if (country !== "US") return true
-  // Production U.S. access has no implicit nationwide fallback. The operator
-  // must explicitly list each reviewed state/DC region.
-  if (!regions.length) return env.NODE_ENV !== "production"
-  return usRegion !== null && regions.includes(usRegion)
-}
 /** Run for both production services and before release. Never prints secret values. */
 export function validateLaunchReadiness(env: Record<string, string | undefined> = process.env) {
   const compileOnlyFixture = env.RIZZUNO_CI_COMPILE_ONLY === "true" && env.CI === "true" && env.LEGAL_OPERATOR_NAME === "CI compile fixture — not an operator"
@@ -42,7 +16,7 @@ export function validateLaunchReadiness(env: Record<string, string | undefined> 
   if (env.COPYRIGHT_NOTICE_EMAIL && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.COPYRIGHT_NOTICE_EMAIL)) throw new Error("Invalid configuration: COPYRIGHT_NOTICE_EMAIL")
   if ((env.LEGAL_REVIEW_APPROVED !== "true" || env.SAFETY_WORKFLOW_APPROVED !== "true" || env.RETENTION_SCHEDULER_CONFIRMED !== "true") && !compileOnlyFixture) throw new Error("Operator legal, safety and retention scheduler approvals required")
   if ((env.LEGAL_GOVERNING_LAW || env.LEGAL_DISPUTE_RESOLUTION) && env.LEGAL_TERMS_REVIEWED !== "true") throw new Error("Optional dispute terms require legal review")
-  const countries = supportedCountries(env)
+  const countries = validateGeographicAccess(env)
   if (countries.includes("US")) {
     if (!compileOnlyFixture && !supportedUsRegions(env).length) throw new Error("US launch requires an explicit reviewed SUPPORTED_US_REGIONS allowlist")
     if (!compileOnlyFixture && !["true", "false"].includes(env.DMCA_512_RELIANCE ?? "")) throw new Error("US launch requires an explicit DMCA_512_RELIANCE decision")
