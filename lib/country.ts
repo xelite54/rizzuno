@@ -18,7 +18,8 @@ export function countryLabel(value: unknown): { flag: string; name: string } | n
 export function requestCountry(request: Request): string | null {
   // Trust only the deployment platform's IP-derived header, never a
   // browser payload or arbitrary forwarded header on a standalone server.
-  return process.env.VERCEL === "1" ? normalizeCountry(request.headers.get("x-vercel-ip-country")) : null
+  return process.env.VERCEL === "1" && process.env.LAUNCH_GEO_SOURCE === "vercel"
+    ? normalizeCountry(request.headers.get("x-vercel-ip-country")) : null
 }
 
 /** Vercel's ISO 3166-2 subdivision component (for example JP -> 13).

@@ -17,7 +17,7 @@ test("signed declarations expire, reject tampering and contain no DOB",async()=>
   assert.equal(await readEligibilityToken("x".repeat(5000),now,env),null)
   assert.equal(await readEligibilityToken(token,now,{AUTH_SECRET:"another-secret"}),null)
 })
-const entry={minimumAge:18,mode:"self_attestation",reference:"test review",reviewBy:"2099-01-01"}
+const entry={status:"approved",minimumAge:18,mode:"self_attestation",reference:"test review",reviewBy:"2099-01-01"}
 test("policy requires geographic approval and documented current review, without a development fallback",()=>{
   const config={NODE_ENV:"production",SUPPORTED_COUNTRIES:"JP",AGE_POLICIES_JSON:JSON.stringify({JP:entry})}
   assert.equal(agePolicyForLocation(null,null,config),null)

@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 }
 
 const version = REQUIRED_DOCUMENTS.find((d) => d.document === "terms")!.version
-const LAST_UPDATED = "November 1, 2026"
+const LAST_UPDATED = "November 13, 2026"
 
 const SECTIONS = [
   { id: "acceptance", label: "1. Acceptance of Terms" },
@@ -116,7 +116,7 @@ export default function TermsOfServicePage() {
             </p>
             <p className="mt-2 text-muted">If you do not satisfy this age requirement, you must not access or use Rizzuno.</p>
             <p className="mt-2 text-muted">
-              Product access also requires an approved location. Rizzuno currently excludes these countries
+              Product access also requires an approved location. Rizzuno excludes these countries by default
               (two-letter country codes): {EXCLUDED_COUNTRIES.join(", ")}. Being outside this list does not
               mean the service is available or legally approved there. We permit access only to explicitly
               approved countries and, where separately required, approved subdivisions with a current age-policy
@@ -140,8 +140,9 @@ export default function TermsOfServicePage() {
               check prevents access. We may restrict service in a location instead of offering it without the
               required safeguards. Requirements depend on the service, jurisdiction, effective dates and court
               orders; we do not promise that an access restriction or age gate establishes compliance with every
-              law that could apply. The United States is currently excluded in its entirety; a state-level
-              decision cannot enable access while that exclusion applies.
+              law that could apply. These exclusions are conservative product-policy decisions, not a statement
+              that each country legally prohibits the service. U.S. availability additionally requires an
+              explicitly approved state and a current state-specific review; national approval alone is insufficient.
             </p>
             <p className="mt-2 text-muted">
               Do not falsify an age declaration, use someone else&apos;s check, or bypass regional or age restrictions.

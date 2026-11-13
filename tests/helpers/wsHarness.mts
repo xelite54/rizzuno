@@ -49,8 +49,8 @@ export class TestClient {
   private received: ServerMessage[] = []
   private waiters: { predicate: (m: ServerMessage) => boolean; resolve: (m: ServerMessage) => void }[] = []
 
-  constructor(url: string) {
-    this.ws = new WebSocket(url)
+  constructor(url: string, options?: import("ws").ClientOptions) {
+    this.ws = new WebSocket(url, options)
     this.ws.on("message", (raw) => {
       const message = JSON.parse(raw.toString()) as ServerMessage
       const waiterIndex = this.waiters.findIndex((w) => w.predicate(message))

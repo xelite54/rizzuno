@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { NextRequest, NextResponse } from "next/server"
 import { AGE_ELIGIBILITY_COOKIE, readEligibilityToken } from "../lib/preAuthEligibility.ts"
 import { verifyTicket, realtimeAgeAllowed } from "../lib/realtimeTicket.ts"
-import { EXCLUDED_COUNTRIES } from "../lib/geographicAccess.ts"
+import { COUNTRIES_ELIGIBLE_FOR_REVIEW, EXCLUDED_COUNTRIES } from "../lib/geographicAccess.ts"
 
 const jar = new Map<string, string>()
 let accepted = true, banned = false, recorded = 0, limited = false
@@ -17,7 +17,7 @@ const legal = await import("../app/api/legal/accept/route.ts")
 const ticket = await import("../app/api/realtime/ticket/route.ts")
 const { proxy } = await import("../proxy.ts")
 const origin = "https://rizzuno.test"
-const review = { mode: "self_attestation", minimumAge: 18, reference: "test only", reviewBy: "2099-01-01" }
+const review = { status: "approved", mode: "self_attestation", minimumAge: 18, reference: "test only", reviewBy: "2099-01-01" }
 
 function request(path: string, body?: unknown, sameOrigin = true) {
   return new Request(`${origin}${path}`, { method: body === undefined ? "GET" : "POST", headers: { "x-vercel-ip-country": "JP", "x-vercel-ip-country-region": "13", ...(sameOrigin ? { origin } : {}), "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
@@ -31,7 +31,7 @@ function applyCookies(response: Awaited<ReturnType<typeof gate.POST>>) {
 }
 function configure(mode = "self_attestation") {
   jar.clear(); accepted = true; banned = false; recorded = 0; limited = false
-  Object.assign(process.env, { AUTH_SECRET: "age-test-secret-at-least-thirty-two-chars", REALTIME_TICKET_SECRET: "test-realtime-secret", APP_URL: origin, VERCEL: "1", SUPPORTED_COUNTRIES: "JP", SUPPORTED_US_REGIONS: "", SUPPORTED_SUBDIVISIONS_JSON: "{}", DATABASE_URL: "postgres://unused.invalid/test", AGE_POLICIES_JSON: JSON.stringify({ "JP": { ...review, mode } }) })
+  Object.assign(process.env, { AUTH_SECRET: "age-test-secret-at-least-thirty-two-chars", REALTIME_TICKET_SECRET: "test-realtime-secret", APP_URL: origin, VERCEL: "1", LAUNCH_GEO_SOURCE: "vercel", SUPPORTED_COUNTRIES: "JP", SUPPORTED_US_REGIONS: "", SUPPORTED_SUBDIVISIONS_JSON: "{}", DATABASE_URL: "postgres://unused.invalid/test", AGE_POLICIES_JSON: JSON.stringify({ "JP": { ...review, mode } }) })
 }
 
 test("unchecked, missing, legacy, and forged age claims cannot grant access; success preserves OAuth and matchmaking", async () => {
@@ -165,4 +165,65 @@ test("all excluded countries fail through product APIs, OAuth and direct eligibi
     const req = new NextRequest(`${origin}${path}`,{headers:{"x-vercel-ip-country":"US"}})
     assert.equal((await proxy(req)).status,200,"legal/safety access remains available")
   }
+})
+
+test("all 44 review candidates require explicit current approval through web, OAuth, eligibility and ticket issuance", async () => {
+  try {
+    for (const country of COUNTRIES_ELIGIBLE_FOR_REVIEW) {
+      configure()
+      const region = country === "US" ? "NY" : null
+      const jurisdiction = region ? `${country}-${region}` : country
+      process.env.SUPPORTED_COUNTRIES = country
+      process.env.SUPPORTED_SUBDIVISIONS_JSON = region ? JSON.stringify({ [country]: [region] }) : "{}"
+      const located = (path: string, body?: unknown) => {
+        const req = request(path, body)
+        req.headers.set("x-vercel-ip-country", country)
+        req.headers.set("x-country", "JP")
+        if (region) req.headers.set("x-vercel-ip-country-region", region)
+        else req.headers.delete("x-vercel-ip-country-region")
+        return req
+      }
+      for (const entry of [{ ...review, status: "pending_review" }, { ...review, status: undefined }]) {
+        process.env.AGE_POLICIES_JSON = JSON.stringify({ [jurisdiction]: entry })
+        assert.equal((await proxy(new NextRequest(located("/")))).status, 451, country)
+        assert.equal((await proxy(new NextRequest(located("/api/auth/signin/google")))).status, 451, country)
+        assert.equal((await gate.POST(located("/api/eligibility", { confirmedAdult: true, country: "JP", status: "approved" }))).status, 451)
+        assert.equal((await ticket.GET(located("/api/realtime/ticket"))).status, 451)
+      }
+      process.env.AGE_POLICIES_JSON = JSON.stringify({ [jurisdiction]: review })
+      const declaration = await gate.POST(located("/api/eligibility", { confirmedAdult: true }))
+      assert.equal(declaration.status, 200, country)
+      applyCookies(declaration)
+      const oauth = new NextRequest(located("/api/auth/callback/google"))
+      oauth.cookies.set(AGE_ELIGIBILITY_COOKIE, jar.get(AGE_ELIGIBILITY_COOKIE)!)
+      assert.equal((await proxy(oauth)).status, 200, country)
+      const issued = await ticket.GET(located("/api/realtime/ticket"))
+      assert.equal(issued.status, 200, country)
+      const proof = verifyTicket((await issued.json()).ticket)!
+      assert.equal(proof.countryCode, country)
+      if (region) {
+        const otherState = located("/api/realtime/ticket")
+        otherState.headers.set("x-vercel-ip-country-region", "TX")
+        assert.equal((await ticket.GET(otherState)).status, 451)
+      }
+      process.env.AGE_POLICIES_JSON = JSON.stringify({ [jurisdiction]: { ...review, reviewBy: "2000-01-01" } })
+      assert.equal((await proxy(oauth)).status, 451, "a valid age cookie cannot override an expired review")
+      assert.equal((await ticket.GET(located("/api/realtime/ticket"))).status, 451)
+    }
+  } finally { configure() }
+})
+
+test("forged platform headers require an explicitly configured trusted ingress", async () => {
+  configure()
+  try {
+    for (const source of [undefined, "client", "forwarded", "VERCEL"]) {
+      if (source === undefined) delete process.env.LAUNCH_GEO_SOURCE
+      else process.env.LAUNCH_GEO_SOURCE = source
+      const forged = new NextRequest(request("/?country=JP"))
+      forged.headers.set("x-forwarded-country", "JP")
+      forged.headers.set("cf-ipcountry", "JP")
+      assert.equal((await proxy(forged)).status, 451)
+      assert.equal((await ticket.GET(forged)).status, 451)
+    }
+  } finally { configure() }
 })

@@ -2,7 +2,7 @@
 
 This is an operator decision record, not a certification of GDPR, DSA, UK Online Safety Act, COPPA or other compliance. No country is enabled by default in production. Record reviewer, date, evidence and next review date for every gate. Do not add a country until its review is complete.
 
-November 1, 2026 availability update: the 52 countries in [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md) are excluded, including the United States, United Kingdom and EU/EEA countries. The jurisdiction notes below retain review context and safety obligations; they are not permission to launch in excluded locations. Neither an approval flag nor a U.S. state list overrides a country exclusion.
+November 13, 2026 availability update: eight conservative product defaults remain excluded; the 44 other former exclusions are eligible for individual review, including the United States, United Kingdom and EU/EEA countries. See [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md). Eligibility for review is not approval. Neither an approval flag nor a U.S. state list overrides one of the eight exclusions. No new country is activated by the implementation.
 
 ## All launches
 
@@ -25,7 +25,7 @@ November 1, 2026 availability update: the 52 countries in [GEOGRAPHIC_ACCESS.md]
 - Approve and rehearse the manual CyberTipline workflow before setting `CYBERTIPLINE_PROCEDURE_APPROVED=true`. Ordinary underage reports do not create cases or submissions. Staff, not code, decide whether to record `not_required`, `manual_report_required`, or `manual_report_submitted`; submission remains external/manual. Confirm receipt handling, restricted access, audit review, and scoped one-year preservation without new recordings/screenshots.
 - Confirm named trained reviewers and coverage before setting `TRAINED_SAFETY_REVIEWERS_CONFIRMED=true`. Approve the state-by-state breach workflow in [INCIDENT_RESPONSE.md](INCIDENT_RESPONSE.md) before setting `BREACH_RESPONSE_APPROVED=true`.
 - Review actual providers and processing regions before setting `PROVIDER_REGION_DISCLOSURE_REVIEWED=true`.
-- Keep `SUPPORTED_US_REGIONS` empty while the entire US is excluded. [US_STATE_LAUNCH_MATRIX.md](US_STATE_LAUNCH_MATRIX.md) remains a historical review template and does not enable any state. Any future availability change requires a separately authorized country-policy change and new legal review.
+- Enable no U.S. state until its current scoped review is complete. Add only approved states to `SUPPORTED_US_REGIONS` and/or `SUPPORTED_SUBDIVISIONS_JSON.US`; if both are configured, their intersection applies. Each state needs its own explicitly approved `AGE_POLICIES_JSON` record. [US_STATE_LAUNCH_MATRIX.md](US_STATE_LAUNCH_MATRIX.md) is a review template and does not enable any state.
 
 ## EU/EEA
 

@@ -1,6 +1,6 @@
 # Age eligibility and additional assurance
 
-Updated November 1, 2026. This documents implementation and release inputs, not a legal opinion or a compliance certification. No external provider has been selected, provisioned or validated by this change. The 52 mandatory exclusions and access mechanism are documented in [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md); the United States is currently excluded in its entirety.
+Updated November 13, 2026. This documents implementation and release inputs, not a legal opinion or a compliance certification. No external provider has been selected, provisioned or validated by this change. The eight default exclusions and individual country/state approval mechanism are documented in [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md). No jurisdiction is activated by this implementation.
 
 ## User experience and enforcement
 
@@ -12,11 +12,12 @@ OAuth initiation/callback, account acceptance and realtime ticket issuance check
 
 ## Required deployment decisions
 
-Keep an explicit `SUPPORTED_COUNTRIES` allowlist excluding all 52 blocked countries. For every enabled country, or approved subdivision selected by `SUPPORTED_SUBDIVISIONS_JSON`, supply an `AGE_POLICIES_JSON` entry:
+Keep an explicit `SUPPORTED_COUNTRIES` allowlist excluding the eight default-blocked countries. For every country, or approved subdivision selected by `SUPPORTED_SUBDIVISIONS_JSON` / `SUPPORTED_US_REGIONS`, supply an `AGE_POLICIES_JSON` review entry. The following is a pending schema illustration, not an approval:
 
 ```json
 {
   "XX": {
+    "status": "pending_review",
     "mode": "unavailable",
     "minimumAge": 18,
     "reference": "actual scoped review and supporting legal sources",
@@ -25,9 +26,9 @@ Keep an explicit `SUPPORTED_COUNTRIES` allowlist excluding all 52 blocked countr
 }
 ```
 
-This is a schema illustration, not a valid jurisdiction or an approval. Supported modes are `self_attestation`, `provider`, and `unavailable`. Self-attestation may be enabled only when the documented review determines additional assurance is not required for this service/location. Use `provider` wherever required, with a method that actually meets the relevant standard. Use `unavailable` until an appropriate check can be offered. The minimum is 18; the review must set a higher threshold wherever applicable. No parent-consent route admits ineligible users. Historical U.S. majority floors in code do not enable any U.S. state while the nationwide exclusion applies.
+`XX` is not a valid jurisdiction. Availability statuses are `blocked`, `pending_review`, and `approved`; missing status defaults to pending review, including on older records. Only a separately evidenced review may set `approved`. Supported assurance modes are `self_attestation`, `provider`, and `unavailable`. Self-attestation may be enabled only when the documented review determines additional assurance is not required for this service/location. Use `provider` wherever required, with a method that actually meets the relevant standard. Use `unavailable` until an appropriate check can be offered. The minimum is 18; the review must set a higher threshold wherever applicable. No parent-consent route admits ineligible users. Existing conservative U.S. product floors are retained, but no U.S. state is enabled without its own approval and current policy.
 
-Missing, invalid, unreviewed or expired entries deny eligibility; production launch validation requires a current entry for each allowlisted location. Changing an entry changes its hash and invalidates prior eligibility for that location. The realtime deployment needs the same policies and geolocation allowlists as the web deployment. There is no fallback to development self-attestation in any environment, including when `SKIP_LAUNCH_READINESS` bypasses the older launch checks.
+Missing, pending, blocked, invalid, unreviewed or expired entries deny eligibility; production launch validation requires an explicitly approved current entry for each allowlisted location, and complete bridge configuration for provider policies. Changing a reviewed policy's assurance, age, reference or deadline changes its hash and invalidates prior eligibility. Removing approval immediately denies new tickets and existing live-access checks. The realtime deployment needs the same policies and geolocation allowlists as the web deployment. There is no fallback to development self-attestation and no runtime approval bypass through `SKIP_LAUNCH_READINESS`.
 
 Use only reviewed hosting geolocation (actual Vercel ingress supplies country/subdivision); browser fields do not select policy. Missing required subdivisions are denied independently of national policy. This IP-derived signal has limitations, including proxies and VPNs; it is not proof of residence or guaranteed circumvention resistance. Standalone hosting needs an authenticated, reviewed location source before regional access can be enabled; this change does not trust arbitrary forwarded headers.
 

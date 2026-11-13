@@ -1,6 +1,6 @@
 # U.S. state launch matrix
 
-November 1, 2026: the United States is currently excluded nationwide by the mandatory country policy. This matrix is retained for review context; no entry, age check or `SUPPORTED_US_REGIONS` setting authorizes U.S. access. See [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md).
+November 13, 2026: the United States is eligible for individual review and remains unavailable without explicit country activation, an approved state list, and an explicitly approved current policy for each state. This matrix is a review template; it supplies no approvals or assurance-provider validation. See [GEOGRAPHIC_ACCESS.md](GEOGRAPHIC_ACCESS.md).
 
 This is an empty operator review record, not a legal approval list. The repository does not mark any state approved. Complete one row per intended launch region and retain the review evidence outside source control where it contains confidential advice.
 
@@ -15,6 +15,6 @@ This is an empty operator review record, not a legal approval list. The reposito
 
 For every state intended for `SUPPORTED_US_REGIONS`, review the actual service and data practices, adult-access approach, privacy rights and appeals, consumer-protection disclosures, breach-response contacts and timelines, child-safety workflow, moderation/complaints, retention, and any state-specific age-assurance or platform requirements. Record a decision and any conditions. Grouped rows are only compact formatting; each code requires its own recorded decision.
 
-`SUPPORTED_US_REGIONS` is required and non-empty for a production U.S. launch. It accepts uppercase two-letter codes for the 50 states and District of Columbia, and every listed code must have its own review record. The application trusts only Vercel's `x-vercel-ip-country-region` on a Vercel deployment. A missing, invalid or unlisted region fails closed with HTTP 451 at the web edge and ticket endpoint. Browser location, GPS and client payloads are ignored. IP geolocation can be inaccurate and is not residency proof; review that limitation before setting `US_STATE_LAUNCH_REVIEW_APPROVED=true`.
+A non-empty state allowlist in `SUPPORTED_US_REGIONS` and/or `SUPPORTED_SUBDIVISIONS_JSON.US` is required for a production U.S. launch. When both are set, their intersection applies. Codes must identify one of the 50 states or District of Columbia, and every enabled state needs its own explicit approved review record. The application trusts only Vercel's `x-vercel-ip-country-region` on a Vercel deployment with `LAUNCH_GEO_SOURCE=vercel`. A missing, invalid or unlisted region fails closed with HTTP 451 at the web edge and ticket endpoint. Browser location, GPS and client payloads are ignored. IP geolocation can be inaccurate and is not residency proof; review that limitation before setting `US_STATE_LAUNCH_REVIEW_APPROVED=true`.
 
 Do not set `US_STATE_LAUNCH_REVIEW_APPROVED=true` merely because this file exists. It records that the operator reviewed the exact limited allowlist. Changes to that list require a new review record and deployment verification.

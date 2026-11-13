@@ -8,7 +8,7 @@ import { agePolicyForLocation } from "../lib/agePolicy.ts"
 import { retentionPolicy, RETENTION_CATEGORIES } from "../lib/retention.ts"
 import { boundedReportChat } from "../lib/reportEvidence.ts"
 
-const review = { mode:"self_attestation",minimumAge:18,reference:"synthetic test fixture, not a legal determination",reviewBy:"2099-01-01" }
+const review = { status:"approved",mode:"self_attestation",minimumAge:18,reference:"synthetic test fixture, not a legal determination",reviewBy:"2099-01-01" }
 test("launch rejects missing decisions, excluded countries and expired retention approval", () => {
   const env = { ...ciLaunchFixture, NODE_ENV:"production", AGE_POLICIES_JSON:JSON.stringify({JP:review}), LEGAL_REVIEW_APPROVED:"true",SAFETY_WORKFLOW_APPROVED:"true",RETENTION_SCHEDULER_CONFIRMED:"true" }
   validateLaunchReadiness(env)
@@ -23,15 +23,15 @@ test("launch rejects missing decisions, excluded countries and expired retention
   const expired = JSON.parse(env.RETENTION_POLICY_JSON); expired.reviewBy = "2000-01-01"
   assert.throws(() => retentionPolicy({RETENTION_POLICY_JSON:JSON.stringify(expired)}), /expired/)
   assert.throws(() => validateLaunchReadiness({...env,LEGAL_GOVERNING_LAW:"unreviewed"}), /review/)
-  assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_COUNTRIES:"US"}), /excluded/)
-  assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_US_REGIONS:"NY"}), /excluded/)
+  assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_COUNTRIES:"US"}), /state allowlist/)
+  assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_US_REGIONS:"NY"}), /allowlisted country/)
   assert.throws(() => validateLaunchReadiness({...env,SUPPORTED_COUNTRIES:"JP,*"}))
 })
 
-test("all 52 exclusions override allowlists, reviews and every readiness flag", () => {
-  const expected = "KP IR CU RU BY SY GB AU BR ID MY TR AE US AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO CH CA NZ IN CN KR SG PH".split(" ")
+test("all eight exclusions override allowlists, reviews and every readiness flag", () => {
+  const expected = "KP IR CU SY RU BY CN AU".split(" ")
   assert.deepEqual([...EXCLUDED_COUNTRIES].sort(), expected.sort())
-  assert.equal(new Set(EXCLUDED_COUNTRIES).size,52)
+  assert.equal(new Set(EXCLUDED_COUNTRIES).size,8)
   for (const country of expected) {
     for (const flag of [undefined,"true","false","TRUE","1"]) {
       const env = {NODE_ENV:"production",SUPPORTED_COUNTRIES:country,SKIP_LAUNCH_READINESS:flag,AGE_POLICIES_JSON:JSON.stringify({[country]:review})}
@@ -41,6 +41,17 @@ test("all 52 exclusions override allowlists, reviews and every readiness flag", 
       assert.throws(()=>supportedCountries(env), /excluded/)
     }
   }
+})
+
+test("state availability cannot bypass the existing U.S. operator and safety launch approvals", () => {
+  // Synthetic startup fixture only; no real state or operator is approved.
+  const flags = ["PROVIDER_REGION_DISCLOSURE_REVIEWED", "TRAINED_SAFETY_REVIEWERS_CONFIRMED", "UNDER13_RESPONSE_PROCEDURE_APPROVED", "CYBERTIPLINE_PROCEDURE_APPROVED", "BREACH_RESPONSE_APPROVED", "US_STATE_LAUNCH_REVIEW_APPROVED"]
+  const env = { ...ciLaunchFixture, NODE_ENV: "production", SUPPORTED_COUNTRIES: "US", SUPPORTED_US_REGIONS: "NY", AGE_POLICIES_JSON: JSON.stringify({ "US-NY": review }), LEGAL_REVIEW_APPROVED: "true", SAFETY_WORKFLOW_APPROVED: "true", RETENTION_SCHEDULER_CONFIRMED: "true" }
+  assert.throws(() => validateLaunchReadiness(env), /US launch operator approval/)
+  const fixture = { ...env, ...Object.fromEntries(flags.map(key => [key, "true"])) }
+  validateLaunchReadiness(fixture)
+  for (const flag of flags) assert.throws(() => validateLaunchReadiness({ ...fixture, [flag]: "false" }), new RegExp(flag))
+  assert.throws(() => validateLaunchReadiness({ ...fixture, AGE_POLICIES_JSON: JSON.stringify({ "US-NY": { ...review, status: "pending_review" } }) }), /approved age policy/)
 })
 
 test("unknown and unapproved locations deny by default, including development and override", () => {
@@ -68,12 +79,15 @@ test("subdivision restrictions require trusted identified approved regions and s
   assert.equal(locationAllowed("JP","13",{...env,SUPPORTED_SUBDIVISIONS_JSON:'{"JP":[]}'}),false)
   assert.equal(locationAllowed("JP","13",{...env,SUPPORTED_SUBDIVISIONS_JSON:'{"JP":["bad-region"]}'}),false)
   assert.throws(()=>validateGeographicAccess({...env,SUPPORTED_SUBDIVISIONS_JSON:'{"US":["NY"]}'}))
-  const before = process.env.VERCEL
+  const before = process.env.VERCEL, source = process.env.LAUNCH_GEO_SOURCE
   try {
     const request = new Request("https://example.invalid",{headers:{"x-vercel-ip-country":"JP","x-vercel-ip-country-region":"13"}})
     delete process.env.VERCEL; assert.equal(requestSubdivision(request),null)
-    process.env.VERCEL="1"; assert.equal(requestSubdivision(request),"13")
-  } finally { if(before===undefined)delete process.env.VERCEL; else process.env.VERCEL=before }
+    process.env.VERCEL="1"; process.env.LAUNCH_GEO_SOURCE="vercel"; assert.equal(requestSubdivision(request),"13")
+  } finally {
+    if(before===undefined)delete process.env.VERCEL; else process.env.VERCEL=before
+    if(source===undefined)delete process.env.LAUNCH_GEO_SOURCE; else process.env.LAUNCH_GEO_SOURCE=source
+  }
 })
 
 test("report text snapshot rejects future/old timestamps and caps count and content", () => {

@@ -176,7 +176,8 @@ export const REQUIRED_DOCUMENTS: { document: "age18" | "terms" | "privacy"; vers
   // explicit reviewed-state access requirement, and conditional §512 wording.
   // 2026-10-30: checkbox-only declaration, jurisdiction assurance and minimization.
   // 2026-11-01: mandatory country exclusions, default-deny access and separately scoped subdivisions.
-  { document: "terms", version: "2026-11-01" },
+  // 2026-11-13: eight product exclusions, individual country approvals and current state-specific reviews.
+  { document: "terms", version: "2026-11-13" },
   { document: "privacy", version: "2026-11-01" },
 ]
 

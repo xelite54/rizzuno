@@ -5,10 +5,16 @@ type Env = Record<string, string | undefined>
 /** Product availability decision. Neither an allowlist entry nor a launch
  * override can enable these countries. This is not a list of legal findings. */
 export const EXCLUDED_COUNTRIES = Object.freeze([
-  "KP", "IR", "CU", "RU", "BY", "SY", "GB", "AU", "BR", "ID", "MY", "TR", "AE", "US",
+  "KP", "IR", "CU", "SY", "RU", "BY", "CN", "AU",
+] as const)
+
+/** Former default exclusions, now eligible for individual review. This list
+ * grants no access and makes no claim about another service's availability. */
+export const COUNTRIES_ELIGIBLE_FOR_REVIEW = Object.freeze([
+  "GB", "BR", "ID", "MY", "TR", "AE", "US",
   "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT",
   "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "IS", "LI", "NO",
-  "CH", "CA", "NZ", "IN", "CN", "KR", "SG", "PH",
+  "CH", "CA", "NZ", "IN", "KR", "SG", "PH",
 ] as const)
 const excluded = new Set<string>(EXCLUDED_COUNTRIES)
 export const REGION_UNAVAILABLE_MESSAGE = "Rizzuno is unavailable in your region"
@@ -28,26 +34,36 @@ export function supportedCountries(env: Env = process.env): string[] {
 /** An entry narrows that country's approval to these subdivisions. An empty
  * entry denies the entire country; missing request subdivision never passes. */
 export function supportedSubdivisions(env: Env = process.env): Record<string, string[]> {
-  if (!env.SUPPORTED_SUBDIVISIONS_JSON?.trim()) return {}
+  if (!env.SUPPORTED_SUBDIVISIONS_JSON?.trim()) {
+    const result: Record<string, string[]> = {}
+    mergeUsRegions(result, env)
+    return result
+  }
   const input: unknown = JSON.parse(env.SUPPORTED_SUBDIVISIONS_JSON)
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid configuration: SUPPORTED_SUBDIVISIONS_JSON")
   const result: Record<string, string[]> = {}
   for (const [country, regions] of Object.entries(input)) {
     if (!normalizeCountry(country) || country !== country.toUpperCase() || countryExcluded(country) || !Array.isArray(regions) ||
-      regions.some(region => typeof region !== "string" || normalizeSubdivision(region) !== region)) throw new Error("Invalid configuration: SUPPORTED_SUBDIVISIONS_JSON")
+      regions.some(region => typeof region !== "string" || normalizeSubdivision(region) !== region ||
+        (country === "US" && normalizeUsRegion(region) !== region))) throw new Error("Invalid configuration: SUPPORTED_SUBDIVISIONS_JSON")
     result[country] = [...new Set(regions)]
   }
+  mergeUsRegions(result, env)
   return result
 }
 
-// Retained for compatibility and future separately reviewed policy changes.
-// It cannot override the current nationwide US exclusion.
-export function supportedUsRegions(env: Env = process.env): string[] {
+function mergeUsRegions(result: Record<string, string[]>, env: Env) {
   const raw = env.SUPPORTED_US_REGIONS?.trim()
-  if (!raw) return []
+  if (!raw) return
   const values = raw.split(",").map(value => value.trim())
   if (values.some(value => !normalizeUsRegion(value) || value !== value.toUpperCase())) throw new Error("Invalid configuration: SUPPORTED_US_REGIONS")
-  return [...new Set(values)]
+  // When both settings are present, each must approve the state. Neither
+  // can widen the other's restriction, including an explicit empty list.
+  result.US = result.US === undefined ? [...new Set(values)] : result.US.filter(region => values.includes(region))
+}
+
+export function supportedUsRegions(env: Env = process.env): string[] {
+  return supportedSubdivisions(env).US ?? []
 }
 
 export function countryAllowed(country: string | null, env: Env = process.env) {
@@ -59,6 +75,7 @@ export function locationAllowed(country: string | null, subdivision: string | nu
   if (!countryAllowed(country, env)) return false
   try {
     const regions = supportedSubdivisions(env)[country!]
+    if (country === "US" && regions === undefined) return false
     return regions === undefined || (subdivision !== null && normalizeSubdivision(subdivision) === subdivision && regions.includes(subdivision))
   } catch { return false }
 }
@@ -69,6 +86,6 @@ export function validateGeographicAccess(env: Env = process.env) {
   for (const country of Object.keys(supportedSubdivisions(env))) {
     if (!countries.includes(country)) throw new Error("SUPPORTED_SUBDIVISIONS_JSON requires an allowlisted country")
   }
-  if (supportedUsRegions(env).length) throw new Error("SUPPORTED_US_REGIONS cannot enable access while US is excluded")
+  if (countries.includes("US") && !supportedUsRegions(env).length) throw new Error("US requires an explicit non-empty approved state allowlist")
   return countries
 }

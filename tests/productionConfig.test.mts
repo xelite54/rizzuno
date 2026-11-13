@@ -8,7 +8,7 @@ test("web production validates configuration without leaking invalid inputs", ()
   const before = {...process.env}
   Object.assign(process.env, ciLaunchFixture, { NODE_ENV:"production", LEGAL_REVIEW_APPROVED:"true",SAFETY_WORKFLOW_APPROVED:"true",RETENTION_SCHEDULER_CONFIRMED:"true",SUPPORTED_US_REGIONS:"",DMCA_512_RELIANCE:"true",DMCA_AGENT_REGISTERED:"true", PROVIDER_REGION_DISCLOSURE_REVIEWED:"true",TRAINED_SAFETY_REVIEWERS_CONFIRMED:"true",UNDER13_RESPONSE_PROCEDURE_APPROVED:"true",CYBERTIPLINE_PROCEDURE_APPROVED:"true",BREACH_RESPONSE_APPROVED:"true",US_STATE_LAUNCH_REVIEW_APPROVED:"true", BILLING_MODE:"free_test", DATABASE_URL:"postgres://server:p%40ss%3Aword%2F%25@db.invalid/app", AUTH_SECRET:"a".repeat(32),AUTH_GOOGLE_ID:"google",AUTH_GOOGLE_SECRET:"secret",AUTH_URL:"https://app.invalid",APP_URL:"https://app.invalid",REALTIME_TICKET_SECRET:"b".repeat(32),NEXT_PUBLIC_WS_URL:"wss://realtime.invalid/ws", SIGHTENGINE_API_USER:"user",SIGHTENGINE_API_SECRET:"secret", NEXT_PUBLIC_TURN_URL:"turn:relay.invalid:3478",TURN_STATIC_AUTH_SECRET:"test-only", IMAGE_STORAGE_URL:"https://storage.invalid",IMAGE_STORAGE_KEY:"test-only",IMAGE_STORAGE_BUCKET:"images" })
   delete process.env.DATABASE_SSL_CA; delete process.env.NEXT_PUBLIC_TURN_USERNAME; delete process.env.NEXT_PUBLIC_TURN_CREDENTIAL
-  process.env.AGE_POLICIES_JSON = JSON.stringify({"JP":{mode:"self_attestation",minimumAge:18,reference:"test fixture, not a legal determination",reviewBy:"2099-01-01"}})
+  process.env.AGE_POLICIES_JSON = JSON.stringify({"JP":{status:"approved",mode:"self_attestation",minimumAge:18,reference:"test fixture, not a legal determination",reviewBy:"2099-01-01"}})
   try {
     delete process.env.SKIP_LAUNCH_READINESS
     validateProductionConfig("web")

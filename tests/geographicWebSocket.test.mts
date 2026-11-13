@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { createHmac } from "node:crypto"
 import { startTestServer, TestClient, connectAndHello } from "./helpers/wsHarness.mts"
 import { configureTestAccess, mintTicket as mintTestTicket, testAgeReview } from "./helpers/accessPolicy.mts"
-import { EXCLUDED_COUNTRIES } from "../lib/geographicAccess.ts"
+import { COUNTRIES_ELIGIBLE_FOR_REVIEW, EXCLUDED_COUNTRIES } from "../lib/geographicAccess.ts"
 import { mintTicket, verifyTicket } from "../lib/realtimeTicket.ts"
 import { agePolicyForLocation } from "../lib/agePolicy.ts"
 
@@ -48,4 +48,52 @@ test("direct WebSocket hellos cannot use excluded, missing, tampered or legacy l
     assert.equal((await live.waitForType("rejected")).reason,"region_unavailable","live revocation does not ask for another age declaration")
     live.close()
   } finally { configureTestAccess(); await server.close() }
+})
+
+test("pending country decisions cannot be bypassed with authentic old tickets or forged WebSocket headers", async () => {
+  const server = await startTestServer()
+  try {
+    for (const country of COUNTRIES_ELIGIBLE_FOR_REVIEW) {
+      configureTestAccess()
+      process.env.SUPPORTED_COUNTRIES = country
+      process.env.SUPPORTED_SUBDIVISIONS_JSON = country === "US" ? '{"US":["NY"]}' : "{}"
+      const subdivision = country === "US" ? "NY" : null
+      const jurisdiction = subdivision ? `${country}-${subdivision}` : country
+      process.env.AGE_POLICIES_JSON = JSON.stringify({ [jurisdiction]: testAgeReview })
+      const policy = agePolicyForLocation(country, subdivision)!
+      const ticket = mintTicket(`pending-${country}`, country, { ageExpiresAt: Date.now() + 60000, agePolicyKey: policy.key, subdivision })
+      assert.ok(verifyTicket(ticket), country)
+      process.env.AGE_POLICIES_JSON = JSON.stringify({ [jurisdiction]: { ...testAgeReview, status: "pending_review" } })
+      const client = new TestClient(server.url, { headers: { "x-vercel-ip-country": "JP", "x-vercel-ip-country-region": "13", "x-forwarded-for": "127.0.0.1" } })
+      await client.waitForOpen()
+      client.ws.send(JSON.stringify({ type: "hello", ticket, handle: "example", countryCode: "JP", eligible: true }))
+      assert.equal((await client.waitForType("rejected")).reason, "invalid_ticket", country)
+      client.close()
+    }
+  } finally { configureTestAccess(); await server.close() }
+})
+
+test("current U.S. state approval permits matching and a live approval withdrawal revokes it", async () => {
+  configureTestAccess()
+  process.env.SUPPORTED_COUNTRIES = "US"
+  process.env.SUPPORTED_US_REGIONS = "NY"
+  process.env.AGE_POLICIES_JSON = JSON.stringify({ "US-NY": testAgeReview })
+  const server = await startTestServer()
+  const clients: TestClient[] = []
+  try {
+    const policy = agePolicyForLocation("US", "NY")!
+    for (const [index, gender] of ["male", "female"].entries()) {
+      const client = new TestClient(server.url); clients.push(client); await client.waitForOpen()
+      client.ws.send(JSON.stringify({ type: "hello", ticket: mintTicket(`ny-${index}`, "US", { ageExpiresAt: Date.now() + 60000, agePolicyKey: policy.key, subdivision: "NY" }), handle: "example", gender, profilePhoto: null }))
+      await client.waitForType("ready")
+    }
+    clients.forEach(client => client.send({ type: "find" }))
+    const [a, b] = await Promise.all(clients.map(client => client.waitForType("matched")))
+    assert.equal(a.roomId, b.roomId)
+    const badState = mintTicket("unapproved-state", "US", { ageExpiresAt: Date.now() + 60000, agePolicyKey: policy.key, subdivision: "TX" })
+    assert.equal(verifyTicket(badState), null)
+    process.env.AGE_POLICIES_JSON = JSON.stringify({ "US-NY": { ...testAgeReview, status: "pending_review" } })
+    clients[0].send({ type: "rtc-ready", roomId: a.roomId })
+    assert.equal((await clients[0].waitForType("rejected")).reason, "region_unavailable")
+  } finally { clients.forEach(client => client.close()); configureTestAccess(); await server.close() }
 })
