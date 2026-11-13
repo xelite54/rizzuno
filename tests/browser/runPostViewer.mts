@@ -90,7 +90,12 @@ async function swipe(dx: number) {
   for (let step = 1; step <= 5; step++) await call("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: p.x + (dx * step) / 5, y: p.y }] })
   await call("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] })
 }
+// AnimatePresence retains departing images during the slide. Wait for the
+// displayed photo to settle before aiming the next real click or touch at it;
+// the dialog label changes before those old images leave the DOM.
 const photo = (n: number) => (s: any) => s.open && s.label?.startsWith(`Photo ${n} of 5`)
+  && s.imageCount === 1 && s.alt?.startsWith(`Photo ${n} posted by `)
+  && s.imageInViewport && s.imageCentered
 
 try {
   const { targetId } = await call("Target.createTarget", { url: "about:blank" })

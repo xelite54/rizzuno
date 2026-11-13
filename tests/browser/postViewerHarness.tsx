@@ -29,6 +29,7 @@ function snapshot() {
   return {
     open: true,
     label: dialog.getAttribute("aria-label"),
+    imageCount: dialog.querySelectorAll("img").length,
     alt: img?.getAttribute("alt"),
     src: img?.getAttribute("src"),
     prevHidden: !prev || prev.disabled || getComputedStyle(prev).visibility === "hidden",

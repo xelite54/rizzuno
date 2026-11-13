@@ -12,7 +12,12 @@ export async function launchChrome(executable: string, profile: string) {
   let diagnostics = "", failure: Error | undefined
   browser.stderr.on("data", data => { diagnostics = (diagnostics + data.toString()).slice(-8000) })
   browser.once("error", error => { failure = error })
-  browser.once("exit", (code, signal) => { failure = new Error(`Chrome exited: ${code ?? signal}`) })
+  browser.once("exit", (code, signal) => {
+    failure = new Error(`Chrome exited: ${code ?? signal}`)
+    // Chrome's crash reporter can inherit stderr and outlive the browser.
+    // Release the diagnostics pipe after exit so it cannot keep the runner alive.
+    browser.stderr.destroy()
+  })
   const deadline = Date.now() + 15_000
   try {
     while (Date.now() < deadline) {
