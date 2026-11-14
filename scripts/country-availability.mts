@@ -14,5 +14,6 @@ console.log(JSON.stringify({
   defaultExclusions: EXCLUDED_COUNTRIES,
   eligibleForReview: COUNTRIES_ELIGIBLE_FOR_REVIEW,
   approvedLocations: policies.filter(policy => policy.status === "approved").map(policy => policy.jurisdiction),
+  pendingCountries: countries.filter(country => !EXCLUDED_COUNTRIES.some(code => code === country) && !policies.some(policy => policy.countryCode === country && policy.status === "approved")),
   policies,
 }, null, 2))

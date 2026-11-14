@@ -4,6 +4,7 @@ import { countryPolicyForLocation } from "../lib/countryPolicy.ts"
 import { agePolicyForLocation, validateAgePolicies } from "../lib/agePolicy.ts"
 import { COUNTRIES_ELIGIBLE_FOR_REVIEW, EXCLUDED_COUNTRIES, locationAllowed, supportedUsRegions, validateGeographicAccess } from "../lib/geographicAccess.ts"
 import { createEligibilityToken, eligibilitySatisfies, readEligibilityToken } from "../lib/preAuthEligibility.ts"
+import { RECOGNIZED_COUNTRIES } from "../lib/country.ts"
 
 // All approval records in this file are synthetic decisions for tests only.
 const review = { status: "approved", minimumAge: 18, mode: "self_attestation", reference: "synthetic fixture, not a legal approval", reviewBy: "2099-01-01" }
@@ -11,12 +12,11 @@ function config(country: string, entries: Record<string, unknown> = { [country]:
   return { SUPPORTED_COUNTRIES: country, AGE_POLICIES_JSON: JSON.stringify(entries) }
 }
 
-test("the former 52 defaults partition into eight exclusions and 44 pending review countries", () => {
-  const previous = "KP IR CU RU BY SY GB AU BR ID MY TR AE US AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE IS LI NO CH CA NZ IN CN KR SG PH".split(" ")
+test("all recognized locations partition into exactly eight exclusions and individually reviewable countries", () => {
   assert.equal(EXCLUDED_COUNTRIES.length, 8)
-  assert.equal(COUNTRIES_ELIGIBLE_FOR_REVIEW.length, 44)
-  assert.equal(new Set([...EXCLUDED_COUNTRIES, ...COUNTRIES_ELIGIBLE_FOR_REVIEW]).size, 52)
-  assert.deepEqual([...EXCLUDED_COUNTRIES, ...COUNTRIES_ELIGIBLE_FOR_REVIEW].sort(), previous.sort())
+  assert.equal(COUNTRIES_ELIGIBLE_FOR_REVIEW.length, RECOGNIZED_COUNTRIES.length - 8)
+  assert.equal(new Set([...EXCLUDED_COUNTRIES, ...COUNTRIES_ELIGIBLE_FOR_REVIEW]).size, RECOGNIZED_COUNTRIES.length)
+  assert.deepEqual([...EXCLUDED_COUNTRIES, ...COUNTRIES_ELIGIBLE_FOR_REVIEW].sort(), [...RECOGNIZED_COUNTRIES].sort())
   for (const country of EXCLUDED_COUNTRIES) assert.equal(countryPolicyForLocation(country, null, config(country)).status, "blocked")
   for (const country of COUNTRIES_ELIGIBLE_FOR_REVIEW) {
     const pending = countryPolicyForLocation(country, null, {})

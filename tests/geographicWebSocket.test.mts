@@ -73,6 +73,37 @@ test("pending country decisions cannot be bypassed with authentic old tickets or
   } finally { configureTestAccess(); await server.close() }
 })
 
+test("each recognized eligible country can admit and match two adults under its own synthetic approval", async () => {
+  const server = await startTestServer()
+  try {
+    for (const country of COUNTRIES_ELIGIBLE_FOR_REVIEW) {
+      configureTestAccess()
+      const subdivision = country === "US" ? "NY" : null
+      process.env.SUPPORTED_COUNTRIES = country
+      process.env.SUPPORTED_SUBDIVISIONS_JSON = subdivision ? '{"US":["NY"]}' : "{}"
+      process.env.AGE_POLICIES_JSON = JSON.stringify({ [subdivision ? `${country}-${subdivision}` : country]: testAgeReview })
+      const policy = agePolicyForLocation(country, subdivision)!
+      const clients: TestClient[] = []
+      try {
+        for (const [index, gender] of ["male", "female"].entries()) {
+          const client = new TestClient(server.url); clients.push(client); await client.waitForOpen()
+          client.send({ type: "hello", ticket: mintTicket(`approved-${country}-${index}`, country, { ageExpiresAt: Date.now() + 60000, agePolicyKey: policy.key, subdivision }), handle: "example", gender: gender as "male" | "female", profilePhoto: null })
+          await client.waitForType("ready")
+        }
+        clients.forEach(client => client.send({ type: "find" }))
+        const [a, b] = await Promise.all(clients.map(client => client.waitForType("matched")))
+        assert.equal(a.roomId, b.roomId, country)
+        assert.equal(a.peer.countryCode, country)
+      } finally {
+        await Promise.all(clients.map(client => new Promise<void>(resolve => {
+          if (client.ws.readyState === 3) return resolve()
+          client.ws.once("close", () => resolve()); client.close()
+        })))
+      }
+    }
+  } finally { configureTestAccess(); await server.close() }
+})
+
 test("current U.S. state approval permits matching and a live approval withdrawal revokes it", async () => {
   configureTestAccess()
   process.env.SUPPORTED_COUNTRIES = "US"

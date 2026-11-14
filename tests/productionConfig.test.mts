@@ -20,7 +20,9 @@ test("web production validates configuration without leaking invalid inputs", ()
       assert.throws(() => validateProductionConfig("web"), /LEGAL_OPERATOR_NAME/)
     }
     process.env.SKIP_LAUNCH_READINESS = "true"
-    validateProductionConfig("web")
+    assert.throws(() => validateProductionConfig("web"), /SKIP_LAUNCH_READINESS is forbidden/)
+    process.env.LEGAL_OPERATOR_NAME = operatorName
+    delete process.env.SKIP_LAUNCH_READINESS
     process.env.AUTH_SECRET = "short"
     assert.throws(() => validateProductionConfig("web"), /AUTH_SECRET/)
     process.env.AUTH_SECRET = "a".repeat(32)
@@ -37,4 +39,17 @@ test("web production validates configuration without leaking invalid inputs", ()
     process.env.DATABASE_SSL_CA="-----BEGIN CERTIFICATE-----invalid"
     assert.throws(() => validateProductionConfig("web"), /DATABASE_SSL_CA/)
   } finally { for(const key of Object.keys(process.env)) if (!(key in before)) delete process.env[key]; Object.assign(process.env,before) }
+})
+
+test("compile-only environment flags cannot authorize either production service at runtime", () => {
+  const before = { ...process.env }
+  try {
+    Object.assign(process.env, ciLaunchFixture, { NODE_ENV: "production", CI: "true", RIZZUNO_CI_COMPILE_ONLY: "true", SKIP_LAUNCH_READINESS: "false" })
+    for (const role of ["web", "realtime"] as const) {
+      assert.throws(() => validateProductionConfig(role), /Compile-only fixtures/)
+      process.env.SKIP_LAUNCH_READINESS = "true"
+      assert.throws(() => validateProductionConfig(role, { compileOnly: true }), /SKIP_LAUNCH_READINESS is forbidden/)
+      process.env.SKIP_LAUNCH_READINESS = "false"
+    }
+  } finally { for (const key of Object.keys(process.env)) if (!(key in before)) delete process.env[key]; Object.assign(process.env, before) }
 })

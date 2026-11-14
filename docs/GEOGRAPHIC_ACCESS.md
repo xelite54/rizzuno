@@ -1,12 +1,12 @@
 # Geographic availability and individual jurisdiction review
 
-Updated November 13, 2026. This documents Rizzuno's product policy and technical controls, not a legal opinion, completed review, or another service's restrictions. The approach resembles a country availability model; it does not reproduce or claim to identify OmeTV's exact restrictions.
+Updated November 14, 2026. This documents Rizzuno's product policy and technical controls, not a legal opinion or completed review.
 
 ## Eight default exclusions
 
 `EXCLUDED_COUNTRIES` in `lib/geographicAccess.ts` is the canonical list: North Korea (KP), Iran (IR), Cuba (CU), Syria (SY), Russia (RU), Belarus (BY), China (CN), and Australia (AU). These are conservative product-policy defaults, not determinations that each country definitively prohibits this service. Configuration, an age declaration, an existing account, and launch-readiness overrides cannot enable them.
 
-`COUNTRIES_ELIGIBLE_FOR_REVIEW` records the other 44 former exclusions: AE, AT, BE, BG, BR, CA, CH, CY, CZ, DE, DK, EE, ES, FI, FR, GB, GR, HR, HU, ID, IE, IN, IS, IT, KR, LI, LT, LU, LV, MT, MY, NL, NO, NZ, PH, PL, PT, RO, SE, SG, SI, SK, TR, US. All remain pending without their own approval. Other recognized countries also default to pending review, rather than becoming accessible merely because they are absent from the exclusion list.
+`COUNTRIES_ELIGIBLE_FOR_REVIEW` is derived from every recognized country/territory code except those eight exclusions: 242 locations, including the existing XK extension. It is not an activation list. All remain pending without their own approval. The 44 former exclusions are no longer a special subset in code or reporting. The complete current inventory is in [INTERNATIONAL_ACCESS_2026-11-14.md](INTERNATIONAL_ACCESS_2026-11-14.md).
 
 ## Central policy and configuration
 
@@ -30,7 +30,7 @@ Other countries can also require subdivision-specific approvals. A national reco
 
 ## Enforcement and trust boundary
 
-Next.js Proxy checks the current policy before product pages, APIs, and OAuth initiation/callback. Eligibility, assurance, and realtime-ticket handlers check it independently. Unknown/pending/blocked locations receive HTTP 451 with `region_unavailable` and non-cacheable headers. Public legal, designated safety, appeal and recent-report pages, Auth.js sign-out/CSRF, framework assets, and the signature-protected billing webhook retain their narrow existing exceptions. Those exceptions cannot issue product access or a realtime ticket.
+Next.js Proxy checks the current policy before product pages, APIs, and OAuth initiation/callback. Eligibility, assurance, and realtime-ticket handlers check it independently. Unknown/pending/blocked locations receive HTTP 451 with `region_unavailable` and non-cacheable headers. Responses include a stable reason and public explanation distinguishing pending review, expired review, permanent exclusion, unverified location, invalid configuration and pending activation. Private review references never appear in those responses. Public legal, designated safety, appeal and recent-report pages, Auth.js sign-out/CSRF, framework assets, and the signature-protected billing webhook retain their narrow existing exceptions. Those exceptions cannot issue product access or a realtime ticket.
 
 Web geolocation requires both actual Vercel hosting (`VERCEL=1`) and the reviewed adapter selection (`LAUNCH_GEO_SOURCE=vercel`). Only Vercel's IP-derived country and subdivision headers are read. Browser fields, query strings, generic forwarded country headers, and locale do not select a jurisdiction. Standalone hosting cannot make its incoming headers trusted by themselves. Never manually mark an untrusted host as Vercel. See Vercel's [header documentation](https://vercel.com/docs/headers/request-headers).
 
@@ -42,6 +42,8 @@ IP geolocation is not residence verification or guaranteed VPN/proxy detection. 
 
 Run `npm run policy:countries` to inspect the current process environment's resolved country/subdivision metadata. It reports approved policy locations; it does not discover production configuration, approve a jurisdiction, or certify launch readiness. It reads no cloud credentials and changes nothing. An unconfigured process reports zero approvals.
 
-For each intended jurisdiction, obtain and retain scoped legal/privacy/safety evidence; decide the minimum age, adequate assurance method, subdivisions, review reference and deadline; configure only that approval on both services; test the real assurance provider where required; validate launch readiness and trusted ingress; and obtain the normal release approval. Do not use `SKIP_LAUNCH_READINESS` to substitute for any review. Leave every unreviewed jurisdiction pending. Existing operator, moderation, reporting, retention, child-safety and suspension requirements remain in force.
+For each intended jurisdiction, obtain and retain scoped legal/privacy/safety evidence; decide the minimum age, adequate assurance method, subdivisions, review reference and deadline; configure only that approval on both services; test the real assurance provider where required; validate launch readiness and trusted ingress; and obtain the normal release approval. `SKIP_LAUNCH_READINESS=true` is rejected by production validation. The CI compile exception requires Next's build phase; copying its environment flags cannot pass runtime startup or `launch:check`. Leave every unreviewed jurisdiction pending. Existing operator, moderation, reporting, retention, child-safety and suspension requirements remain in force.
+
+Use the deliberately inactive [configuration templates](../config/README.md). `npm run policy:compare -- <web-policy.json> <realtime-policy.json>` checks operator-exported non-secret policy settings for equivalence without printing review references. Run `launch:check` separately on both real environments; equality alone never establishes approval or readiness.
 
 No production environment, provider, country approval or deployment is changed by this branch. The production build check uses the existing isolated compile fixture with readiness skipping explicitly false and operator approval flags false. That artifact is not suitable for deployment and grants no runtime jurisdiction approval.

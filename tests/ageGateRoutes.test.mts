@@ -167,7 +167,7 @@ test("all excluded countries fail through product APIs, OAuth and direct eligibi
   }
 })
 
-test("all 44 review candidates require explicit current approval through web, OAuth, eligibility and ticket issuance", async () => {
+test("every recognized eligible country requires current approval through homepage, OAuth, eligibility and ticket issuance", async () => {
   try {
     for (const country of COUNTRIES_ELIGIBLE_FOR_REVIEW) {
       configure()
@@ -193,6 +193,9 @@ test("all 44 review candidates require explicit current approval through web, OA
       process.env.AGE_POLICIES_JSON = JSON.stringify({ [jurisdiction]: review })
       const declaration = await gate.POST(located("/api/eligibility", { confirmedAdult: true }))
       assert.equal(declaration.status, 200, country)
+      const home = await proxy(new NextRequest(located("/")))
+      assert.equal(home.status, 200, country)
+      assert.equal(home.headers.get("x-middleware-next"), "1", "approved homepage proceeds without the unavailable screen")
       applyCookies(declaration)
       const oauth = new NextRequest(located("/api/auth/callback/google"))
       oauth.cookies.set(AGE_ELIGIBILITY_COOKIE, jar.get(AGE_ELIGIBILITY_COOKIE)!)

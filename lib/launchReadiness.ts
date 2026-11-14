@@ -5,8 +5,10 @@ import { recentMatchReportWindowMs } from "./recentMatches"
 import { validateAgePolicies } from "./agePolicy"
 
 /** Run for both production services and before release. Never prints secret values. */
-export function validateLaunchReadiness(env: Record<string, string | undefined> = process.env) {
-  const compileOnlyFixture = env.RIZZUNO_CI_COMPILE_ONLY === "true" && env.CI === "true" && env.LEGAL_OPERATOR_NAME === "CI compile fixture — not an operator"
+export function validateLaunchReadiness(env: Record<string, string | undefined> = process.env, options: { compileOnly?: boolean } = {}) {
+  if (env.SKIP_LAUNCH_READINESS === "true") throw new Error("SKIP_LAUNCH_READINESS is forbidden; documented launch approvals are required")
+  const compileOnlyFixture = options.compileOnly === true && env.RIZZUNO_CI_COMPILE_ONLY === "true" && env.CI === "true" && env.LEGAL_OPERATOR_NAME === "CI compile fixture — not an operator"
+  if (env.RIZZUNO_CI_COMPILE_ONLY === "true" && !compileOnlyFixture) throw new Error("Compile-only fixtures cannot authorize runtime startup or launch readiness")
   for (const key of ["LEGAL_OPERATOR_NAME", "LEGAL_OPERATOR_ADDRESS", "LEGAL_DEPLOYMENT_DISCLOSURE", "LAUNCH_REVIEW_REFERENCE", "ADMIN_EMAILS", "SAFETY_REVIEWER_EMAILS"]) {
     if (!env[key]?.trim()) throw new Error(`Missing launch configuration: ${key}`)
   }

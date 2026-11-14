@@ -8,7 +8,8 @@ export const ciLaunchFixture = {
   PRIVACY_CONTACT_EMAIL: "ci@example.invalid", LEGAL_NOTICE_EMAIL: "ci@example.invalid",
   LEGAL_DEPLOYMENT_DISCLOSURE: "CI only; no real providers or processing regions",
   // Approval values remain false. RIZZUNO_CI_COMPILE_ONLY bypasses them only
-  // for a synthetic compile and can never make this fixture launch-ready.
+  // for Next's production-build phase and can never authorize runtime startup
+  // or a successful launch:check, even if these environment flags are copied.
   LEGAL_REVIEW_APPROVED: "false", SAFETY_WORKFLOW_APPROVED: "false", RETENTION_SCHEDULER_CONFIRMED: "false",
   LAUNCH_REVIEW_REFERENCE: "ci-fixture", ADMIN_EMAILS: "ci@example.invalid", SAFETY_REVIEWER_EMAILS: "ci@example.invalid",
   // Synthetic test country only; not a Japanese legal approval.

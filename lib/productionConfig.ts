@@ -10,9 +10,9 @@ function url(name: string, protocols: string[]): URL {
     return value
   } catch { throw new Error(`Invalid configuration: ${name}`) }
 }
-export function validateProductionConfig(role: "web" | "realtime") {
+export function validateProductionConfig(role: "web" | "realtime", options: { compileOnly?: boolean } = {}) {
   if (process.env.NODE_ENV !== "production") return
-  if (process.env.SKIP_LAUNCH_READINESS !== "true") validateLaunchReadiness()
+  validateLaunchReadiness(process.env, options)
   if (process.env.STAGING_PROBE_SECRET && process.env.DEPLOYMENT_TIER !== "staging") throw new Error("Staging probes forbidden outside staging")
   billingMode()
   const required = role === "web"

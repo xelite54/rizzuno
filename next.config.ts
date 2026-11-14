@@ -1,8 +1,7 @@
 import { validateProductionConfig } from "./lib/productionConfig";
 import path from "node:path";
 import type { NextConfig } from "next";
-
-validateProductionConfig(process.env.RAILWAY_SERVICE_ID && !process.env.VERCEL ? "realtime" : "web");
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
@@ -22,4 +21,7 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default function config(phase: string): NextConfig {
+  validateProductionConfig(process.env.RAILWAY_SERVICE_ID && !process.env.VERCEL ? "realtime" : "web", { compileOnly: phase === PHASE_PRODUCTION_BUILD });
+  return nextConfig;
+}

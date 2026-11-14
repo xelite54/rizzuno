@@ -1,4 +1,4 @@
-import { normalizeCountry, normalizeSubdivision, normalizeUsRegion } from "./country"
+import { RECOGNIZED_COUNTRIES, normalizeCountry, normalizeSubdivision, normalizeUsRegion } from "./country"
 
 type Env = Record<string, string | undefined>
 
@@ -8,15 +8,10 @@ export const EXCLUDED_COUNTRIES = Object.freeze([
   "KP", "IR", "CU", "SY", "RU", "BY", "CN", "AU",
 ] as const)
 
-/** Former default exclusions, now eligible for individual review. This list
- * grants no access and makes no claim about another service's availability. */
-export const COUNTRIES_ELIGIBLE_FOR_REVIEW = Object.freeze([
-  "GB", "BR", "ID", "MY", "TR", "AE", "US",
-  "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", "IE", "IT",
-  "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "IS", "LI", "NO",
-  "CH", "CA", "NZ", "IN", "KR", "SG", "PH",
-] as const)
 const excluded = new Set<string>(EXCLUDED_COUNTRIES)
+/** Every other recognized country/territory can undergo individual review.
+ * This is an inventory, never an activation allowlist or legal approval. */
+export const COUNTRIES_ELIGIBLE_FOR_REVIEW = Object.freeze(RECOGNIZED_COUNTRIES.filter(country => !excluded.has(country)))
 export const REGION_UNAVAILABLE_MESSAGE = "Rizzuno is unavailable in your region"
 
 export function countryExcluded(country: string | null) {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
-import { normalizeCountry, normalizeSubdivision, requestCountry, requestSubdivision } from "./country"
+import { normalizeCountry, normalizeSubdivision } from "./country"
 import { supportedSubdivisions } from "./geographicAccess"
-import { countryPolicyForLocation } from "./countryPolicy"
+import { countryPolicyForLocation, requestCountryPolicy, type CountryPolicy } from "./countryPolicy"
 import { ageAssuranceConfig } from "./ageAssurance"
 
 export type AgePolicy = { key: string; jurisdiction: string; minimumAge: number; mode: "self_attestation" | "provider" | "unavailable"; reviewBy: string }
@@ -10,14 +10,17 @@ type Env = Record<string, string | undefined>
 /** Reviewed deployment policy, not a statutory database. No nationwide default.
  * A missing/expired decision denies access even if a country/state is enabled. */
 export function agePolicyForLocation(country: string | null, region: string | null, env: Env = process.env, now = Date.now()): AgePolicy | null {
-  const policy = countryPolicyForLocation(country, region, env, now)
+  return agePolicyForDecision(countryPolicyForLocation(country, region, env, now))
+}
+
+function agePolicyForDecision(policy: CountryPolicy): AgePolicy | null {
   if (policy.status !== "approved" || !policy.jurisdiction || !policy.reviewBy) return null
   const key = createHash("sha256").update(JSON.stringify([policy.jurisdiction, policy.minimumAge, policy.ageAssuranceMethod, policy.legalReviewReference, policy.reviewBy, policy.status])).digest("hex")
   return { key, jurisdiction: policy.jurisdiction, minimumAge: policy.minimumAge, mode: policy.ageAssuranceMethod, reviewBy: policy.reviewBy }
 }
 
 export function requestAgePolicy(request: Request) {
-  return agePolicyForLocation(requestCountry(request), requestSubdivision(request))
+  return agePolicyForDecision(requestCountryPolicy(request))
 }
 
 export function validateAgePolicies(countries: string[], regions: string[], env: Env = process.env) {

@@ -1,12 +1,15 @@
-import { normalizeCountry } from "./country"
+import { normalizeCountry, requestCountry, requestSubdivision } from "./country"
 import { countryExcluded, locationAllowed, supportedSubdivisions } from "./geographicAccess"
 
 export type CountryAvailability = "blocked" | "pending_review" | "approved"
 export type AgeAssuranceMethod = "self_attestation" | "provider" | "unavailable"
+export type CountryAccessReason = "approved" | "country_excluded" | "location_unknown" | "subdivision_required" |
+  "review_missing" | "review_pending" | "review_invalid" | "review_expired" | "policy_blocked" | "activation_pending" | "configuration_invalid"
 export type CountryPolicy = {
   countryCode: string | null
   jurisdiction: string | null
   status: CountryAvailability
+  reason: CountryAccessReason
   minimumAge: number
   ageAssuranceMethod: AgeAssuranceMethod
   subdivisions: string[] | null
@@ -26,6 +29,7 @@ export function countryPolicyForLocation(country: string | null, subdivision: st
     countryCode: known ? country : null,
     jurisdiction: known ? country : null,
     status: known && !countryExcluded(country) ? "pending_review" : "blocked",
+    reason: !known ? "location_unknown" : countryExcluded(country) ? "country_excluded" : "review_missing",
     // Existing conservative product floors are retained; they are not a
     // determination that any particular jurisdiction permits this service.
     minimumAge: country === "US" && subdivision === "MS" ? 21 : country === "US" && ["AL", "NE"].includes(subdivision ?? "") ? 19 : 18,
@@ -41,13 +45,14 @@ export function countryPolicyForLocation(country: string | null, subdivision: st
     const scoped = regions !== undefined || country === "US"
     policy.jurisdiction = scoped ? subdivision ? `${country}-${subdivision}` : null : country
     const entries: unknown = JSON.parse(env.AGE_POLICIES_JSON ?? "{}")
-    if (!entries || typeof entries !== "object" || Array.isArray(entries)) return policy
+    if (!entries || typeof entries !== "object" || Array.isArray(entries)) return { ...policy, reason: "configuration_invalid" }
     // Scoped decisions must never silently fall back to a national policy.
-    if (!scoped && Object.keys(entries).some(key => key.startsWith(`${country}-`))) return policy
-    if (!policy.jurisdiction) return policy
+    if (!scoped && Object.keys(entries).some(key => key.startsWith(`${country}-`))) return { ...policy, reason: "configuration_invalid" }
+    if (!policy.jurisdiction) return { ...policy, reason: "subdivision_required" }
     const entry: unknown = (entries as Record<string, unknown>)[policy.jurisdiction]
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return policy
     const review = entry as Record<string, unknown>
+    policy.reason = "review_pending"
     const validAge = Number.isSafeInteger(review.minimumAge) && Number(review.minimumAge) >= policy.minimumAge && Number(review.minimumAge) <= 120
     if (validAge) policy.minimumAge = Number(review.minimumAge)
     if (review.mode === "self_attestation" || review.mode === "provider" || review.mode === "unavailable") policy.ageAssuranceMethod = review.mode
@@ -57,12 +62,19 @@ export function countryPolicyForLocation(country: string | null, subdivision: st
     if (validDeadline) policy.reviewBy = review.reviewBy as string
     if (review.status === "blocked" || (review.status === "approved" && review.mode === "unavailable")) {
       policy.status = "blocked"
+      policy.reason = "policy_blocked"
       return policy
     }
-    if (review.status === "approved" && validAge && policy.ageAssuranceMethod !== "unavailable" &&
-      policy.legalReviewReference && policy.reviewBy && Date.parse(policy.reviewBy) > now && locationAllowed(country, subdivision, env)) {
-      policy.status = "approved"
+    if (review.status === "approved") {
+      if (!validAge || policy.ageAssuranceMethod === "unavailable" || !policy.legalReviewReference || !policy.reviewBy) policy.reason = "review_invalid"
+      else if (Date.parse(policy.reviewBy) <= now) policy.reason = "review_expired"
+      else if (!locationAllowed(country, subdivision, env)) policy.reason = "activation_pending"
+      else { policy.status = "approved"; policy.reason = "approved" }
     }
     return policy
-  } catch { return policy }
+  } catch { return { ...policy, reason: "configuration_invalid" } }
+}
+
+export function requestCountryPolicy(request: Request) {
+  return countryPolicyForLocation(requestCountry(request), requestSubdivision(request))
 }
