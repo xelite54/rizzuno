@@ -2,6 +2,8 @@
 
 Required checks for `main`: `quality`, `security`, `realtime-integration`, `browser-webrtc` from `.github/workflows/ci.yml`. Quality runs npm ci, lint, root TypeScript, tests, and npm run build through an isolated compile-only environment. Browser tests use synthetic devices and no Google accounts; live credential tests are separate manual acceptance. Review failing audits rather than blindly running `npm audit fix --force`.
 
+CI runs on every branch push as well as pull requests and merge groups, so a feature revision can obtain all four check results before a PR is opened. Only a reviewed, approved main revision may be released; a successful feature build does not authorize deployment.
+
 Enable a GitHub ruleset requiring pull requests, successful required checks, review, up-to-date branches (or merge queue), no force pushes, no branch deletion, and restricted bypass. Require checks for administrators too where practical. Enable secret scanning and push protection if available for the repository/plan. Gitleaks scans history in CI; organization repositories may need the action's license. Review/rotate any true-positive historical credential before rewriting history. These settings are documented, not claimed enabled.
 
 Enable Railway's wait-for-CI/check suites setting (currently observed false) and equivalent protected Vercel deployment workflow. Direct main pushes must not auto-deploy unverified code. Do not run live credential acceptance on untrusted pull requests. Store deployment credentials only in protected environments with limited access.

@@ -3,7 +3,7 @@ on:
   pull_request:
   merge_group:
   push:
-    branches: [main]
+    branches: ['**']
 permissions:
   contents: read
 concurrency:
